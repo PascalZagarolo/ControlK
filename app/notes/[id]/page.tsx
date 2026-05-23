@@ -37,7 +37,11 @@ export default async function Page({
           initialTitle={note.title}
           initialIcon={note.icon}
         />
-        <NoteEditor noteId={note.id} initialDocument={note.document} />
+        <NoteEditor
+          noteId={note.id}
+          initialDocument={note.document}
+          workspaceScope={(ws as any).scope === 'private' ? 'private' : 'business'}
+        />
       </main>
     </div>
   );

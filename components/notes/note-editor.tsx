@@ -1,22 +1,31 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
   type DefaultReactSuggestionItem,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import {
   BlockNoteSchema,
+  defaultBlockSpecs,
   defaultInlineContentSpecs,
   filterSuggestionItems,
+  insertOrUpdateBlock,
   type PartialBlock,
 } from '@blocknote/core';
-import { createReactInlineContentSpec } from '@blocknote/react';
+import {
+  createReactBlockSpec,
+  createReactInlineContentSpec,
+} from '@blocknote/react';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { saveNoteDocument } from '@/lib/actions/notes';
+import { createTodoFromNote, createEventFromNote } from '@/lib/actions/notes-actions';
+import { EmbedRenderer } from './embeds/embed-renderer';
 
 type MentionKind = 'customer' | 'contract' | 'vehicle' | 'channel';
 
@@ -81,7 +90,31 @@ const Mention = createReactInlineContentSpec(
   }
 );
 
+// Custom block: live workspace-data embed
+const LiveEmbed = createReactBlockSpec(
+  {
+    type: 'liveEmbed',
+    propSchema: {
+      kind: {
+        default: 'brief' as const,
+        values: ['brief', 'pipeline', 'fleet'],
+      },
+    },
+    content: 'none',
+  } as const,
+  {
+    render: (props) => {
+      const kind = (props.block.props as any).kind as 'brief' | 'pipeline' | 'fleet';
+      return <EmbedRenderer kind={kind} />;
+    },
+  }
+);
+
 const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    liveEmbed: LiveEmbed,
+  },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     mention: Mention,
@@ -92,9 +125,11 @@ type Props = {
   noteId: string;
   initialDocument: unknown;
   readOnly?: boolean;
+  workspaceScope?: 'business' | 'private';
 };
 
-export function NoteEditor({ noteId, initialDocument, readOnly }: Props) {
+export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope = 'business' }: Props) {
+  const router = useRouter();
   const initialBlocks = useMemo<PartialBlock<typeof schema.blockSchema>[] | undefined>(() => {
     if (!Array.isArray(initialDocument)) return undefined;
     if (initialDocument.length === 0) return undefined;
@@ -173,14 +208,121 @@ export function NoteEditor({ noteId, initialDocument, readOnly }: Props) {
     }
   };
 
+  /**
+   * Extends the default slash-menu with uRent-specific actions:
+   *   - /embed-brief, /embed-pipeline, /embed-fleet  → insert live-data blocks
+   *   - /todo                                         → spawn a workspace todo
+   *   - /event                                        → spawn a calendar event
+   *
+   * Business-scope-only items are hidden when the workspace is private.
+   */
+  const getSlashItems = (query: string): DefaultReactSuggestionItem[] => {
+    const items: DefaultReactSuggestionItem[] = [
+      ...getDefaultReactSlashMenuItems(editor as any),
+    ];
+
+    items.push({
+      title: 'Live: Daily Brief',
+      onItemClick: () => {
+        insertOrUpdateBlock(editor as any, {
+          type: 'liveEmbed',
+          props: { kind: 'brief' },
+        } as any);
+      },
+      subtext: 'Heutiger Brief, immer live',
+      aliases: ['embed-brief', 'brief', 'daily'],
+      group: 'Live-Embeds',
+      icon: <span className="font-mono text-[14px]">⌬</span>,
+    });
+    if (workspaceScope === 'business') {
+      items.push({
+        title: 'Live: Sales Pipeline',
+        onItemClick: () => {
+          insertOrUpdateBlock(editor as any, {
+            type: 'liveEmbed',
+            props: { kind: 'pipeline' },
+          } as any);
+        },
+        subtext: 'Kunden nach Status',
+        aliases: ['embed-pipeline', 'pipeline', 'sales'],
+        group: 'Live-Embeds',
+        icon: <span className="font-mono text-[14px]">⌬</span>,
+      });
+      items.push({
+        title: 'Live: Flotten-Status',
+        onItemClick: () => {
+          insertOrUpdateBlock(editor as any, {
+            type: 'liveEmbed',
+            props: { kind: 'fleet' },
+          } as any);
+        },
+        subtext: '7-Tage-Auslastung mit Markup',
+        aliases: ['embed-fleet', 'fleet', 'flotte'],
+        group: 'Live-Embeds',
+        icon: <span className="font-mono text-[14px]">⌬</span>,
+      });
+    }
+    items.push({
+      title: 'Todo aus Notiz erstellen',
+      onItemClick: () => {
+        const title = window.prompt('Todo-Titel?')?.trim();
+        if (!title) return;
+        (async () => {
+          const res = await createTodoFromNote({ noteId, title });
+          if (res.ok) {
+            editor.insertInlineContent([
+              {
+                type: 'mention',
+                props: { kind: 'channel', id: res.id, label: `Todo: ${title}`, status: 'offen' },
+              } as any,
+              ' ',
+            ]);
+            router.refresh();
+          }
+        })();
+      },
+      subtext: 'Erstellt Todo in dieser Workspace, linkt zurück',
+      aliases: ['todo', 'task', 'aufgabe'],
+      group: 'Aktionen',
+      icon: <span className="font-mono text-[14px]">☐</span>,
+    });
+    items.push({
+      title: 'Termin erstellen',
+      onItemClick: () => {
+        const title = window.prompt('Termin-Titel?')?.trim();
+        if (!title) return;
+        const dateStr = window.prompt('Datum (z.B. 2026-06-14 15:00)?', '');
+        const startsAt = dateStr && !isNaN(new Date(dateStr).getTime())
+          ? new Date(dateStr).toISOString()
+          : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        (async () => {
+          const res = await createEventFromNote({ noteId, title, startsAt });
+          if (res.ok) router.refresh();
+        })();
+      },
+      subtext: 'Erstellt Calendar-Event und linkt zurück',
+      aliases: ['event', 'termin', 'meeting'],
+      group: 'Aktionen',
+      icon: <span className="font-mono text-[14px]">◷</span>,
+    });
+
+    return filterSuggestionItems(items, query);
+  };
+
   return (
     <div className="note-editor-shell">
-      <BlockNoteView editor={editor} editable={!readOnly} theme="dark" slashMenu>
+      <BlockNoteView editor={editor} editable={!readOnly} theme="dark" slashMenu={false}>
         {!readOnly && (
-          <SuggestionMenuController
-            triggerCharacter={'@'}
-            getItems={async (query) => filterSuggestionItems(await getMentionItems(query), query)}
-          />
+          <>
+            <SuggestionMenuController
+              triggerCharacter="/"
+              getItems={async (query) => getSlashItems(query)}
+            />
+            <SuggestionMenuController
+              triggerCharacter="@"
+              getItems={async (query) => filterSuggestionItems(await getMentionItems(query), query)}
+            />
+          </>
         )}
       </BlockNoteView>
       {!readOnly && (
