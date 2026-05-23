@@ -7,6 +7,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
+import { extractMentions } from '@/lib/notes/extract-mentions';
 import type { NoteScope } from '@/lib/types';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -96,8 +97,33 @@ export async function saveNoteDocument(id: string, document: unknown): Promise<R
     .update(s.notes)
     .set({ document: document as any, updatedAt: new Date() })
     .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
-  // Intentionally NOT revalidating — saves happen on debounce and we don't
-  // want to thrash the cache. The client already has the latest state.
+
+  // Sync note_mentions — diff against existing rows. Cheap full-replace is
+  // simpler than block-level diffing for v1 and the table is tiny per note.
+  const mentions = extractMentions(document);
+  await db.delete(s.noteMentions).where(eq(s.noteMentions.noteId, id));
+  if (mentions.length > 0) {
+    await db.insert(s.noteMentions).values(
+      mentions.map((m) => ({
+        noteId: id,
+        mentionType: m.type as any,
+        mentionId: m.id,
+        label: m.label,
+        blockId: m.blockId ?? null,
+      }))
+    );
+  }
+
+  // Intentionally NOT revalidating /notes/* — saves happen on debounce and
+  // the client already has the latest state. But we DO revalidate entity
+  // detail pages because their backlinks-panel needs to refresh.
+  if (mentions.length > 0) {
+    for (const m of mentions) {
+      if (m.type === 'customer') revalidatePath(`/kunden/${m.id}`);
+      else if (m.type === 'contract') revalidatePath(`/vertraege/${m.id}`);
+      else if (m.type === 'vehicle') revalidatePath(`/flotte/${m.id}`);
+    }
+  }
   return { ok: true };
 }
 

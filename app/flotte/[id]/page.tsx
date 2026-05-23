@@ -8,6 +8,8 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { and, eq, asc } from 'drizzle-orm';
 import { FlotteDetailClient } from '@/components/fleet/flotte-detail-client';
+import { listBacklinksFor } from '@/lib/db/queries/note-backlinks';
+import { BacklinksPanel } from '@/components/notes/backlinks-panel';
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,22 +38,31 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     }),
   ]);
 
+  const backlinks = vehicle.dbId
+    ? await listBacklinksFor(ws.id, 'vehicle', vehicle.dbId)
+    : [];
+
   return (
-    <FlotteDetailClient
-      vehicle={vehicle}
-      members={members}
-      allTags={tags}
-      customers={customers}
-      shareLinks={shareLinks.map((l) => ({
-        id: l.id,
-        token: l.token,
-        vehicleId: l.vehicleId ?? undefined,
-        vehicleLabel: `${vehicle.plate} · ${vehicle.model}`,
-        expiresAt: l.expiresAt?.toISOString(),
-        viewCount: l.viewCount,
-        lastViewedAt: l.lastViewedAt?.toISOString(),
-        createdAt: l.createdAt.toISOString(),
-      }))}
-    />
+    <>
+      <FlotteDetailClient
+        vehicle={vehicle}
+        members={members}
+        allTags={tags}
+        customers={customers}
+        shareLinks={shareLinks.map((l) => ({
+          id: l.id,
+          token: l.token,
+          vehicleId: l.vehicleId ?? undefined,
+          vehicleLabel: `${vehicle.plate} · ${vehicle.model}`,
+          expiresAt: l.expiresAt?.toISOString(),
+          viewCount: l.viewCount,
+          lastViewedAt: l.lastViewedAt?.toISOString(),
+          createdAt: l.createdAt.toISOString(),
+        }))}
+      />
+      <div className="mx-auto w-full max-w-[1100px] px-4 pb-16 md:px-6">
+        <BacklinksPanel backlinks={backlinks} />
+      </div>
+    </>
   );
 }

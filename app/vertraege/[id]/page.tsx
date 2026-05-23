@@ -7,6 +7,8 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { VertraegeDetailClient } from '@/components/contracts/vertraege-detail-client';
+import { listBacklinksFor } from '@/lib/db/queries/note-backlinks';
+import { BacklinksPanel } from '@/components/notes/backlinks-panel';
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -51,28 +53,37 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     }),
   ]);
 
+  const backlinks = contract.dbId
+    ? await listBacklinksFor(ws.id, 'contract', contract.dbId)
+    : [];
+
   return (
-    <VertraegeDetailClient
-      contract={contract}
-      members={members}
-      vehicles={vehicles.map((v) => ({
-        id: v.id,
-        externalId: v.externalId ?? v.id,
-        plate: v.plate,
-        model: v.model,
-      }))}
-      channels={channelRows}
-      shareLinks={shareLinks.map((l) => ({
-        id: l.id,
-        token: l.token,
-        contractId: l.contractId,
-        contractTitle: contract.title,
-        allowSignature: l.allowSignature === 1,
-        expiresAt: l.expiresAt?.toISOString(),
-        viewCount: l.viewCount,
-        lastViewedAt: l.lastViewedAt?.toISOString(),
-        createdAt: l.createdAt.toISOString(),
-      }))}
-    />
+    <>
+      <VertraegeDetailClient
+        contract={contract}
+        members={members}
+        vehicles={vehicles.map((v) => ({
+          id: v.id,
+          externalId: v.externalId ?? v.id,
+          plate: v.plate,
+          model: v.model,
+        }))}
+        channels={channelRows}
+        shareLinks={shareLinks.map((l) => ({
+          id: l.id,
+          token: l.token,
+          contractId: l.contractId,
+          contractTitle: contract.title,
+          allowSignature: l.allowSignature === 1,
+          expiresAt: l.expiresAt?.toISOString(),
+          viewCount: l.viewCount,
+          lastViewedAt: l.lastViewedAt?.toISOString(),
+          createdAt: l.createdAt.toISOString(),
+        }))}
+      />
+      <div className="mx-auto w-full max-w-[1100px] px-4 pb-16 md:px-6">
+        <BacklinksPanel backlinks={backlinks} />
+      </div>
+    </>
   );
 }

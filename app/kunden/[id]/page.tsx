@@ -11,6 +11,8 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { KundenDetailClient } from '@/components/customers/kunden-detail-client';
+import { listBacklinksFor } from '@/lib/db/queries/note-backlinks';
+import { BacklinksPanel } from '@/components/notes/backlinks-panel';
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -86,18 +88,24 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     ]);
 
   const customerContracts = allContracts.filter((c) => c.customerId === customer.id);
+  const backlinks = await listBacklinksFor(ws.id, 'customer', customer.id);
 
   return (
-    <KundenDetailClient
-      customer={customer}
-      contracts={customerContracts}
-      members={members}
-      allTags={allTags}
-      linkedChannels={channelRows}
-      workflows={workflows}
-      todoGroups={todoGroups}
-      customerVehicles={vehicleRows}
-      shareLinks={shareRows}
-    />
+    <>
+      <KundenDetailClient
+        customer={customer}
+        contracts={customerContracts}
+        members={members}
+        allTags={allTags}
+        linkedChannels={channelRows}
+        workflows={workflows}
+        todoGroups={todoGroups}
+        customerVehicles={vehicleRows}
+        shareLinks={shareRows}
+      />
+      <div className="mx-auto w-full max-w-[1100px] px-4 pb-16 md:px-6">
+        <BacklinksPanel backlinks={backlinks} />
+      </div>
+    </>
   );
 }

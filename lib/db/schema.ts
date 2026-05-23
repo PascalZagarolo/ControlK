@@ -1626,3 +1626,36 @@ export const notesRelations = relations(notes, ({ one, many }) => ({
   children: many(notes, { relationName: 'note_children' }),
   createdBy: one(users, { fields: [notes.createdById], references: [users.id] }),
 }));
+
+export const noteMentionTypeEnum = pgEnum('note_mention_type', [
+  'customer',
+  'contract',
+  'vehicle',
+  'channel',
+  'event',
+  'todo',
+  'user',
+]);
+
+export const noteMentions = pgTable(
+  'note_mentions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    mentionType: noteMentionTypeEnum('mention_type').notNull(),
+    mentionId: text('mention_id').notNull(),
+    label: text('label').notNull(),
+    blockId: text('block_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    noteIdx: index('note_mentions_note_idx').on(t.noteId),
+    targetIdx: index('note_mentions_target_idx').on(t.mentionType, t.mentionId),
+  })
+);
+
+export const noteMentionsRelations = relations(noteMentions, ({ one }) => ({
+  note: one(notes, { fields: [noteMentions.noteId], references: [notes.id] }),
+}));
