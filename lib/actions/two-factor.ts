@@ -1,7 +1,7 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
-import { authenticator } from 'otplib';
+import { generateSecret, generateURI, verifySync } from 'otplib';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
@@ -15,9 +15,8 @@ export async function startTotpSetup(): Promise<Result<{ secret: string; otpauth
   const user = await requireUser();
   const db = getDb();
 
-  authenticator.options = { window: 1, step: 30 };
-  const secret = authenticator.generateSecret();
-  const otpauth = authenticator.keyuri(user.email, 'uRent', secret);
+  const secret = generateSecret();
+  const otpauth = generateURI({ issuer: 'uRent', label: user.email, secret });
 
   // store secret provisionally, but do not set enabledAt yet
   await db.update(s.users).set({ totpSecret: secret, totpEnabledAt: null }).where(eq(s.users.id, user.id));
@@ -37,8 +36,8 @@ export async function confirmTotp(code: string): Promise<Result> {
   const db = getDb();
   const row = await db.query.users.findFirst({ where: eq(s.users.id, user.id) });
   if (!row?.totpSecret) return { ok: false, error: 'Kein TOTP-Setup gestartet.' };
-  const valid = authenticator.check(code.trim(), row.totpSecret);
-  if (!valid) return { ok: false, error: 'Ungültiger Code.' };
+  const result = verifySync({ token: code.trim(), secret: row.totpSecret });
+  if (!result.valid) return { ok: false, error: 'Ungültiger Code.' };
 
   await db.update(s.users).set({ totpEnabledAt: new Date() }).where(eq(s.users.id, user.id));
   return { ok: true };

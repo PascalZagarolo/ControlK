@@ -21,7 +21,7 @@ import {
   resetPasswordTemplate,
   magicLinkTemplate,
 } from '@/lib/email/send';
-import { authenticator } from 'otplib';
+import { verifySync } from 'otplib';
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -143,8 +143,8 @@ export async function signIn(formData: FormData): Promise<Result & { needsTotp?:
 
   if (user.totpSecret && user.totpEnabledAt) {
     if (!totp) return { ok: false, error: 'Zwei-Faktor-Code erforderlich.', needsTotp: true };
-    const valid = authenticator.check(totp, user.totpSecret);
-    if (!valid) return { ok: false, error: 'Ungültiger 2FA-Code.', needsTotp: true };
+    const result = verifySync({ token: totp, secret: user.totpSecret });
+    if (!result.valid) return { ok: false, error: 'Ungültiger 2FA-Code.', needsTotp: true };
   }
 
   const { token, expiresAt } = await createSession(user.id, info);

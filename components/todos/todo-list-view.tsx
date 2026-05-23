@@ -45,7 +45,7 @@ function bucketize(todos: Todo[], now = Date.now()): Bucket[] {
     else buckets.later.push(t);
   }
 
-  return [
+  const out: Bucket[] = [
     { key: 'overdue', label: 'Überfällig', tone: 'red', items: buckets.overdue },
     { key: 'today', label: 'Heute', tone: 'blue', items: buckets.today },
     { key: 'tomorrow', label: 'Morgen', tone: 'blue', items: buckets.tomorrow },
@@ -53,7 +53,8 @@ function bucketize(todos: Todo[], now = Date.now()): Bucket[] {
     { key: 'later', label: 'Später', tone: 'neutral', items: buckets.later },
     { key: 'no_due', label: 'Kein Fälligkeitsdatum', tone: 'neutral', items: buckets.no_due },
     { key: 'done', label: 'Erledigt / Abgebrochen', tone: 'green', items: buckets.done },
-  ].filter((b) => b.items.length > 0);
+  ];
+  return out.filter((b) => b.items.length > 0);
 }
 
 const TONE_DOT: Record<Bucket['tone'], string> = {

@@ -101,6 +101,7 @@ export async function switchWorkspace(slug: string): Promise<Result> {
 export async function createWorkspace(input: {
   name: string;
   template?: string;
+  scope?: 'business' | 'private';
   iconEmoji?: string;
   fromColor?: string;
   toColor?: string;
@@ -121,6 +122,8 @@ export async function createWorkspace(input: {
   }
 
   const tpl = input.template ? getTemplate(input.template) : undefined;
+  const scope: 'business' | 'private' =
+    input.scope ?? tpl?.defaultScope ?? 'business';
 
   const [ws] = await db
     .insert(s.workspaces)
@@ -134,6 +137,7 @@ export async function createWorkspace(input: {
       description: input.description?.trim() || tpl?.description || null,
       iconEmoji: input.iconEmoji || tpl?.icon || null,
       template: input.template ?? null,
+      scope,
     })
     .returning();
 
@@ -146,6 +150,7 @@ export async function createWorkspace(input: {
   await logActivity(ws.id, user.id, 'workspace_created', {
     name,
     template: input.template ?? null,
+    scope,
   });
 
   if (input.template) {
@@ -164,9 +169,13 @@ export async function createWorkspace(input: {
 export async function createWorkspaceFromForm(
   formData: FormData
 ): Promise<Result<{ slug: string }>> {
+  const rawScope = String(formData.get('scope') ?? '');
+  const scope: 'business' | 'private' | undefined =
+    rawScope === 'private' || rawScope === 'business' ? rawScope : undefined;
   return createWorkspace({
     name: String(formData.get('name') ?? ''),
     template: String(formData.get('template') ?? '') || undefined,
+    scope,
     iconEmoji: String(formData.get('iconEmoji') ?? '') || undefined,
     fromColor: String(formData.get('fromColor') ?? '') || undefined,
     toColor: String(formData.get('toColor') ?? '') || undefined,

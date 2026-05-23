@@ -1,6 +1,8 @@
 // Client-safe template metadata. The server-only seeding logic lives in
 // `lib/db/workspace-templates.ts` and pulls from here.
 
+export type WorkspaceScope = 'business' | 'private';
+
 export type WorkspaceTemplate = {
   key: string;
   name: string;
@@ -9,6 +11,7 @@ export type WorkspaceTemplate = {
   description: string;
   fromColor: string;
   toColor: string;
+  defaultScope: WorkspaceScope;
 };
 
 export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
@@ -20,6 +23,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Drei Todo-Gruppen + ein #general-Channel. Minimal, sofort produktiv.',
     fromColor: '#5eb6ff',
     toColor: '#1e3a8a',
+    defaultScope: 'business',
   },
   {
     key: 'vermietung',
@@ -30,6 +34,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
       'Fleet-Management mit Todo-Gruppen für Übergabe/Wartung/Schaden, drei Channels, Default-Calendar-Templates.',
     fromColor: '#5ee08a',
     toColor: '#166534',
+    defaultScope: 'business',
   },
   {
     key: 'familie',
@@ -40,6 +45,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
       'Todo-Gruppen Haushalt/Familie/Finanzen + ein Familie-Channel. Kalender-Templates für Arzttermin/Schule.',
     fromColor: '#ffb45e',
     toColor: '#9a3412',
+    defaultScope: 'private',
   },
   {
     key: 'agentur',
@@ -49,6 +55,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Default-Setup: ein Channel pro Hauptkunde, Todo-Gruppen pro Projekt.',
     fromColor: '#c084fc',
     toColor: '#6b21a8',
+    defaultScope: 'business',
   },
   {
     key: 'coach',
@@ -58,6 +65,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Sessions als Calendar-Template, Todo-Gruppen pro Klient.',
     fromColor: '#f472b6',
     toColor: '#9d174d',
+    defaultScope: 'business',
   },
   {
     key: 'startup',
@@ -67,6 +75,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Channels #standup #sales #ops, Stand-up-Template, Lead-Funnel auf Kunden aktiv.',
     fromColor: '#5eb6ff',
     toColor: '#0369a1',
+    defaultScope: 'business',
   },
   {
     key: 'student',
@@ -76,6 +85,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Todo-Gruppen pro Fach, Recurring-Vorlesungs-Events, Lern-Channels.',
     fromColor: '#5ee08a',
     toColor: '#15803d',
+    defaultScope: 'private',
   },
   {
     key: 'leer',
@@ -85,8 +95,23 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     description: 'Kein Seed. Alles selber aufbauen.',
     fromColor: '#9c9c9d',
     toColor: '#525252',
+    defaultScope: 'business',
   },
 ];
+
+export const PRIVATE_TEMPLATE_KEYS = WORKSPACE_TEMPLATES.filter(
+  (t) => t.defaultScope === 'private'
+).map((t) => t.key);
+
+export const BUSINESS_TEMPLATE_KEYS = WORKSPACE_TEMPLATES.filter(
+  (t) => t.defaultScope === 'business'
+).map((t) => t.key);
+
+export function templatesForScope(scope: WorkspaceScope): WorkspaceTemplate[] {
+  return WORKSPACE_TEMPLATES.filter(
+    (t) => t.defaultScope === scope || t.key === 'leer'
+  );
+}
 
 export function getTemplate(key: string): WorkspaceTemplate | undefined {
   return WORKSPACE_TEMPLATES.find((t) => t.key === key);

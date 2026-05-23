@@ -3,20 +3,30 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const TABS = [
+type Tab = {
+  label: string;
+  href: string;
+  // Tabs without a scopes array are always visible.
+  // Tabs with a scopes array are only visible if the current workspace scope is included.
+  scopes?: ('business' | 'private')[];
+};
+
+const TABS: Tab[] = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
   { label: 'Channels', href: '/channels' },
-  { label: 'Kunden', href: '/kunden' },
-  { label: 'Verträge', href: '/vertraege' },
+  { label: 'Kunden', href: '/kunden', scopes: ['business'] },
+  { label: 'Flotte', href: '/flotte', scopes: ['business'] },
+  { label: 'Verträge', href: '/vertraege', scopes: ['business'] },
   { label: 'Kalender', href: '/kalender' },
 ];
 
-export function NavTabs() {
+export function NavTabs({ scope = 'business' }: { scope?: 'business' | 'private' }) {
   const pathname = usePathname();
+  const visible = TABS.filter((t) => !t.scopes || t.scopes.includes(scope));
   return (
     <nav className="flex items-center gap-1">
-      {TABS.map((t) => {
+      {visible.map((t) => {
         const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
         return (
           <Link

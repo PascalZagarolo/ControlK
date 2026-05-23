@@ -13,7 +13,24 @@ type Ws = {
   short: string;
   from: string;
   to: string;
+  scope?: 'business' | 'private';
 };
+
+function ScopeChip({ scope }: { scope: 'business' | 'private' }) {
+  const isPrivate = scope === 'private';
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.4px]"
+      style={{
+        background: isPrivate ? '#ffb45e1f' : '#5eb6ff1f',
+        color: isPrivate ? '#ffb45e' : '#5eb6ff',
+      }}
+      title={isPrivate ? 'Privater Workspace' : 'Business-Workspace'}
+    >
+      {isPrivate ? '🏡 Privat' : '💼 Business'}
+    </span>
+  );
+}
 
 function Badge({ ws, size = 22 }: { ws: Ws; size?: number }) {
   return (
@@ -84,6 +101,7 @@ export function WorkspaceSwitcher({
       >
         <Badge ws={active} />
         <span>{active.name}</span>
+        {active.scope && <ScopeChip scope={active.scope} />}
       </a>
       <button
         type="button"
@@ -118,16 +136,34 @@ export function WorkspaceSwitcher({
             {active.name}
           </Item>
 
-          {others.length > 0 && <SectionLabel>Workspaces</SectionLabel>}
-          {others.map((w) => (
-            <Item
-              key={w.id}
-              leading={<Badge ws={w} size={20} />}
-              onClick={() => onSwitch(w.slug)}
-            >
-              {w.name}
-            </Item>
-          ))}
+          {(() => {
+            const business = others.filter((w) => w.scope !== 'private');
+            const privateOnes = others.filter((w) => w.scope === 'private');
+            return (
+              <>
+                {business.length > 0 && <SectionLabel>💼 Business</SectionLabel>}
+                {business.map((w) => (
+                  <Item
+                    key={w.id}
+                    leading={<Badge ws={w} size={20} />}
+                    onClick={() => onSwitch(w.slug)}
+                  >
+                    {w.name}
+                  </Item>
+                ))}
+                {privateOnes.length > 0 && <SectionLabel>🏡 Privat</SectionLabel>}
+                {privateOnes.map((w) => (
+                  <Item
+                    key={w.id}
+                    leading={<Badge ws={w} size={20} />}
+                    onClick={() => onSwitch(w.slug)}
+                  >
+                    {w.name}
+                  </Item>
+                ))}
+              </>
+            );
+          })()}
 
           <div className="mx-1 my-1.5 h-px bg-white/[0.07]" />
 
