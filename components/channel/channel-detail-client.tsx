@@ -13,8 +13,12 @@ import { PinnedStrip } from '@/components/channel/pinned-strip';
 import { SnippetsModal } from '@/components/channel/snippets-modal';
 import { ChannelSearchModal } from '@/components/channel/search-modal';
 import { ShareChannelModal } from '@/components/channel/share-channel-modal';
+import { TypingIndicator } from '@/components/channel/typing-indicator';
+import { PresenceList } from '@/components/channel/presence-list';
 import { bucketLabel, dayBucket } from '@/lib/format-time';
 import { markChannelRead } from '@/lib/actions/channels';
+import { useChannelSubscription } from '@/lib/realtime/pusher-client';
+import { useRouter } from 'next/navigation';
 import type {
   Channel,
   ChannelEntityHit,
@@ -30,6 +34,8 @@ export function ChannelDetailClient({
   entityHitsByMsg,
   customerContactEmails,
   snippets,
+  currentUserId,
+  currentUserName,
 }: {
   channel: Channel;
   channelId: string | null;
@@ -38,7 +44,10 @@ export function ChannelDetailClient({
   entityHitsByMsg?: Record<string, ChannelEntityHit[]>;
   customerContactEmails?: Record<string, { customerId: string; customerName: string }>;
   snippets?: ChannelSnippet[];
+  currentUserId?: string;
+  currentUserName?: string;
 }) {
+  const router = useRouter();
   const [contextOpen, setContextOpen] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [openThread, setOpenThread] = useState<Message | null>(null);
@@ -46,6 +55,13 @@ export function ChannelDetailClient({
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+
+  // Pusher: refresh on new message in this channel
+  useChannelSubscription(channelId ? `channel-${channelId}` : null, {
+    'message.new': () => router.refresh(),
+    'message.deleted': () => router.refresh(),
+    'reaction.added': () => router.refresh(),
+  });
 
   const groups = useMemo(() => groupByDay(messages), [messages]);
 
@@ -114,6 +130,9 @@ export function ChannelDetailClient({
                 🔗 Teilen
               </button>
             )}
+            <div className="ml-auto">
+              <PresenceList channelId={channelId} />
+            </div>
           </div>
 
           {/* Pinned Strip */}
@@ -177,11 +196,22 @@ export function ChannelDetailClient({
         channels={channels}
       />
 
+      {/* Typing indicator above composer */}
+      {channelId && currentUserId && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[88px] z-40 flex justify-center">
+          <div className="pointer-events-auto w-full max-w-[760px] px-6">
+            <TypingIndicator channelId={channelId} currentUserId={currentUserId} />
+          </div>
+        </div>
+      )}
+
       <Composer
         channelName={channel.name}
         channelId={channelId ?? undefined}
         snippets={snippets ?? []}
         customerNameForVars={channel.linkedCustomer?.name}
+        currentUserId={currentUserId}
+        currentUserName={currentUserName}
       />
 
       <SnippetsModal

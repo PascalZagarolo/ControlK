@@ -1,6 +1,16 @@
 'use client';
 
-import { forwardRef, useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+  parseSelectChildren,
+} from './select';
 
 export function Modal({
   open,
@@ -123,12 +133,94 @@ export function ModalTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaEl
   );
 }
 
-export function ModalSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+/**
+ * ModalSelect — drop-in replacement for native <select>.
+ * Accepts <option> / <optgroup> children (legacy API) and renders a
+ * dark, shadcn-style Radix Select. Form submission still works via a
+ * hidden input[type="hidden"] that mirrors the chosen value.
+ */
+// Radix Select forbids "" as item value. Map external "" ↔ this sentinel.
+const EMPTY_SENTINEL = '__none__';
+const extToInt = (v: string) => (v === '' ? EMPTY_SENTINEL : v);
+const intToExt = (v: string) => (v === EMPTY_SENTINEL ? '' : v);
+
+export function ModalSelect({
+  name,
+  value,
+  defaultValue,
+  onChange,
+  children,
+  disabled,
+  required,
+  placeholder,
+}: {
+  name?: string;
+  value?: string;
+  defaultValue?: string;
+  onChange?: (e: { target: { value: string; name?: string } }) => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const items = parseSelectChildren(children);
+  const isControlled = value !== undefined;
+  const [internal, setInternal] = useState<string>(defaultValue ?? '');
+  const currentExt = isControlled ? (value ?? '') : internal;
+  const currentInt = extToInt(currentExt);
+
+  const allOptions = items.flatMap((it) =>
+    it.kind === 'option' ? [it.option] : it.group.options
+  );
+  const labelForCurrent = allOptions.find((o) => o.value === currentExt)?.label;
+
+  const handleChange = (intVal: string) => {
+    const ext = intToExt(intVal);
+    if (!isControlled) setInternal(ext);
+    onChange?.({ target: { value: ext, name } });
+  };
+
   return (
-    <select
-      {...props}
-      className="block w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[14px] text-ink-50 outline-none transition-colors focus:border-white/[0.20] focus:bg-white/[0.05]"
-    />
+    <>
+      <Select value={currentInt} onValueChange={handleChange} disabled={disabled}>
+        <SelectTrigger>
+          {labelForCurrent ? (
+            <span className="truncate text-left">{labelForCurrent}</span>
+          ) : (
+            <SelectValue placeholder={placeholder ?? '— bitte wählen —'} />
+          )}
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((it, idx) =>
+            it.kind === 'option' ? (
+              <SelectItem
+                key={`opt-${idx}-${it.option.value}`}
+                value={extToInt(it.option.value)}
+                disabled={it.option.disabled}
+              >
+                {it.option.label || '— leer —'}
+              </SelectItem>
+            ) : (
+              <SelectGroup key={`grp-${idx}-${it.group.label}`}>
+                <SelectLabel>{it.group.label}</SelectLabel>
+                {it.group.options.map((op, j) => (
+                  <SelectItem
+                    key={`g-${idx}-${j}-${op.value}`}
+                    value={extToInt(op.value)}
+                    disabled={op.disabled}
+                  >
+                    {op.label || '— leer —'}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )
+          )}
+        </SelectContent>
+      </Select>
+      {name && (
+        <input type="hidden" name={name} value={currentExt} required={required} />
+      )}
+    </>
   );
 }
 

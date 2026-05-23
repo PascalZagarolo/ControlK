@@ -2,12 +2,17 @@ import 'server-only';
 
 let _pusher: import('pusher').default | null = null;
 
+function readConfig() {
+  const appId = process.env.PUSHER_APP_ID;
+  const key = process.env.PUSHER_API_KEY;
+  const secret = process.env.PUSHER_API_SECRET;
+  const cluster = process.env.PUSHER_CLUSTER ?? 'eu';
+  return { appId, key, secret, cluster };
+}
+
 function getPusher(): import('pusher').default | null {
   if (_pusher) return _pusher;
-  const appId = process.env.PUSHER_APP_ID;
-  const key = process.env.NEXT_PUBLIC_PUSHER_KEY;
-  const secret = process.env.PUSHER_SECRET;
-  const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER ?? 'eu';
+  const { appId, key, secret, cluster } = readConfig();
   if (!appId || !key || !secret) return null;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const Pusher = require('pusher').default;
@@ -17,7 +22,7 @@ function getPusher(): import('pusher').default | null {
 
 export async function triggerEvent(channel: string, event: string, payload: unknown) {
   const p = getPusher();
-  if (!p) return; // silently no-op if not configured
+  if (!p) return;
   try {
     await p.trigger(channel, event, payload);
   } catch (e) {
@@ -25,5 +30,48 @@ export async function triggerEvent(channel: string, event: string, payload: unkn
   }
 }
 
-export const pusherEnabled = () =>
-  !!process.env.PUSHER_APP_ID && !!process.env.PUSHER_SECRET && !!process.env.NEXT_PUBLIC_PUSHER_KEY;
+export async function triggerToChannels(
+  channels: string[],
+  event: string,
+  payload: unknown
+) {
+  const p = getPusher();
+  if (!p || channels.length === 0) return;
+  try {
+    await p.trigger(channels, event, payload);
+  } catch (e) {
+    console.error('[pusher] trigger failed', e);
+  }
+}
+
+export const pusherEnabled = () => {
+  const { appId, key, secret } = readConfig();
+  return !!appId && !!key && !!secret;
+};
+
+/**
+ * Public client config — safe to send to the browser.
+ * Read in a Server Component and pass into <PusherProvider>.
+ */
+export function getPusherClientConfig(): { appKey: string; cluster: string } | null {
+  const { key, cluster } = readConfig();
+  if (!key) return null;
+  return { appKey: key, cluster };
+}
+
+/**
+ * Authenticate a private / presence channel.
+ * Called from POST /api/pusher/auth.
+ */
+export function authorizeChannel(
+  socketId: string,
+  channel: string,
+  presenceData?: { user_id: string; user_info?: Record<string, unknown> }
+): unknown | null {
+  const p = getPusher();
+  if (!p) return null;
+  if (presenceData) {
+    return (p as any).authorizeChannel(socketId, channel, presenceData);
+  }
+  return (p as any).authorizeChannel(socketId, channel);
+}

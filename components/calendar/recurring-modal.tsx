@@ -14,6 +14,7 @@ import {
   ModalTextarea,
 } from '@/components/ui/modal';
 import { createRecurringSeries } from '@/lib/actions/calendar';
+import { KIND_GROUPS, KIND_META } from './event-color';
 import type { CalendarEventKind } from '@/lib/types';
 
 type Customer = { id: string; name: string };
@@ -78,16 +79,21 @@ export function RecurringModal({
       >
         {error && <ModalError>{error}</ModalError>}
         <ModalField label="Titel">
-          <ModalInput name="title" required placeholder="Reinigungs-Slot, Wartungs-Termin …" />
+          <ModalInput name="title" required placeholder="Stand-up, Sport, Wartungs-Slot …" />
         </ModalField>
 
         <div className="grid grid-cols-2 gap-3">
           <ModalField label="Art">
-            <ModalSelect name="kind" defaultValue="internal">
-              <option value="handover">Übergabe</option>
-              <option value="return">Rückgabe</option>
-              <option value="maintenance">Wartung</option>
-              <option value="internal">Intern</option>
+            <ModalSelect name="kind" defaultValue="meeting">
+              {KIND_GROUPS.map((g) => (
+                <optgroup key={g.key} label={g.label}>
+                  {g.kinds.map((k) => (
+                    <option key={k} value={k}>
+                      {KIND_META[k].icon} {KIND_META[k].label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </ModalSelect>
           </ModalField>
           <ModalField label="Dauer (Minuten)">

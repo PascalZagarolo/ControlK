@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createWorkspace, switchWorkspace } from '@/lib/actions/workspace';
+import { switchWorkspace } from '@/lib/actions/workspace';
+import { CreateWorkspaceModal } from '@/components/workspace/create-workspace-modal';
 
 type Ws = {
   id: string;
@@ -73,18 +75,6 @@ export function WorkspaceSwitcher({
     });
   };
 
-  const onCreate = (form: FormData) => {
-    start(async () => {
-      const res = await createWorkspace(form);
-      if (res.ok) {
-        setCreating(false);
-        setOpen(false);
-        router.push('/');
-        router.refresh();
-      }
-    });
-  };
-
   return (
     <div ref={wrapRef} className="relative flex items-center">
       <a
@@ -141,45 +131,44 @@ export function WorkspaceSwitcher({
 
           <div className="mx-1 my-1.5 h-px bg-white/[0.07]" />
 
-          {creating ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onCreate(new FormData(e.currentTarget));
-              }}
-              className="flex flex-col gap-2 p-2"
-            >
-              <input
-                name="name"
-                required
-                autoFocus
-                placeholder="Workspace-Name"
-                className="block w-full rounded-[6px] border border-white/[0.10] bg-white/[0.03] px-2.5 py-1.5 text-[13px] text-ink-50 outline-none focus:border-white/[0.25]"
-              />
-              <div className="flex justify-end gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setCreating(false)}
-                  className="rounded-[6px] px-2.5 py-1.5 text-[12px] text-ink-300 hover:text-ink-50"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="rounded-[6px] bg-white px-2.5 py-1.5 text-[12px] font-medium text-black disabled:opacity-40"
-                >
-                  Erstellen
-                </button>
-              </div>
-            </form>
-          ) : (
-            <Item leading={<PlusIcon />} muted onClick={() => setCreating(true)}>
-              Workspace hinzufügen
-            </Item>
-          )}
+          <Item
+            leading={<PlusIcon />}
+            muted
+            onClick={() => {
+              setOpen(false);
+              setCreating(true);
+            }}
+          >
+            Neuen Workspace anlegen
+          </Item>
+          <Link
+            href="/workspaces/across"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-[12.5px] text-ink-200 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <span className="flex shrink-0 items-center text-ink-300">⌬</span>
+            <span className="flex-1">Across all Workspaces</span>
+          </Link>
+          <Link
+            href="/workspaces/discover"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-[12.5px] text-ink-200 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <span className="flex shrink-0 items-center text-ink-300">⌖</span>
+            <span className="flex-1">Public-Workspaces durchsuchen</span>
+          </Link>
+          <Link
+            href="/workspace/settings"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-[12.5px] text-ink-200 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <span className="flex shrink-0 items-center text-ink-300">⚙</span>
+            <span className="flex-1">Workspace-Settings</span>
+          </Link>
         </div>
       )}
+
+      <CreateWorkspaceModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );
 }

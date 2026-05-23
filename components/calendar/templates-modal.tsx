@@ -13,7 +13,7 @@ import {
   ModalSelect,
   ModalTextarea,
 } from '@/components/ui/modal';
-import { KIND_META } from './event-color';
+import { KIND_GROUPS, KIND_META } from './event-color';
 import {
   createEventTemplate,
   deleteEventTemplate,
@@ -136,15 +136,20 @@ export function TemplatesModal({
             </p>
             {error && <ModalError>{error}</ModalError>}
             <ModalField label="Name">
-              <ModalInput name="name" required placeholder="Standard-Übergabe" />
+              <ModalInput name="name" required placeholder="Stand-up, Arzttermin, Übergabe-Standard …" />
             </ModalField>
             <div className="grid grid-cols-2 gap-3">
               <ModalField label="Art">
-                <ModalSelect name="kind" defaultValue="handover">
-                  <option value="handover">Übergabe</option>
-                  <option value="return">Rückgabe</option>
-                  <option value="maintenance">Wartung</option>
-                  <option value="internal">Intern</option>
+                <ModalSelect name="kind" defaultValue="meeting">
+                  {KIND_GROUPS.map((g) => (
+                    <optgroup key={g.key} label={g.label}>
+                      {g.kinds.map((k) => (
+                        <option key={k} value={k}>
+                          {KIND_META[k].icon} {KIND_META[k].label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </ModalSelect>
               </ModalField>
               <ModalField label="Dauer (min)">
@@ -155,7 +160,7 @@ export function TemplatesModal({
               <ModalTextarea
                 name="defaultChecklist"
                 rows={5}
-                placeholder={'– Schlüssel-Übergabe\n– KM-Stand notieren\n– Übergabe-Protokoll'}
+                placeholder={'– Vorbereitung\n– Agenda durchgehen\n– Follow-up notieren'}
               />
             </ModalField>
             <ModalField label="Beschreibung (optional)">

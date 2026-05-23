@@ -44,10 +44,21 @@ export const notificationKindEnum = pgEnum('notification_kind', [
   'task',
 ]);
 export const calendarEventKindEnum = pgEnum('calendar_event_kind', [
+  // Allgemein
+  'meeting',
+  'call',
+  'focus',
+  'task',
+  'personal',
+  'health',
+  'travel',
+  'other',
+  // uRent / Vermietung
   'handover',
   'return',
-  'internal',
   'maintenance',
+  // Workspace-intern
+  'internal',
 ]);
 export const todoStatusEnum = pgEnum('todo_status', [
   'offen',
@@ -174,6 +185,21 @@ export const magicLinks = pgTable('magic_links', {
 });
 
 // ─── Workspaces ──────────────────────────────────────────────────
+export const workspaceActivityKindEnum = pgEnum('workspace_activity_kind', [
+  'workspace_created',
+  'member_joined',
+  'member_left',
+  'member_kicked',
+  'role_changed',
+  'invite_created',
+  'invite_redeemed',
+  'invite_revoked',
+  'settings_changed',
+  'ownership_transferred',
+  'workspace_archived',
+  'workspace_unarchived',
+]);
+
 export const workspaces = pgTable(
   'workspaces',
   {
@@ -186,10 +212,59 @@ export const workspaces = pgTable(
     ownerId: varchar('owner_id', { length: 255 })
       .notNull()
       .references(() => users.id),
+    description: text('description'),
+    iconEmoji: varchar('icon_emoji', { length: 8 }),
+    template: text('template'),
+    timezone: varchar('timezone', { length: 64 }).default('Europe/Berlin'),
+    isPublic: integer('is_public').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     slugIdx: uniqueIndex('workspaces_slug_idx').on(t.slug),
+  })
+);
+
+export const workspaceInvites = pgTable(
+  'workspace_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    token: varchar('token', { length: 64 }).notNull().unique(),
+    role: workspaceRoleEnum('role').notNull().default('member'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    maxUses: integer('max_uses').notNull().default(0),
+    usedCount: integer('used_count').notNull().default(0),
+    email: text('email'),
+    createdById: varchar('created_by_id', { length: 255 })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex('workspace_invites_token_idx').on(t.token),
+    workspaceIdx: index('workspace_invites_workspace_idx').on(t.workspaceId),
+  })
+);
+
+export const workspaceActivity = pgTable(
+  'workspace_activity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    actorId: varchar('actor_id', { length: 255 }).references(() => users.id),
+    targetUserId: varchar('target_user_id', { length: 255 }).references(() => users.id),
+    kind: workspaceActivityKindEnum('kind').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    workspaceIdx: index('workspace_activity_workspace_idx').on(t.workspaceId, t.createdAt),
   })
 );
 
@@ -1148,6 +1223,25 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
   contracts: many(contracts),
   vehicles: many(vehicles),
   calendarEvents: many(calendarEvents),
+  invites: many(workspaceInvites),
+  activity: many(workspaceActivity),
+}));
+
+export const workspaceInvitesRelations = relations(workspaceInvites, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspaceInvites.workspaceId],
+    references: [workspaces.id],
+  }),
+  createdBy: one(users, { fields: [workspaceInvites.createdById], references: [users.id] }),
+}));
+
+export const workspaceActivityRelations = relations(workspaceActivity, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspaceActivity.workspaceId],
+    references: [workspaces.id],
+  }),
+  actor: one(users, { fields: [workspaceActivity.actorId], references: [users.id] }),
+  targetUser: one(users, { fields: [workspaceActivity.targetUserId], references: [users.id] }),
 }));
 
 export const channelsRelations = relations(channels, ({ one, many }) => ({

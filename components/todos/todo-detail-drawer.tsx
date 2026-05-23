@@ -18,6 +18,13 @@ import {
   toggleSubtask,
 } from '@/lib/actions/todos';
 import { moveTodoToGroup } from '@/lib/actions/todo-groups';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTriggerInline,
+  SelectValue,
+} from '@/components/ui/select';
 import { EnergyPicker } from './energy-picker';
 import { useChannelSubscription } from '@/lib/realtime/pusher-client';
 import type {
@@ -239,21 +246,21 @@ function StatusSelect({
   disabled?: boolean;
 }) {
   return (
-    <label className="inline-flex items-center gap-1.5">
-      <StatusPill status={value} />
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as TodoStatus)}
-        disabled={disabled}
-        className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-1.5 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
-      >
+    <Select value={value} onValueChange={(v) => onChange(v as TodoStatus)} disabled={disabled}>
+      <SelectTriggerInline>
+        <span className="flex items-center gap-1.5">
+          <StatusPill status={value} />
+          <span>{value.replace('_', ' ')}</span>
+        </span>
+      </SelectTriggerInline>
+      <SelectContent>
         {STATUS_OPTIONS.map((s) => (
-          <option key={s} value={s}>
+          <SelectItem key={s} value={s}>
             {s.replace('_', ' ')}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -267,21 +274,21 @@ function PrioritySelect({
   disabled?: boolean;
 }) {
   return (
-    <label className="inline-flex items-center gap-1.5">
-      <PriorityPill priority={value} />
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as TodoPriority)}
-        disabled={disabled}
-        className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-1.5 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
-      >
+    <Select value={value} onValueChange={(v) => onChange(v as TodoPriority)} disabled={disabled}>
+      <SelectTriggerInline>
+        <span className="flex items-center gap-1.5">
+          <PriorityPill priority={value} />
+          <span>{value}</span>
+        </span>
+      </SelectTriggerInline>
+      <SelectContent>
         {PRIORITY_OPTIONS.map((p) => (
-          <option key={p} value={p}>
+          <SelectItem key={p} value={p}>
             {p}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -298,28 +305,32 @@ function AssigneeSelect({
 }) {
   const active = members.find((m) => m.id === value);
   return (
-    <label className="inline-flex items-center gap-1.5">
-      {active ? (
-        <Avatar initials={active.initials} from={active.from} to={active.to} size={20} />
-      ) : (
-        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-white/[0.18] text-[10px] text-ink-300">
-          ?
+    <Select
+      value={value ?? '__none__'}
+      onValueChange={(v) => onChange(v === '__none__' ? null : v)}
+      disabled={disabled}
+    >
+      <SelectTriggerInline>
+        <span className="flex items-center gap-1.5">
+          {active ? (
+            <Avatar initials={active.initials} from={active.from} to={active.to} size={18} />
+          ) : (
+            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-dashed border-white/[0.18] text-[10px] text-ink-300">
+              ?
+            </span>
+          )}
+          <span>{active ? active.name : 'Niemand'}</span>
         </span>
-      )}
-      <select
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || null)}
-        disabled={disabled}
-        className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-1.5 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
-      >
-        <option value="">Niemand</option>
+      </SelectTriggerInline>
+      <SelectContent>
+        <SelectItem value="__none__">Niemand</SelectItem>
         {members.map((m) => (
-          <option key={m.id} value={m.id}>
+          <SelectItem key={m.id} value={m.id}>
             {m.name}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -336,36 +347,43 @@ function GroupSelect({
 }) {
   const active = groups.find((g) => g.id === value);
   return (
-    <label className="inline-flex items-center gap-1.5">
-      <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">Gruppe</span>
-      {active ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-ink-200">
-          {active.emoji ? <span>{active.emoji}</span> : (
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: active.color ?? '#9c9c9d' }}
-            />
+    <Select
+      value={value ?? '__none__'}
+      onValueChange={(v) => onChange(v === '__none__' ? null : v)}
+      disabled={disabled}
+    >
+      <SelectTriggerInline>
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
+            Gruppe
+          </span>
+          {active ? (
+            <span className="flex items-center gap-1">
+              {active.emoji ? (
+                <span>{active.emoji}</span>
+              ) : (
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ background: active.color ?? '#9c9c9d' }}
+                />
+              )}
+              <span>{active.name}</span>
+            </span>
+          ) : (
+            <span className="text-ink-300">— ohne —</span>
           )}
-          <span>{active.name}</span>
         </span>
-      ) : (
-        <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300/70">∅</span>
-      )}
-      <select
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || null)}
-        disabled={disabled}
-        className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-1.5 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
-      >
-        <option value="">Ohne Gruppe</option>
+      </SelectTriggerInline>
+      <SelectContent>
+        <SelectItem value="__none__">— Ohne Gruppe —</SelectItem>
         {groups.map((g) => (
-          <option key={g.id} value={g.id}>
+          <SelectItem key={g.id} value={g.id}>
             {g.emoji ? `${g.emoji} ` : ''}
             {g.name}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }
 

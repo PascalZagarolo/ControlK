@@ -116,7 +116,20 @@ export async function getDayDensity(
       cell = {
         dateIso: iso,
         count: 0,
-        kinds: { handover: 0, return: 0, internal: 0, maintenance: 0 },
+        kinds: {
+          meeting: 0,
+          call: 0,
+          focus: 0,
+          task: 0,
+          personal: 0,
+          health: 0,
+          travel: 0,
+          other: 0,
+          handover: 0,
+          return: 0,
+          maintenance: 0,
+          internal: 0,
+        },
       };
       byDay.set(iso, cell);
     }

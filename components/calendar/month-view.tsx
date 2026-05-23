@@ -10,10 +10,12 @@ export function MonthView({
   cursor,
   events,
   onOpen,
+  onCreateAt,
 }: {
   cursor: Date;
   events: CalendarEvent[];
   onOpen: (id: string) => void;
+  onCreateAt?: (startIso: string, durationMinutes: number) => void;
 }) {
   const grid = useMemo(() => {
     const year = cursor.getFullYear();
@@ -61,19 +63,31 @@ export function MonthView({
           const iso = cell.date.toISOString().slice(0, 10);
           const dayEvents = eventsByDay.get(iso) ?? [];
           const isToday = iso === todayIso;
+          const handleCellClick = () => {
+            if (!onCreateAt) return;
+            const start = new Date(cell.date);
+            start.setHours(9, 0, 0, 0);
+            onCreateAt(start.toISOString(), 60);
+          };
           return (
             <div
               key={i}
-              className={`relative min-h-[112px] border-b border-r border-white/[0.04] p-1.5 ${
+              onClick={handleCellClick}
+              className={`group/cell relative min-h-[112px] cursor-pointer border-b border-r border-white/[0.04] p-1.5 transition-colors hover:bg-[#5eb6ff]/[0.04] ${
                 cell.inMonth ? '' : 'opacity-50'
               }`}
             >
               <div
-                className={`mb-1 font-mono text-[11px] tabular-nums ${
+                className={`mb-1 flex items-center justify-between font-mono text-[11px] tabular-nums ${
                   isToday ? 'text-[#5eb6ff] font-medium' : 'text-ink-300'
                 }`}
               >
-                {cell.date.getDate()}
+                <span>{cell.date.getDate()}</span>
+                {onCreateAt && (
+                  <span className="opacity-0 transition-opacity group-hover/cell:opacity-100">
+                    <span className="text-[10px] text-ink-400">+ klicken</span>
+                  </span>
+                )}
               </div>
               <div className="flex flex-col gap-0.5">
                 {dayEvents.slice(0, 3).map((e) => {
@@ -82,7 +96,10 @@ export function MonthView({
                     <button
                       key={e.id}
                       type="button"
-                      onClick={() => onOpen(e.id)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onOpen(e.id);
+                      }}
                       title={`${meta.label} · ${e.title}`}
                       className="flex items-center gap-1 rounded-[3px] px-1 py-0.5 text-left text-[10.5px] leading-tight transition-colors hover:bg-white/[0.06]"
                       style={{ background: `${meta.color}1c`, color: '#e6e7ec' }}

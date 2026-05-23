@@ -14,6 +14,7 @@ import {
   ModalTextarea,
 } from '@/components/ui/modal';
 import { createCalendarEvent } from '@/lib/actions/calendar';
+import { KIND_GROUPS, KIND_META } from './event-color';
 import type { CalendarEventKind, CalendarTemplate } from '@/lib/types';
 
 function defaultStart(prefilledIso?: string): string {
@@ -37,6 +38,7 @@ export function CreateEventModal({
   contracts = [],
   templates = [],
   prefilledStart,
+  prefilledDurationMinutes,
   prefilledKind,
   prefilledCustomerId,
   prefilledVehicleId,
@@ -48,6 +50,7 @@ export function CreateEventModal({
   contracts?: Contract[];
   templates?: CalendarTemplate[];
   prefilledStart?: string;
+  prefilledDurationMinutes?: number;
   prefilledKind?: CalendarEventKind;
   prefilledCustomerId?: string;
   prefilledVehicleId?: string;
@@ -59,22 +62,23 @@ export function CreateEventModal({
   const [allowConflict, setAllowConflict] = useState(false);
   const [templateId, setTemplateId] = useState<string>('');
   const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<CalendarEventKind>(prefilledKind ?? 'handover');
-  const [duration, setDuration] = useState(60);
+  const [kind, setKind] = useState<CalendarEventKind>(prefilledKind ?? 'meeting');
+  const [duration, setDuration] = useState(prefilledDurationMinutes ?? 60);
   const [checklist, setChecklist] = useState('');
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setKind(prefilledKind ?? 'meeting');
+      setDuration(prefilledDurationMinutes ?? 60);
+    } else {
       setError(null);
       setConflict(null);
       setAllowConflict(false);
       setTemplateId('');
       setTitle('');
-      setKind(prefilledKind ?? 'handover');
-      setDuration(60);
       setChecklist('');
     }
-  }, [open, prefilledKind]);
+  }, [open, prefilledKind, prefilledDurationMinutes]);
 
   const applyTemplate = (id: string) => {
     setTemplateId(id);
@@ -151,7 +155,7 @@ export function CreateEventModal({
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Übergabe Sprinter 314 → Steiner"
+            placeholder="Meeting, Arzttermin, Übergabe …"
           />
         </ModalField>
 
@@ -161,10 +165,15 @@ export function CreateEventModal({
               value={kind}
               onChange={(e) => setKind(e.target.value as CalendarEventKind)}
             >
-              <option value="handover">Übergabe</option>
-              <option value="return">Rückgabe</option>
-              <option value="maintenance">Wartung</option>
-              <option value="internal">Intern</option>
+              {KIND_GROUPS.map((g) => (
+                <optgroup key={g.key} label={g.label}>
+                  {g.kinds.map((k) => (
+                    <option key={k} value={k}>
+                      {KIND_META[k].icon} {KIND_META[k].label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </ModalSelect>
           </ModalField>
           <ModalField label="Dauer (Min.)">
@@ -188,12 +197,12 @@ export function CreateEventModal({
         </ModalField>
 
         <ModalField label="Ort (optional)">
-          <ModalInput name="location" placeholder="Werkstatt, Garage 2, vor Ort beim Kunden…" />
+          <ModalInput name="location" placeholder="Adresse, Raum, Online-Link…" />
         </ModalField>
 
         <details className="rounded-[10px] border border-white/[0.06] bg-white/[0.02] p-3" open={!!(prefilledCustomerId || prefilledVehicleId)}>
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
-            Verknüpfungen
+            Verknüpfungen (uRent — optional)
           </summary>
           <div className="mt-3 flex flex-col gap-3">
             <ModalField label="Kunde">
@@ -206,7 +215,7 @@ export function CreateEventModal({
                 ))}
               </ModalSelect>
             </ModalField>
-            <ModalField label="Fahrzeug" hint="Konflikt-Check läuft automatisch.">
+            <ModalField label="Fahrzeug" hint="Bei Fahrzeug-Bindung läuft Konflikt-Check automatisch.">
               <ModalSelect name="linkedVehicleId" defaultValue={prefilledVehicleId ?? ''}>
                 <option value="">— keines —</option>
                 {vehicles.map((v) => (
@@ -235,12 +244,12 @@ export function CreateEventModal({
             rows={4}
             value={checklist}
             onChange={(e) => setChecklist(e.target.value)}
-            placeholder={'– Schlüssel-Übergabe\n– Kilometerstand notieren'}
+            placeholder={'– Vorbereitung\n– Agenda durchgehen\n– Follow-up notieren'}
           />
         </ModalField>
 
         <ModalField label="Notiz (optional)">
-          <ModalTextarea name="detail" rows={2} placeholder="Standort, Hinweise zur Übergabe …" />
+          <ModalTextarea name="detail" rows={2} placeholder="Worum geht's? Hintergrund, Links, Vorbereitung …" />
         </ModalField>
 
         {conflict && (

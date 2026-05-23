@@ -5,6 +5,9 @@ import { Header } from '@/components/header/header';
 import { CmdK } from '@/components/cmdk/cmd-k';
 import { KeyboardListener } from '@/components/cmdk/keyboard-listener';
 import { QuickCreateMount } from '@/components/todos/quick-create-mount';
+import { PusherProvider } from '@/components/realtime/pusher-provider';
+import { getPusherClientConfig } from '@/lib/realtime/pusher-server';
+import { currentUser } from '@/lib/auth/current-user';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 const jetbrainsMono = JetBrains_Mono({
@@ -17,15 +20,19 @@ export const metadata: Metadata = {
   title: 'uRent',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const pusherConfig = getPusherClientConfig();
+  const user = await currentUser();
   return (
     <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
-        <Header />
-        {children}
-        <CmdK />
-        <QuickCreateMount />
-        <KeyboardListener />
+        <PusherProvider config={pusherConfig} userId={user?.id}>
+          <Header />
+          {children}
+          <CmdK />
+          <QuickCreateMount />
+          <KeyboardListener />
+        </PusherProvider>
       </body>
     </html>
   );

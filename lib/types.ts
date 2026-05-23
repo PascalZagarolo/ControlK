@@ -520,7 +520,19 @@ export type VehicleShareLink = {
 };
 
 // ============ Calendar ============
-export type CalendarEventKind = 'handover' | 'return' | 'internal' | 'maintenance';
+export type CalendarEventKind =
+  | 'meeting'
+  | 'call'
+  | 'focus'
+  | 'task'
+  | 'personal'
+  | 'health'
+  | 'travel'
+  | 'other'
+  | 'handover'
+  | 'return'
+  | 'maintenance'
+  | 'internal';
 
 export type CalendarChecklistItem = {
   id: string;
@@ -637,13 +649,72 @@ export type DM = {
 };
 
 // ============ Workspaces ============
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'guest';
+
 export type Workspace = {
   id: string;
+  slug?: string;
   name: string;
   short: string;
   from: string;
   to: string;
   unread?: number;
+  description?: string;
+  iconEmoji?: string;
+  template?: string;
+  timezone?: string;
+  isPublic?: boolean;
+  archived?: boolean;
+  role?: WorkspaceRole;
+  memberCount?: number;
+  ownerName?: string;
+};
+
+export type WorkspaceMember = {
+  userId: string;
+  name: string;
+  email: string;
+  initials: string;
+  from: string;
+  to: string;
+  role: WorkspaceRole;
+  joinedAt: string;
+};
+
+export type WorkspaceInvite = {
+  id: string;
+  token: string;
+  role: WorkspaceRole;
+  expiresAt?: string;
+  maxUses: number;
+  usedCount: number;
+  email?: string;
+  createdAt: string;
+  revokedAt?: string;
+  createdByName?: string;
+};
+
+export type WorkspaceActivityKind =
+  | 'workspace_created'
+  | 'member_joined'
+  | 'member_left'
+  | 'member_kicked'
+  | 'role_changed'
+  | 'invite_created'
+  | 'invite_redeemed'
+  | 'invite_revoked'
+  | 'settings_changed'
+  | 'ownership_transferred'
+  | 'workspace_archived'
+  | 'workspace_unarchived';
+
+export type WorkspaceActivityEntry = {
+  id: string;
+  kind: WorkspaceActivityKind;
+  actor?: { id: string; name: string; initials: string; from: string; to: string };
+  targetUser?: { id: string; name: string; initials: string; from: string; to: string };
+  payload?: Record<string, unknown>;
+  createdAt: string;
 };
 
 // ============ Todos ============

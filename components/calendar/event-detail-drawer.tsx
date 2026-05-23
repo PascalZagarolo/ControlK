@@ -4,7 +4,16 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Avatar } from '@/components/channel/avatar';
-import { KIND_META } from './event-color';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTriggerInline,
+  SelectValue,
+} from '@/components/ui/select';
+import { KIND_GROUPS, KIND_META } from './event-color';
 import {
   addChecklistItem,
   deleteCalendarEvent,
@@ -17,7 +26,6 @@ import {
 } from '@/lib/actions/calendar';
 import type { CalendarEvent, CalendarEventKind } from '@/lib/types';
 
-const KINDS: CalendarEventKind[] = ['handover', 'return', 'internal', 'maintenance'];
 
 export function EventDetailDrawer({
   event,
@@ -431,17 +439,25 @@ function KindSelect({
   onChange: (k: CalendarEventKind) => void;
 }) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value as CalendarEventKind)}
-      className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11.5px] text-ink-200 outline-none hover:bg-white/[0.05]"
-    >
-      {KINDS.map((k) => (
-        <option key={k} value={k}>
-          {KIND_META[k].label}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={(v) => onChange(v as CalendarEventKind)}>
+      <SelectTriggerInline>
+        <SelectValue>
+          {KIND_META[value].icon} {KIND_META[value].label}
+        </SelectValue>
+      </SelectTriggerInline>
+      <SelectContent>
+        {KIND_GROUPS.map((g) => (
+          <SelectGroup key={g.key}>
+            <SelectLabel>{g.label}</SelectLabel>
+            {g.kinds.map((k) => (
+              <SelectItem key={k} value={k}>
+                {KIND_META[k].icon} {KIND_META[k].label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

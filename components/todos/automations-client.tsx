@@ -3,6 +3,12 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Avatar } from '@/components/channel/avatar';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTriggerInline,
+} from '@/components/ui/select';
 import { PriorityPill } from './todo-pill';
 import {
   runRulesNow,
@@ -219,49 +225,65 @@ function RuleRow({
 
       {rule.enabled && (
         <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-3">
-          <label className="inline-flex items-center gap-1.5">
+          <div className="inline-flex items-center gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
               Zuweisung
             </span>
-            <select
-              value={rule.defaultAssignee?.id ?? ''}
-              onChange={(e) => onAssigneeChange(e.target.value)}
+            <Select
+              value={rule.defaultAssignee?.id ?? '__none__'}
+              onValueChange={(v) => onAssigneeChange(v === '__none__' ? '' : v)}
               disabled={pending}
-              className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
             >
-              <option value="">Owner</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-            {rule.defaultAssignee && (
-              <Avatar
-                initials={rule.defaultAssignee.initials}
-                from={rule.defaultAssignee.from}
-                to={rule.defaultAssignee.to}
-                size={18}
-              />
-            )}
-          </label>
-          <label className="inline-flex items-center gap-1.5">
+              <SelectTriggerInline>
+                <span className="flex items-center gap-1.5">
+                  {rule.defaultAssignee ? (
+                    <>
+                      <Avatar
+                        initials={rule.defaultAssignee.initials}
+                        from={rule.defaultAssignee.from}
+                        to={rule.defaultAssignee.to}
+                        size={16}
+                      />
+                      <span>{rule.defaultAssignee.name}</span>
+                    </>
+                  ) : (
+                    <span className="text-ink-300">Owner</span>
+                  )}
+                </span>
+              </SelectTriggerInline>
+              <SelectContent>
+                <SelectItem value="__none__">Owner</SelectItem>
+                {members.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="inline-flex items-center gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
               Priorität
             </span>
-            <PriorityPill priority={rule.defaultPriority} />
-            <select
+            <Select
               value={rule.defaultPriority}
-              onChange={(e) => onPriorityChange(e.target.value as TodoPriority)}
+              onValueChange={(v) => onPriorityChange(v as TodoPriority)}
               disabled={pending}
-              className="cursor-pointer rounded-[6px] border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11.5px] text-ink-200 outline-none transition-colors hover:bg-white/[0.05]"
             >
-              <option value="niedrig">niedrig</option>
-              <option value="mittel">mittel</option>
-              <option value="hoch">hoch</option>
-              <option value="urgent">urgent</option>
-            </select>
-          </label>
+              <SelectTriggerInline>
+                <span className="flex items-center gap-1.5">
+                  <PriorityPill priority={rule.defaultPriority} />
+                  <span>{rule.defaultPriority}</span>
+                </span>
+              </SelectTriggerInline>
+              <SelectContent>
+                <SelectItem value="niedrig">niedrig</SelectItem>
+                <SelectItem value="mittel">mittel</SelectItem>
+                <SelectItem value="hoch">hoch</SelectItem>
+                <SelectItem value="urgent">urgent</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
     </div>

@@ -70,6 +70,13 @@ export function KalenderClient({
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [prefillStart, setPrefillStart] = useState<string | undefined>(undefined);
+  const [prefillDuration, setPrefillDuration] = useState<number | undefined>(undefined);
+
+  const openCreateAt = (startIso: string, durationMinutes: number) => {
+    setPrefillStart(startIso);
+    setPrefillDuration(durationMinutes);
+    setCreateOpen(true);
+  };
 
   const openEventId = searchParams.get('event');
   const drawerEvent = useMemo(
@@ -166,7 +173,7 @@ export function KalenderClient({
         <Headline
           kicker="Kalender"
           title={headlineTitle}
-          subtitle="Übergaben, Rückgaben, Wartung — mit Conflict-Detection und Fahrzeug-Resource-View."
+          subtitle="Meetings, Arzttermine, Privates, Übergaben — mit Conflict-Detection bei Fahrzeug-Buchungen und optionaler Resource-Ansicht."
           meta={
             <>
               <MetaTag highlight>{counts.today} heute</MetaTag>
@@ -231,6 +238,7 @@ export function KalenderClient({
                 type="button"
                 onClick={() => {
                   setPrefillStart(undefined);
+                  setPrefillDuration(undefined);
                   setCreateOpen(true);
                 }}
                 className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[12.5px] font-medium text-ink-50 hover:border-white/[0.18] hover:bg-white/[0.06]"
@@ -308,13 +316,28 @@ export function KalenderClient({
 
         <div className="mt-6">
           {view === 'Monat' && (
-            <MonthView cursor={cursor} events={filtered} onOpen={openEvent} />
+            <MonthView
+              cursor={cursor}
+              events={filtered}
+              onOpen={openEvent}
+              onCreateAt={openCreateAt}
+            />
           )}
           {view === 'Woche' && (
-            <WeekView cursor={cursor} events={filtered} onOpen={openEvent} />
+            <WeekView
+              cursor={cursor}
+              events={filtered}
+              onOpen={openEvent}
+              onCreateAt={openCreateAt}
+            />
           )}
           {view === 'Tag' && (
-            <DayView cursor={cursor} events={filtered} onOpen={openEvent} />
+            <DayView
+              cursor={cursor}
+              events={filtered}
+              onOpen={openEvent}
+              onCreateAt={openCreateAt}
+            />
           )}
           {view === 'Agenda' && <AgendaView events={filtered} onOpen={openEvent} />}
           {view === 'Resource' && (
@@ -332,6 +355,7 @@ export function KalenderClient({
         contracts={contracts}
         templates={templates}
         prefilledStart={prefillStart}
+        prefilledDurationMinutes={prefillDuration}
       />
       <RecurringModal
         open={recurringOpen}

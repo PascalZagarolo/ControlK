@@ -6,6 +6,7 @@ import { useComposerStore } from '@/lib/stores/composer-store';
 import { sendMessage } from '@/lib/actions/messages';
 import { createTodoFromSlash } from '@/lib/actions/todos';
 import { VoiceCaptureButton } from '@/components/todos/voice-capture-button';
+import { useClientEvent } from '@/lib/realtime/pusher-client';
 import type { ChannelSnippet } from '@/lib/types';
 
 export function Composer({
@@ -14,12 +15,16 @@ export function Composer({
   storageKey,
   snippets = [],
   customerNameForVars,
+  currentUserId,
+  currentUserName,
 }: {
   channelName: string;
   channelId?: string;
   storageKey?: string;
   snippets?: ChannelSnippet[];
   customerNameForVars?: string;
+  currentUserId?: string;
+  currentUserName?: string;
 }) {
   const key = storageKey ?? `channel:${channelName}`;
   const draft = useComposerStore((s) => s.drafts[key] ?? '');
@@ -98,11 +103,24 @@ export function Composer({
     }
   };
 
+  // Typing indicator via Pusher client-events on a presence channel
+  const presenceTypingChannel = channelId ? `presence-channel-${channelId}-typing` : null;
+  const emitTyping = useClientEvent(presenceTypingChannel, 'client-typing');
+  const lastTypingEmitRef = useRef(0);
+  const broadcastTyping = () => {
+    if (!presenceTypingChannel || !currentUserId) return;
+    const now = Date.now();
+    if (now - lastTypingEmitRef.current < 2000) return; // throttle 2s
+    lastTypingEmitRef.current = now;
+    emitTyping({ userId: currentUserId, name: currentUserName ?? 'Jemand' });
+  };
+
   const onInput = () => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 220)}px`;
+    if (ta.value.trim()) broadcastTyping();
   };
 
   useEffect(() => {
