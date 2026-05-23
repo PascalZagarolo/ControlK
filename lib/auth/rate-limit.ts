@@ -1,6 +1,12 @@
 import 'server-only';
 
-type LimitName = 'sign-in' | 'sign-up' | 'forgot-password' | 'magic-link' | 'totp-verify';
+type LimitName =
+  | 'sign-in'
+  | 'sign-up'
+  | 'forgot-password'
+  | 'magic-link'
+  | 'totp-verify'
+  | 'booking';
 
 const CONFIG: Record<LimitName, { tokens: number; windowSec: number }> = {
   'sign-in': { tokens: 5, windowSec: 60 },
@@ -8,6 +14,7 @@ const CONFIG: Record<LimitName, { tokens: number; windowSec: number }> = {
   'forgot-password': { tokens: 3, windowSec: 60 * 60 },
   'magic-link': { tokens: 5, windowSec: 60 * 60 },
   'totp-verify': { tokens: 10, windowSec: 60 * 60 },
+  booking: { tokens: 5, windowSec: 60 * 60 },
 };
 
 const upstashEnabled = () =>

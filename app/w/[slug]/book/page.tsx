@@ -13,7 +13,7 @@ export default async function BookPage({
 }) {
   const { slug } = await params;
   const ws = await getPublicWorkspaceBySlug(slug);
-  if (!ws) notFound();
+  if (!ws || !ws.slug) notFound();
   if (ws.scope === 'private') notFound();
 
   const tint = `linear-gradient(140deg, ${ws.from}22 0%, ${ws.to}08 50%, transparent 100%)`;

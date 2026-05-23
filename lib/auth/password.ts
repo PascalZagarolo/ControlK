@@ -1,7 +1,14 @@
-import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
+import { scrypt, randomBytes, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 import { promisify } from 'node:util';
 
-const scryptAsync = promisify(scrypt);
+// `promisify(scrypt)` strips the options-arg overload; cast it back so we
+// can pass scrypt's N/r/p tuning.
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  options?: ScryptOptions
+) => Promise<Buffer>;
 const KEY_LEN = 64;
 const SALT_LEN = 16;
 const COST = 16384; // 2^14, OWASP recommended scrypt N

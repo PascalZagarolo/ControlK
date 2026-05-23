@@ -217,6 +217,7 @@ export const workspaces = pgTable(
     description: text('description'),
     iconEmoji: varchar('icon_emoji', { length: 8 }),
     template: text('template'),
+    scope: varchar('scope', { length: 16 }).notNull().default('business'),
     timezone: varchar('timezone', { length: 64 }).default('Europe/Berlin'),
     isPublic: integer('is_public').notNull().default(0),
     archivedAt: timestamp('archived_at', { withTimezone: true }),

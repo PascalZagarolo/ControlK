@@ -123,7 +123,7 @@ export async function runTool(
       }),
       db.query.customerActivity.findMany({
         where: eq(s.customerActivity.customerId, customer.id),
-        orderBy: [desc(s.customerActivity.createdAt)],
+        orderBy: [desc(s.customerActivity.occurredAt)],
         limit: 5,
       }),
       db.query.customerContacts.findMany({
@@ -147,7 +147,7 @@ export async function runTool(
       })),
       recentActivity: activity.map((a) => ({
         kind: a.kind,
-        at: new Date(a.createdAt).toISOString(),
+        at: new Date(a.occurredAt).toISOString(),
       })),
     };
   }

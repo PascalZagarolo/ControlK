@@ -6,6 +6,8 @@ import {
   useCreateBlockNote,
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
+  createReactBlockSpec,
+  createReactInlineContentSpec,
   type DefaultReactSuggestionItem,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -14,13 +16,9 @@ import {
   defaultBlockSpecs,
   defaultInlineContentSpecs,
   filterSuggestionItems,
-  insertOrUpdateBlock,
+  insertOrUpdateBlockForSlashMenu as insertOrUpdateBlock,
   type PartialBlock,
 } from '@blocknote/core';
-import {
-  createReactBlockSpec,
-  createReactInlineContentSpec,
-} from '@blocknote/react';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { saveNoteDocument } from '@/lib/actions/notes';
@@ -110,10 +108,12 @@ const LiveEmbed = createReactBlockSpec(
   }
 );
 
+// createReactBlockSpec returns a factory in this BlockNote version — call it
+// with no options to materialize the BlockSpec for BlockNoteSchema.create.
 const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
-    liveEmbed: LiveEmbed,
+    liveEmbed: LiveEmbed(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

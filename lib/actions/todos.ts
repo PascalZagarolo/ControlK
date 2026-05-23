@@ -301,7 +301,7 @@ export async function snoozeTodo(
     .update(s.todos)
     .set({
       snoozeUntil: until ? new Date(until) : null,
-      snoozeTrigger: trigger ?? null,
+      snoozeTrigger: (trigger ?? null) as any,
       updatedAt: new Date(),
     })
     .where(eq(s.todos.id, todoId));

@@ -32,7 +32,7 @@ export async function GET() {
       short: ws.short,
       from: ws.fromColor,
       to: ws.toColor,
-      scope: (ws.scope === 'private' ? 'private' : 'business') as
+      scope: ((ws as any).scope === 'private' ? 'private' : 'business') as
         | 'business'
         | 'private',
     };

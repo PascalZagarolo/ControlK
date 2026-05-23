@@ -1,6 +1,9 @@
 import 'server-only';
 
-let _pusher: import('pusher').default | null = null;
+// The `pusher` package is CommonJS; its types don't surface a `.default`
+// export. We type the singleton as `any` and require it lazily so the SDK
+// is only loaded when Pusher env vars are actually present.
+let _pusher: any | null = null;
 
 function readConfig() {
   const appId = process.env.PUSHER_APP_ID;
@@ -10,13 +13,14 @@ function readConfig() {
   return { appId, key, secret, cluster };
 }
 
-function getPusher(): import('pusher').default | null {
+function getPusher(): any | null {
   if (_pusher) return _pusher;
   const { appId, key, secret, cluster } = readConfig();
   if (!appId || !key || !secret) return null;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Pusher = require('pusher').default;
-  _pusher = new Pusher({ appId, key, secret, cluster, useTLS: true });
+  const Pusher = require('pusher');
+  const Ctor = Pusher.default ?? Pusher;
+  _pusher = new Ctor({ appId, key, secret, cluster, useTLS: true });
   return _pusher;
 }
 

@@ -351,8 +351,6 @@ export async function listTodos(
       channel: { columns: { id: true, slug: true, name: true } },
       group: { columns: { id: true, slug: true, name: true, emoji: true, color: true } },
       subtasks: true,
-      comments: false,
-      activity: false,
       watchers: { with: { user: true } },
     },
     limit: 500,
