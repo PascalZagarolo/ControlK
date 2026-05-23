@@ -44,6 +44,7 @@ export default async function Page({
           initialIcon={note.icon}
         />
         <NoteEditor
+          key={note.id}
           noteId={note.id}
           initialDocument={await refreshMentionStatus(ws.id, note.document)}
           workspaceScope={(ws as any).scope === 'private' ? 'private' : 'business'}

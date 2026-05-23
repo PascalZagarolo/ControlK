@@ -22,6 +22,7 @@ import {
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { saveNoteDocument } from '@/lib/actions/notes';
+import { useYjsDoc } from '@/lib/notes/use-yjs-doc';
 import { createTodoFromNote, createEventFromNote } from '@/lib/actions/notes-actions';
 import { EmbedRenderer } from './embeds/embed-renderer';
 
@@ -130,6 +131,11 @@ type Props = {
 
 export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope = 'business' }: Props) {
   const router = useRouter();
+
+  // Local-first foundation: Yjs doc + IndexedDB persistence per note.
+  // The fragment is BlockNote's collaboration target — see useYjsDoc.
+  const { fragment, ready: yjsReady } = useYjsDoc(noteId);
+
   const initialBlocks = useMemo<PartialBlock<typeof schema.blockSchema>[] | undefined>(() => {
     if (!Array.isArray(initialDocument)) return undefined;
     if (initialDocument.length === 0) return undefined;
@@ -152,16 +158,53 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
     return data.url as string;
   };
 
+  // With `collaboration`, BlockNote takes the Yjs fragment as the source of
+  // truth — `initialContent` cannot be passed. We bootstrap server content
+  // into the empty fragment AFTER IndexedDB has hydrated, see effect below.
   const editor = useCreateBlockNote({
     schema,
-    initialContent: initialBlocks,
     uploadFile,
+    collaboration: {
+      fragment,
+      user: { name: 'Pascal', color: '#5eb6ff' },
+    },
   });
 
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSerializedRef = useRef<string>(JSON.stringify(initialBlocks ?? []));
+  const hydratedRef = useRef(false);
+
+  // Bootstrap server content into the Yjs fragment if and only if:
+  //   1. IndexedDB has finished hydrating (yjsReady)
+  //   2. The fragment is still empty (nothing in IndexedDB for this note)
+  //   3. We haven't already hydrated this mount (prevent double-apply)
+  //   4. The server has actual content
+  // Otherwise IndexedDB or fresh-empty wins.
+  useEffect(() => {
+    if (!yjsReady || hydratedRef.current || readOnly) return;
+    if (!initialBlocks || initialBlocks.length === 0) {
+      hydratedRef.current = true;
+      return;
+    }
+    const currentBlocks = editor.document;
+    const isEmpty =
+      currentBlocks.length === 0 ||
+      (currentBlocks.length === 1 &&
+        currentBlocks[0].type === 'paragraph' &&
+        (!('content' in currentBlocks[0]) ||
+          (currentBlocks[0] as any).content?.length === 0 ||
+          (currentBlocks[0] as any).content?.[0]?.text === ''));
+    if (isEmpty) {
+      try {
+        editor.replaceBlocks(editor.document, initialBlocks as any);
+      } catch (e) {
+        console.error('[note-editor] failed to hydrate initial content', e);
+      }
+    }
+    hydratedRef.current = true;
+  }, [yjsReady, initialBlocks, editor, readOnly]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -176,6 +219,10 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
         try {
           await saveNoteDocument(noteId, blocks);
           setSavedAt(new Date());
+        } catch (e) {
+          // Offline / server unreachable — document is safe in IndexedDB,
+          // we'll retry on the next change. No alert to avoid being noisy.
+          console.warn('[note-editor] save failed (will retry on next edit)', e);
         } finally {
           setSaving(false);
         }

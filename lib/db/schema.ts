@@ -1684,3 +1684,18 @@ export const noteRevisionsRelations = relations(noteRevisions, ({ one }) => ({
   note: one(notes, { fields: [noteRevisions.noteId], references: [notes.id] }),
   createdBy: one(users, { fields: [noteRevisions.createdById], references: [users.id] }),
 }));
+
+// ─── User Settings (BYOK AI keys, prefs) ───────────────────────
+export const userSettings = pgTable('user_settings', {
+  userId: varchar('user_id', { length: 255 })
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  // AES-256-GCM encrypted blob: "<iv-base64>:<authTag-base64>:<ciphertext-base64>"
+  openaiKeyEnc: text('openai_key_enc'),
+  preferredAiModel: text('preferred_ai_model'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const userSettingsRelations = relations(userSettings, ({ one }) => ({
+  user: one(users, { fields: [userSettings.userId], references: [users.id] }),
+}));

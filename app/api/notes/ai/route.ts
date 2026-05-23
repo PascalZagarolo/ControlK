@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { TOOL_DEFINITIONS, runTool } from '@/lib/ai/workspace-tools';
+import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,13 +26,11 @@ export async function POST(req: Request) {
   if (!user) return new NextResponse('Unauthorized', { status: 401 });
   const ws = await requireCurrentWorkspace();
 
-  const apiKey = process.env.AI_GATEWAY_API_KEY ?? process.env.OPENAI_API_KEY;
-  if (!apiKey) return new NextResponse('AI not configured', { status: 503 });
-
-  const url = process.env.AI_GATEWAY_API_KEY
-    ? 'https://ai-gateway.vercel.sh/v1/chat/completions'
-    : 'https://api.openai.com/v1/chat/completions';
-  const model = process.env.NOTES_AI_MODEL ?? 'openai/gpt-4o-mini';
+  const effective = await getEffectiveAIKey(user.id);
+  if (!effective) return new NextResponse('AI not configured', { status: 503 });
+  const apiKey = effective.apiKey;
+  const url = `${effective.baseUrl}/chat/completions`;
+  const model = effective.defaultModel;
 
   const body = await req.json().catch(() => null);
   const question = typeof body?.question === 'string' ? body.question : '';

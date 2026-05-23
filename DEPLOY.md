@@ -36,6 +36,7 @@ Optional (Features werden ohne diese sauber „silently disabled"):
 | `OPENAI_API_KEY` | Fallback wenn kein AI-Gateway-Key da ist |
 | `NOTES_AI_MODEL` | Modell-Override (default `openai/gpt-4o-mini`) |
 | `BRIEF_MODEL` | Modell-Override für Daily-Brief AI-Polish |
+| `APP_ENCRYPTION_KEY` | Aktiviert BYOK (User können eigenen OpenAI-Key in `/settings/ai` hinterlegen — wird AES-256-GCM-encrypted gespeichert). 32+ Zeichen empfohlen, mit `openssl rand -base64 48` generieren. **Nicht rotieren ohne Re-Encryption-Migration**, sonst werden alle existierenden BYOK-Keys unleserlich. |
 | `INBOUND_EMAIL_SECRET` | HMAC-Secret für `/api/inbound/email` Webhook |
 | `SEED_OWNER_ID` / `SEED_OWNER_EMAIL` / `SEED_OWNER_NAME` | Optional, nur für `db:seed` |
 
@@ -90,6 +91,54 @@ Oder via GitHub-Auto-Deploy: jeder push auf `main` triggert ein Production-Deplo
 **„AI not configured" 503** auf `/api/notes/ai` → weder `AI_GATEWAY_API_KEY` noch `OPENAI_API_KEY` gesetzt.
 
 **Build OOM** → Drizzle + BlockNote zusammen können auf Hobby-Plan eng werden. Falls Build-Memory das Problem ist, in Vercel-Project-Settings den Build-RAM erhöhen.
+
+## 6.5 EU-Hosting / DSGVO
+
+Wenn du DACH-Kunden ansprichst, ist EU-Hosting kein Optional — es ist ein
+Vertriebsargument. Setup:
+
+### Vercel-Region
+
+In `vercel.json` (oder `vercel.ts`) — Frankfurt als Function-Region:
+
+```json
+{
+  "functions": {
+    "app/**/*.ts": { "regions": ["fra1"] }
+  }
+}
+```
+
+Damit laufen Server-Components, API-Routes und Server-Actions ausschließlich in
+Vercels Frankfurt-Region. Middleware läuft weiterhin am Edge global — das ist
+für DSGVO unkritisch (nur Auth-Token-Routing, keine personenbezogenen Daten).
+
+### Datenbank-Region
+
+Neon-Project beim Erstellen auf `eu-central-1` setzen. Die `.env.example`
+DATABASE_URL zeigt schon auf `ep-…eu-central-1.aws.neon.tech` — wenn das so
+bleibt, sind die Daten in Frankfurt.
+
+### Realtime-Region
+
+Pusher-Cluster auf `eu` setzen (statt default `mt1` US-East).
+
+### Fehlende Bausteine (TODO vor B2B-Launch)
+
+- `/legal/avv` — Auftragsverarbeitungsvertrag-Template (Sprint H aus
+  ARCHITECTURE.md)
+- `/legal/privacy` — Datenschutz-Erklärung
+- `/legal/imprint` — Impressum
+- `/settings/data-export` — JSON-Dump aller User-zugehörigen Workspaces
+- `/settings/account/delete` — echte Konto-Löschung mit Cascade
+
+### Was NICHT EU ist
+
+- OpenAI direkt — Daten gehen nach US. Wenn das ein Showstopper ist, BYOK
+  aktivieren und User entscheiden lassen, oder AI komplett abschalten.
+- Vercel AI Gateway — Vercel-Infrastruktur, kann je nach Provider in den
+  USA terminieren. Für strenge DSGVO-Anforderungen: BYOK + User wählt
+  europäisches OpenAI-Endpoint.
 
 ## 7. Custom Domain
 

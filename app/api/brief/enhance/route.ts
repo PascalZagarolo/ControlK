@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { currentUser } from '@/lib/auth/current-user';
+import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
 
 /**
  * Optional AI enhancement of the daily brief. Gated on AI_GATEWAY_API_KEY.
@@ -21,13 +22,11 @@ export async function POST(req: Request) {
   const script = typeof body?.script === 'string' ? body.script : '';
   if (!script) return NextResponse.json({ text: '' });
 
-  const apiKey = process.env.AI_GATEWAY_API_KEY ?? process.env.OPENAI_API_KEY;
-  if (!apiKey) return NextResponse.json({ text: script });
-
-  const url = process.env.AI_GATEWAY_API_KEY
-    ? 'https://ai-gateway.vercel.sh/v1/chat/completions'
-    : 'https://api.openai.com/v1/chat/completions';
-  const model = process.env.BRIEF_MODEL ?? 'openai/gpt-4o-mini';
+  const effective = await getEffectiveAIKey(user.id);
+  if (!effective) return NextResponse.json({ text: script });
+  const apiKey = effective.apiKey;
+  const url = `${effective.baseUrl}/chat/completions`;
+  const model = process.env.BRIEF_MODEL ?? effective.defaultModel;
 
   try {
     const res = await fetch(url, {
