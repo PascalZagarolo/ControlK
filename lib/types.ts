@@ -922,6 +922,40 @@ export type AutoRule = {
   lastRunAt?: string;
 };
 
+// ============ Notes (Notion-style) ============
+export type NoteScope = 'private' | 'workspace' | 'public';
+
+export type NoteTreeItem = {
+  id: string;
+  title: string;
+  icon?: string;
+  parentNoteId: string | null;
+  position: number;
+  isTemplate: boolean;
+  archived: boolean;
+  scope: NoteScope;
+  childCount: number;
+};
+
+export type Note = {
+  id: string;
+  workspaceId: string;
+  parentNoteId: string | null;
+  title: string;
+  icon?: string;
+  coverImageUrl?: string;
+  scope: NoteScope;
+  shareToken?: string;
+  document: unknown; // BlockNote document — opaque blob
+  isTemplate: boolean;
+  templateKey?: string;
+  position: number;
+  archivedAt?: string;
+  createdById?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // ============ Search (Cmd+K) ============
 export type SearchHit = {
   id: string;

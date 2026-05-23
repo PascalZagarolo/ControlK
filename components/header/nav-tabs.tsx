@@ -14,6 +14,7 @@ type Tab = {
 const TABS: Tab[] = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
+  { label: 'Notizen', href: '/notes' },
   { label: 'Channels', href: '/channels' },
   { label: 'Kunden', href: '/kunden', scopes: ['business'] },
   { label: 'Flotte', href: '/flotte', scopes: ['business'] },

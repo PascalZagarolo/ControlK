@@ -10,6 +10,8 @@ import {
   primaryKey,
   index,
   uniqueIndex,
+  numeric,
+  boolean,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -1578,4 +1580,49 @@ export const calendarShareLinksRelations = relations(calendarShareLinks, ({ one 
     fields: [calendarShareLinks.createdById],
     references: [users.id],
   }),
+}));
+
+// ─── Notes (Notion-style block editor) ─────────────────────────
+export const noteScopeEnum = pgEnum('note_scope', ['private', 'workspace', 'public']);
+
+export const notes = pgTable(
+  'notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    parentNoteId: uuid('parent_note_id'),
+    title: text('title').notNull().default('Unbenannt'),
+    icon: varchar('icon', { length: 8 }),
+    coverImageUrl: text('cover_image_url'),
+    scope: noteScopeEnum('scope').notNull().default('workspace'),
+    shareToken: varchar('share_token', { length: 64 }),
+    document: jsonb('document').notNull().default([]),
+    isTemplate: boolean('is_template').notNull().default(false),
+    templateKey: text('template_key'),
+    position: numeric('position', { precision: 20, scale: 10 }).notNull().default('0'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdById: varchar('created_by_id', { length: 255 }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    workspaceIdx: index('notes_workspace_idx').on(t.workspaceId, t.position),
+    parentIdx: index('notes_parent_idx').on(t.parentNoteId),
+    shareTokenIdx: uniqueIndex('notes_share_token_idx').on(t.shareToken),
+  })
+);
+
+export const notesRelations = relations(notes, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [notes.workspaceId], references: [workspaces.id] }),
+  parent: one(notes, {
+    fields: [notes.parentNoteId],
+    references: [notes.id],
+    relationName: 'note_children',
+  }),
+  children: many(notes, { relationName: 'note_children' }),
+  createdBy: one(users, { fields: [notes.createdById], references: [users.id] }),
 }));
