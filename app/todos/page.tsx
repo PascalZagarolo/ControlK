@@ -13,6 +13,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { TodosClient } from '@/components/todos/todos-client';
+import { detectWorkflowSuggestions } from '@/lib/db/queries/workflow-detection';
 
 export default async function Page() {
   const user = await currentUser();
@@ -48,6 +49,11 @@ export default async function Page() {
     }),
   ]);
 
+  // Workflow-Detection runs on every load — cheap-enough heuristic that
+  // scans the last 90 days; if it gets slow, gate behind a per-workspace
+  // refresh interval.
+  const workflowSuggestions = await detectWorkflowSuggestions(ws.id).catch(() => []);
+
   return (
     <TodosClient
       workspaceId={ws.id}
@@ -76,6 +82,7 @@ export default async function Page() {
         to: user.avatarTo,
       }}
       workflows={workflows}
+      workflowSuggestionsCount={workflowSuggestions.length}
     />
   );
 }

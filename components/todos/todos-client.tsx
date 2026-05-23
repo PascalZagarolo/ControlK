@@ -12,6 +12,7 @@ import { TodoKanbanView } from './todo-kanban-view';
 import { TodoFocusView } from './todo-focus-view';
 import { TodoCalendarView } from './todo-calendar-view';
 import { TodoDetailDrawer } from './todo-detail-drawer';
+import Link from 'next/link';
 import { CreateTodoModal } from './create-todo-modal';
 import { TodoSidebar } from './todo-sidebar';
 import { CaptureWorkflowModal } from './capture-workflow-modal';
@@ -42,6 +43,7 @@ type Props = {
   activeGroup?: TodoGroup;
   workflows?: Workflow[];
   shareLinks?: ShareLink[];
+  workflowSuggestionsCount?: number;
 };
 
 export function TodosClient(props: Props) {
@@ -193,6 +195,27 @@ export function TodosClient(props: Props) {
       />
 
       <div className="min-w-0 flex-1">
+        {!!props.workflowSuggestionsCount && props.workflowSuggestionsCount > 0 && (
+          <Link
+            href="/todos/workflows/suggestions"
+            className="mb-4 flex items-center gap-3 rounded-[10px] border border-[#5eb6ff]/25 bg-[#5eb6ff]/[0.04] px-3.5 py-2.5 transition-colors hover:border-[#5eb6ff]/45 hover:bg-[#5eb6ff]/[0.07]"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[#5eb6ff]/[0.12] font-mono text-[14px] text-[#5eb6ff]">
+              ↺
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12.5px] font-medium leading-tight text-ink-50">
+                {props.workflowSuggestionsCount} Workflow-Vorschläge erkannt
+              </span>
+              <span className="mt-0.5 block text-[11px] text-ink-300">
+                Wiederkehrende Sequenzen — einmal als Template speichern, beim nächsten Mal nur ausfüllen.
+              </span>
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#5eb6ff]">
+              ansehen →
+            </span>
+          </Link>
+        )}
         <Headline
           kicker={headline.kicker}
           title={headline.title}

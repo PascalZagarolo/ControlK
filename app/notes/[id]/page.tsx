@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { getNote, listNotesTree } from '@/lib/db/queries/notes';
+import { refreshMentionStatus } from '@/lib/notes/refresh-mention-status';
 import { NotesSidebar } from '@/components/notes/notes-sidebar';
 import { NoteTitleInput } from '@/components/notes/note-title-input';
 import { NoteEditor } from '@/components/notes/note-editor';
@@ -44,7 +45,7 @@ export default async function Page({
         />
         <NoteEditor
           noteId={note.id}
-          initialDocument={note.document}
+          initialDocument={await refreshMentionStatus(ws.id, note.document)}
           workspaceScope={(ws as any).scope === 'private' ? 'private' : 'business'}
         />
       </main>
