@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { archiveNote, duplicateNote, setNoteScope } from '@/lib/actions/notes';
 import type { NoteScope } from '@/lib/types';
@@ -92,6 +93,12 @@ export function NoteToolbar({
             {copied ? '✓ Kopiert' : '🔗 Link kopieren'}
           </button>
         )}
+        <Link
+          href={`/notes/${noteId}/history`}
+          className="rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] text-ink-200 hover:bg-white/[0.05] hover:text-ink-50"
+        >
+          Historie
+        </Link>
         <button
           type="button"
           onClick={doDuplicate}

@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import type { Note, NoteTreeItem } from '@/lib/types';
@@ -76,4 +76,60 @@ export async function getNoteByShareToken(token: string): Promise<Note | null> {
   });
   if (!row || row.archivedAt) return null;
   return toNote(row);
+}
+
+export type NoteRevisionSummary = {
+  id: string;
+  noteId: string;
+  title: string;
+  createdAt: string;
+  createdByName?: string;
+};
+
+export async function listNoteRevisions(
+  workspaceId: string,
+  noteId: string
+): Promise<NoteRevisionSummary[]> {
+  const db = getDb();
+  // Authorize by joining notes (must be in current workspace)
+  const note = await db.query.notes.findFirst({
+    where: and(eq(s.notes.workspaceId, workspaceId), eq(s.notes.id, noteId)),
+    columns: { id: true },
+  });
+  if (!note) return [];
+  const rows = await db.query.noteRevisions.findMany({
+    where: eq(s.noteRevisions.noteId, noteId),
+    orderBy: [desc(s.noteRevisions.createdAt)],
+    limit: 50,
+    with: { createdBy: { columns: { name: true } } },
+  });
+  return rows.map<NoteRevisionSummary>((r) => ({
+    id: r.id,
+    noteId,
+    title: r.title,
+    createdAt: new Date(r.createdAt).toISOString(),
+    createdByName: r.createdBy?.name,
+  }));
+}
+
+export async function getNoteRevision(
+  workspaceId: string,
+  noteId: string,
+  revisionId: string
+): Promise<{ title: string; document: unknown; createdAt: string } | null> {
+  const db = getDb();
+  const note = await db.query.notes.findFirst({
+    where: and(eq(s.notes.workspaceId, workspaceId), eq(s.notes.id, noteId)),
+    columns: { id: true },
+  });
+  if (!note) return null;
+  const row = await db.query.noteRevisions.findFirst({
+    where: and(eq(s.noteRevisions.noteId, noteId), eq(s.noteRevisions.id, revisionId)),
+  });
+  if (!row) return null;
+  return {
+    title: row.title,
+    document: row.document,
+    createdAt: new Date(row.createdAt).toISOString(),
+  };
 }

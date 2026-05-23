@@ -287,6 +287,40 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
       icon: <span className="font-mono text-[14px]">☐</span>,
     });
     items.push({
+      title: 'Voice → Text',
+      onItemClick: () => {
+        const SR =
+          (typeof window !== 'undefined' &&
+            ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)) ||
+          null;
+        if (!SR) {
+          alert('Voice-Capture wird in diesem Browser nicht unterstützt (Chrome/Edge benötigt).');
+          return;
+        }
+        const rec = new SR();
+        rec.lang = 'de-DE';
+        rec.interimResults = false;
+        rec.continuous = false;
+        rec.onresult = (e: any) => {
+          const text = String(e.results?.[0]?.[0]?.transcript ?? '').trim();
+          if (text) {
+            insertOrUpdateBlock(editor as any, {
+              type: 'paragraph',
+              content: [{ type: 'text', text, styles: {} }],
+            } as any);
+          }
+        };
+        rec.onerror = () => {};
+        try {
+          rec.start();
+        } catch {}
+      },
+      subtext: 'Spricht, transkribiert, fügt als Absatz ein',
+      aliases: ['voice', 'mic', 'diktat'],
+      group: 'Aktionen',
+      icon: <span className="font-mono text-[14px]">🎙</span>,
+    });
+    items.push({
       title: 'Termin erstellen',
       onItemClick: () => {
         const title = window.prompt('Termin-Titel?')?.trim();

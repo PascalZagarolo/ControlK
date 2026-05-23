@@ -2,13 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'crypto';
-import { and, asc, eq, isNull, max } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { extractMentions } from '@/lib/notes/extract-mentions';
 import type { NoteScope } from '@/lib/types';
+
+const REVISION_GAP_MS = 5 * 60 * 1000; // snapshot at most every 5 min
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -90,9 +92,35 @@ export async function setNoteIcon(id: string, icon: string | null): Promise<Resu
 }
 
 export async function saveNoteDocument(id: string, document: unknown): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
+
+  // Snapshot the prior state if the last revision is older than REVISION_GAP_MS.
+  // Catch-all best-effort — never block the save itself if snapshot fails.
+  try {
+    const cur = await db.query.notes.findFirst({
+      where: and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)),
+      columns: { title: true, document: true },
+    });
+    if (cur) {
+      const lastRev = await db.query.noteRevisions.findFirst({
+        where: eq(s.noteRevisions.noteId, id),
+        orderBy: [desc(s.noteRevisions.createdAt)],
+        columns: { createdAt: true },
+      });
+      const gapOk = !lastRev || Date.now() - new Date(lastRev.createdAt).getTime() >= REVISION_GAP_MS;
+      if (gapOk) {
+        await db.insert(s.noteRevisions).values({
+          noteId: id,
+          title: cur.title,
+          document: cur.document as any,
+          createdById: user.id,
+        });
+      }
+    }
+  } catch {}
+
   await db
     .update(s.notes)
     .set({ document: document as any, updatedAt: new Date() })
@@ -218,6 +246,63 @@ export async function setNoteScope(id: string, scope: NoteScope): Promise<Result
     .set(patch)
     .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
   revalidatePath(`/notes/${id}`);
+  return { ok: true };
+}
+
+export async function restoreNoteRevision(
+  noteId: string,
+  revisionId: string
+): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+
+  const note = await db.query.notes.findFirst({
+    where: and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, noteId)),
+    columns: { id: true, title: true, document: true },
+  });
+  if (!note) return { ok: false, error: 'Notiz nicht gefunden.' };
+  const rev = await db.query.noteRevisions.findFirst({
+    where: and(eq(s.noteRevisions.noteId, noteId), eq(s.noteRevisions.id, revisionId)),
+  });
+  if (!rev) return { ok: false, error: 'Revision nicht gefunden.' };
+
+  // Snapshot the CURRENT state before overwriting, so restore is itself
+  // reversible.
+  try {
+    await db.insert(s.noteRevisions).values({
+      noteId,
+      title: note.title,
+      document: note.document as any,
+      createdById: user.id,
+    });
+  } catch {}
+
+  await db
+    .update(s.notes)
+    .set({
+      title: rev.title,
+      document: rev.document as any,
+      updatedAt: new Date(),
+    })
+    .where(eq(s.notes.id, noteId));
+
+  // Re-sync mentions from the restored document
+  const mentions = extractMentions(rev.document);
+  await db.delete(s.noteMentions).where(eq(s.noteMentions.noteId, noteId));
+  if (mentions.length > 0) {
+    await db.insert(s.noteMentions).values(
+      mentions.map((m) => ({
+        noteId,
+        mentionType: m.type as any,
+        mentionId: m.id,
+        label: m.label,
+        blockId: m.blockId ?? null,
+      }))
+    );
+  }
+
+  revalidatePath(`/notes/${noteId}`);
   return { ok: true };
 }
 

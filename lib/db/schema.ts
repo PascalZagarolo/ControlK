@@ -1659,3 +1659,27 @@ export const noteMentions = pgTable(
 export const noteMentionsRelations = relations(noteMentions, ({ one }) => ({
   note: one(notes, { fields: [noteMentions.noteId], references: [notes.id] }),
 }));
+
+export const noteRevisions = pgTable(
+  'note_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    document: jsonb('document').notNull(),
+    createdById: varchar('created_by_id', { length: 255 }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    noteIdx: index('note_revisions_note_idx').on(t.noteId, t.createdAt),
+  })
+);
+
+export const noteRevisionsRelations = relations(noteRevisions, ({ one }) => ({
+  note: one(notes, { fields: [noteRevisions.noteId], references: [notes.id] }),
+  createdBy: one(users, { fields: [noteRevisions.createdById], references: [users.id] }),
+}));
