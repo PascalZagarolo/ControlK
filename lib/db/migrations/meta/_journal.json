@@ -127,6 +127,20 @@
       "when": 1779800000000,
       "tag": "0017_user_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779810000000,
+      "tag": "0018_entity_caches",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779820000000,
+      "tag": "0019_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,50 @@ export async function listCustomers(workspaceId: string): Promise<Customer[]> {
 }
 
 /**
+ * Cursor-paginated customer list. Sort: name asc, id asc tiebreaker.
+ * Light shape — caller can fetch detail on click via getCustomerFullBySlug.
+ */
+export async function listCustomersPage(
+  workspaceId: string,
+  opts: {
+    cursor?: string | null;
+    limit?: number;
+    statusFilter?: 'aktiv' | 'lead' | 'inaktiv';
+    q?: string;
+  } = {}
+): Promise<import('@/lib/db/cursor').Page<Customer>> {
+  const cursorMod = await import('@/lib/db/cursor');
+  const db = getDb();
+  const limit = cursorMod.clampLimit(opts.limit, 50);
+  const conditions = [eq(s.customers.workspaceId, workspaceId)];
+  if (opts.statusFilter) conditions.push(eq(s.customers.status, opts.statusFilter));
+  if (opts.q?.trim()) {
+    conditions.push(sql`lower(${s.customers.name}) LIKE ${'%' + opts.q.trim().toLowerCase() + '%'}`);
+  }
+  const cursor = cursorMod.decodeCursor<string>(opts.cursor ?? null);
+  if (cursor) {
+    conditions.push(sql`(lower(${s.customers.name}), ${s.customers.id}) > (${(cursor.v ?? '').toLowerCase()}, ${cursor.id})`);
+  }
+
+  const rows = await db.query.customers.findMany({
+    where: and(...conditions),
+    orderBy: [asc(sql`lower(${s.customers.name})`), asc(s.customers.id)],
+    with: {
+      contacts: { limit: 1 },
+      contracts: { columns: { id: true, status: true } },
+      owner: true,
+      tagAssignments: { with: { tag: true } },
+    },
+    limit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const items = (hasMore ? rows.slice(0, limit) : rows).map(toCustomer);
+  const last = items[items.length - 1];
+  const nextCursor = hasMore && last ? cursorMod.encodeCursor({ v: last.name, id: last.id }) : null;
+  return { items, nextCursor, hasMore };
+}
+
+/**
  * List with enrichments: health-score + sparkline + forecast + tags. Heavier query — use on list page.
  */
 export async function listCustomersDetailed(workspaceId: string): Promise<Customer[]> {

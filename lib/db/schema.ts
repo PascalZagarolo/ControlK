@@ -473,6 +473,9 @@ export const customers = pgTable(
     initials: varchar('initials', { length: 4 }).notNull(),
     fromColor: varchar('from_color', { length: 32 }).notNull(),
     toColor: varchar('to_color', { length: 32 }).notNull(),
+    cachedActiveContractCount: integer('cached_active_contract_count').notNull().default(0),
+    cachedOpenTodoCount: integer('cached_open_todo_count').notNull().default(0),
+    cachedLastTouchpointAt: timestamp('cached_last_touchpoint_at', { withTimezone: true }),
     notes: text('notes').default(''),
     forecastContribution: text('forecast_contribution'),
     ownerId: varchar('owner_id', { length: 255 }).references(() => users.id, {
@@ -735,6 +738,7 @@ export const vehicles = pgTable(
     serviceIntervalDays: integer('service_interval_days'),
     lastServiceKm: integer('last_service_km'),
     lastServiceAt: timestamp('last_service_at', { withTimezone: true }),
+    cachedUtilization30dPct: integer('cached_utilization_30d_pct').notNull().default(0),
     notes: text('notes').default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1698,4 +1702,34 @@ export const userSettings = pgTable('user_settings', {
 
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
   user: one(users, { fields: [userSettings.userId], references: [users.id] }),
+}));
+
+// ─── Billing / Subscriptions ─────────────────────────────────
+export const planTierEnum = pgEnum('plan_tier', ['free', 'solo', 'team']);
+
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    workspaceId: uuid('workspace_id')
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    plan: planTierEnum('plan').notNull().default('free'),
+    seats: integer('seats').notNull().default(1),
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    stripeIdx: index('subscriptions_stripe_idx').on(t.stripeSubscriptionId),
+  })
+);
+
+export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [subscriptions.workspaceId],
+    references: [workspaces.id],
+  }),
 }));

@@ -8,6 +8,7 @@ import { QuickCreateMount } from '@/components/todos/quick-create-mount';
 import { PusherProvider } from '@/components/realtime/pusher-provider';
 import { RegisterSW } from '@/components/pwa/register-sw';
 import { MobileFab } from '@/components/pwa/mobile-fab';
+import { HelpButton } from '@/components/support/help-button';
 import { getPusherClientConfig } from '@/lib/realtime/pusher-server';
 import { currentUser } from '@/lib/auth/current-user';
 
@@ -50,6 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <KeyboardListener />
           <RegisterSW />
           <MobileFab />
+          <HelpButton />
         </PusherProvider>
       </body>
     </html>

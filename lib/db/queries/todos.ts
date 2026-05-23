@@ -360,6 +360,108 @@ export async function listTodos(
   return rows.map(toTodo);
 }
 
+/**
+ * Cursor-paginated variant of listTodos.
+ *
+ * Same filter shape; adds {cursor, limit} for infinite-scroll / virtualized
+ * list views. Sort key is (dueAt-nulls-last, createdAt desc, id) for stable
+ * ordering. The cursor encodes the last visible row's (dueAt|createdAt, id).
+ *
+ * Keep the heavy `with` shape so clients don't need a second roundtrip for
+ * the row meta — limit is small (default 50, max 200), so the relational
+ * cost is bounded.
+ */
+export async function listTodosPage(
+  workspaceId: string,
+  userId: string,
+  opts: {
+    filter?: TodoFilter;
+    cursor?: string | null;
+    limit?: number;
+  } = {}
+): Promise<import('@/lib/db/cursor').Page<Todo>> {
+  const cursorMod = await import('@/lib/db/cursor');
+  const db = getDb();
+  const filter = opts.filter ?? {};
+  const limit = cursorMod.clampLimit(opts.limit, 50);
+
+  const conditions = [eq(s.todos.workspaceId, workspaceId)];
+  conditions.push(
+    or(
+      eq(s.todos.visibility, 'team'),
+      eq(s.todos.visibility, 'account'),
+      and(
+        eq(s.todos.visibility, 'private'),
+        or(eq(s.todos.createdById, userId), eq(s.todos.assigneeId, userId))
+      )!
+    )!
+  );
+  if (filter.status?.length) {
+    conditions.push(or(...filter.status.map((st) => eq(s.todos.status, st)))!);
+  }
+  if (filter.assigneeId === 'me') {
+    conditions.push(eq(s.todos.assigneeId, userId));
+  } else if (filter.assigneeId === 'unassigned') {
+    conditions.push(isNull(s.todos.assigneeId));
+  } else if (filter.assigneeId) {
+    conditions.push(eq(s.todos.assigneeId, filter.assigneeId));
+  }
+  if (filter.customerId) conditions.push(eq(s.todos.customerId, filter.customerId));
+  if (filter.contractId) conditions.push(eq(s.todos.contractId, filter.contractId));
+  if (filter.vehicleId) conditions.push(eq(s.todos.vehicleId, filter.vehicleId));
+  if (filter.channelId) conditions.push(eq(s.todos.channelId, filter.channelId));
+  if (filter.groupId === 'none') conditions.push(isNull(s.todos.groupId));
+  else if (filter.groupId) conditions.push(eq(s.todos.groupId, filter.groupId));
+  if (filter.dueBefore) conditions.push(lte(s.todos.dueAt, filter.dueBefore));
+  if (filter.dueAfter) conditions.push(gte(s.todos.dueAt, filter.dueAfter));
+
+  // Cursor: (createdAtIso, id) — sort by createdAt desc, id desc as tiebreaker.
+  // We use createdAt as the cursor key (not dueAt) because dueAt is nullable
+  // and a nullable-aware cursor needs a lot more case-when; createdAt is
+  // simpler and the visible order (by dueAt) is still applied as orderBy.
+  const cursor = cursorMod.decodeCursor<string>(opts.cursor ?? null);
+  if (cursor) {
+    conditions.push(
+      sql`(${s.todos.createdAt}, ${s.todos.id}) < (${new Date(cursor.v ?? 0)}, ${cursor.id})`
+    );
+  }
+
+  const rows = await db.query.todos.findMany({
+    where: and(...conditions),
+    orderBy: [
+      sql`CASE WHEN ${s.todos.dueAt} IS NULL THEN 1 ELSE 0 END`,
+      asc(s.todos.dueAt),
+      desc(s.todos.createdAt),
+      desc(s.todos.id),
+    ],
+    with: {
+      createdBy: true,
+      assignee: true,
+      customer: { columns: { id: true, slug: true, name: true, status: true } },
+      contract: { columns: { id: true, externalId: true, title: true } },
+      vehicle: { columns: { id: true, externalId: true, plate: true, model: true, status: true } },
+      channel: { columns: { id: true, slug: true, name: true } },
+      group: { columns: { id: true, slug: true, name: true, emoji: true, color: true } },
+      subtasks: true,
+      watchers: { with: { user: true } },
+    },
+    limit: limit + 1, // fetch one extra to detect "has more"
+  });
+
+  await enrichRows(rows);
+  const hasMore = rows.length > limit;
+  const items = (hasMore ? rows.slice(0, limit) : rows).map(toTodo);
+  const last = items[items.length - 1];
+  const nextCursor =
+    hasMore && last
+      ? cursorMod.encodeCursor({
+          v: new Date(last.createdAt).toISOString(),
+          id: last.id,
+        })
+      : null;
+  return { items, nextCursor, hasMore };
+}
+
 export async function getTodo(workspaceId: string, todoId: string): Promise<Todo | null> {
   const db = getDb();
   const row = await db.query.todos.findFirst({
