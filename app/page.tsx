@@ -1,48 +1,52 @@
+/**
+ * Foyer — workspace landing.
+ *
+ * Server component. Fetches all workspace data (today's events, unread
+ * counts, latest message, todo counts, jetzt-suggestions) and hands it
+ * to the FoyerClient component, which renders the UI and handles all
+ * interactions (search focus, doorway transition, suggestion cycling).
+ *
+ * On auth failure or workspace miss → render a calm "demo" foyer with a
+ * generic name and empty data. We deliberately don't redirect to /sign-in
+ * here — the foyer tolerates anonymous viewers gracefully.
+ */
+
 import { currentUser } from '@/lib/auth/current-user';
-import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { listChannels } from '@/lib/db/queries/channels';
-import { listCustomers } from '@/lib/db/queries/customers';
-import { listContracts } from '@/lib/db/queries/contracts';
-import { listVehicles } from '@/lib/db/queries/vehicles';
-import { listCalendarEvents } from '@/lib/db/queries/calendar';
-import { listTodoGroups } from '@/lib/db/queries/todo-groups';
-import { listWorkspaceMembers } from '@/lib/db/queries/members';
-import { Hero } from '@/components/hero/hero';
-import { CardsCarousel } from '@/components/quick-access/cards-carousel';
+import { getCurrentWorkspace } from '@/lib/db/current-workspace';
+import { buildFoyerData } from '@/lib/foyer/build-foyer-data';
+import { FoyerClient, type FoyerData } from '@/components/foyer/foyer-client';
+
+export const dynamic = 'force-dynamic';
+
+const ANONYMOUS_FOYER: FoyerData = {
+  userName: 'Gast',
+  events: [],
+  unread: 0,
+  email: 0,
+  channels: 0,
+  mentions: 0,
+  latestMessage: null,
+  dueToday: 0,
+  dueWeek: 0,
+  dueTomorrow: 0,
+  jetztSuggestions: [],
+};
 
 export default async function Page() {
   const user = await currentUser();
-  if (!user) return null;
-  const ws = await requireCurrentWorkspace();
+  if (!user) {
+    return <FoyerClient {...ANONYMOUS_FOYER} />;
+  }
+  const ws = await getCurrentWorkspace();
+  if (!ws) {
+    return <FoyerClient {...ANONYMOUS_FOYER} userName={user.name.split(' ')[0]} />;
+  }
 
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  const data = await buildFoyerData({
+    workspaceId: ws.id,
+    userId: user.id,
+    userName: user.name.split(' ')[0] || user.name,
+  });
 
-  const [channels, customers, contracts, vehicles, events, todoGroups, members] = await Promise.all([
-    listChannels(ws.id),
-    listCustomers(ws.id),
-    listContracts(ws.id),
-    listVehicles(ws.id),
-    listCalendarEvents(ws.id, from, to),
-    listTodoGroups(ws.id),
-    listWorkspaceMembers(ws.id),
-  ]);
-
-  const firstName = user.name.split(' ')[0] || user.name;
-
-  return (
-    <div className="relative flex min-h-screen flex-col bg-ink-900">
-      <Hero firstName={firstName} />
-      <CardsCarousel
-        channels={channels}
-        customers={customers}
-        contracts={contracts}
-        vehicles={vehicles}
-        events={events}
-        todoGroups={todoGroups}
-        members={members}
-      />
-    </div>
-  );
+  return <FoyerClient {...data} />;
 }
