@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { listNotesTree } from '@/lib/db/queries/notes';
+import { getNoteTemplatesForWorkspaceTemplate } from '@/lib/notes/seed-templates';
 import { NotesSidebar } from '@/components/notes/notes-sidebar';
 import { NotesEmptyState } from './notes-empty-state';
 
@@ -12,12 +13,21 @@ export default async function Page() {
   if (!user) redirect('/sign-in?from=/notes');
   const ws = await requireCurrentWorkspace();
   const items = await listNotesTree(ws.id);
+  const templates = getNoteTemplatesForWorkspaceTemplate((ws as any).template);
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] gap-8 px-4 pb-32 pt-28 md:px-6 lg:flex-row">
       <NotesSidebar items={items} />
       <main className="flex min-w-0 flex-1 flex-col">
-        <NotesEmptyState hasNotes={items.length > 0} />
+        <NotesEmptyState
+          hasNotes={items.length > 0}
+          templates={templates.map((t) => ({
+            key: t.key,
+            title: t.title,
+            icon: t.icon,
+            description: t.description,
+          }))}
+        />
       </main>
     </div>
   );

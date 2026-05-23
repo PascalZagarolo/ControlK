@@ -5,6 +5,7 @@ import { listChannels } from '@/lib/db/queries/channels';
 import { listCustomers } from '@/lib/db/queries/customers';
 import { listContracts } from '@/lib/db/queries/contracts';
 import { listVehicles } from '@/lib/db/queries/vehicles';
+import { listNotesTree } from '@/lib/db/queries/notes';
 import type { SearchHit } from '@/lib/types';
 
 const ACTIONS: SearchHit[] = [
@@ -22,11 +23,12 @@ export async function GET() {
   const ws = await getCurrentWorkspace();
   if (!ws) return NextResponse.json({ hits: ACTIONS });
 
-  const [channels, customers, contracts, vehicles] = await Promise.all([
+  const [channels, customers, contracts, vehicles, notes] = await Promise.all([
     listChannels(ws.id),
     listCustomers(ws.id),
     listContracts(ws.id),
     listVehicles(ws.id),
+    listNotesTree(ws.id),
   ]);
 
   const hits: SearchHit[] = [
@@ -59,6 +61,15 @@ export async function GET() {
       subtitle: `${v.plate} · ${v.status} · ${v.location}`,
       url: `/flotte/${v.id}`,
     })),
+    ...notes
+      .filter((n) => !n.archived && !n.isTemplate)
+      .map<SearchHit>((n) => ({
+        id: `note-${n.id}`,
+        kind: 'note',
+        title: `${n.icon ? n.icon + ' ' : ''}${n.title}`,
+        subtitle: n.childCount > 0 ? `${n.childCount} Unter-Notizen` : undefined,
+        url: `/notes/${n.id}`,
+      })),
     ...ACTIONS,
   ];
 

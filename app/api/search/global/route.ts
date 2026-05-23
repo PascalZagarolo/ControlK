@@ -5,6 +5,7 @@ import { listChannels } from '@/lib/db/queries/channels';
 import { listCustomers } from '@/lib/db/queries/customers';
 import { listContracts } from '@/lib/db/queries/contracts';
 import { listVehicles } from '@/lib/db/queries/vehicles';
+import { listNotesTree } from '@/lib/db/queries/notes';
 import type { SearchHit } from '@/lib/types';
 
 /**
@@ -36,11 +37,12 @@ export async function GET() {
         | 'private',
     };
 
-    const [channels, customers, contracts, vehicles] = await Promise.all([
+    const [channels, customers, contracts, vehicles, notes] = await Promise.all([
       listChannels(ws.id),
       listCustomers(ws.id),
       listContracts(ws.id),
       listVehicles(ws.id),
+      listNotesTree(ws.id),
     ]);
 
     for (const c of channels) {
@@ -81,6 +83,17 @@ export async function GET() {
         title: v.model,
         subtitle: `${v.plate} · ${v.status} · ${v.location}`,
         url: `/flotte/${v.id}`,
+        workspace: wsBadge,
+      });
+    }
+    for (const n of notes) {
+      if (n.archived || n.isTemplate) continue;
+      allHits.push({
+        id: `${ws.slug}-note-${n.id}`,
+        kind: 'note',
+        title: `${n.icon ? n.icon + ' ' : ''}${n.title}`,
+        subtitle: n.childCount > 0 ? `${n.childCount} Unter-Notizen` : undefined,
+        url: `/notes/${n.id}`,
         workspace: wsBadge,
       });
     }

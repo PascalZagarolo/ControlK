@@ -35,6 +35,7 @@ export default async function Page({
           scope={note.scope}
           shareToken={note.shareToken}
           updatedAt={note.updatedAt}
+          currentUserId={user.id}
         />
         <NoteTitleInput
           noteId={note.id}

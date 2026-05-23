@@ -959,7 +959,15 @@ export type Note = {
 // ============ Search (Cmd+K) ============
 export type SearchHit = {
   id: string;
-  kind: 'channel' | 'customer' | 'contract' | 'vehicle' | 'person' | 'action' | 'thread';
+  kind:
+    | 'channel'
+    | 'customer'
+    | 'contract'
+    | 'vehicle'
+    | 'person'
+    | 'action'
+    | 'thread'
+    | 'note';
   title: string;
   subtitle?: string;
   url: string;

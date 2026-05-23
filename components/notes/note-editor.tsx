@@ -136,9 +136,26 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
     return initialDocument as any;
   }, [initialDocument]);
 
+  /**
+   * Uploads files (image paste/drop) to our /api/notes/upload endpoint, which
+   * wraps Vercel Blob. BlockNote calls this transparently when the user
+   * inserts an image. If BLOB is not configured (503), the call rejects and
+   * the editor shows its built-in error state.
+   */
+  const uploadFile = async (file: File): Promise<string> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/notes/upload', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(`upload-failed-${res.status}`);
+    const data = await res.json();
+    if (!data?.url) throw new Error('upload-no-url');
+    return data.url as string;
+  };
+
   const editor = useCreateBlockNote({
     schema,
     initialContent: initialBlocks,
+    uploadFile,
   });
 
   const [savedAt, setSavedAt] = useState<Date | null>(null);

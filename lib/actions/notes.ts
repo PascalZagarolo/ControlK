@@ -249,6 +249,25 @@ export async function setNoteScope(id: string, scope: NoteScope): Promise<Result
   return { ok: true };
 }
 
+export async function createNoteFromTemplate(input: {
+  templateKey: string;
+  parentNoteId?: string | null;
+}): Promise<Result<{ id: string }>> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const { getNoteTemplatesForWorkspaceTemplate } = await import('@/lib/notes/seed-templates');
+  const candidates = getNoteTemplatesForWorkspaceTemplate(ws.template ?? null);
+  const tpl = candidates.find((t) => t.key === input.templateKey);
+  if (!tpl) return { ok: false, error: 'Template nicht gefunden.' };
+  return createNote({
+    title: tpl.title,
+    icon: tpl.icon,
+    document: tpl.document,
+    parentNoteId: input.parentNoteId ?? null,
+    templateKey: tpl.key,
+  });
+}
+
 export async function restoreNoteRevision(
   noteId: string,
   revisionId: string

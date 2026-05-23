@@ -7,9 +7,28 @@ import {
   getTemplate,
   type WorkspaceTemplate,
 } from '../workspace-templates';
+import { getNoteTemplatesForWorkspaceTemplate } from '../notes/seed-templates';
 
 export { WORKSPACE_TEMPLATES, getTemplate };
 export type { WorkspaceTemplate };
+
+async function seedNotes(workspaceId: string, userId: string, templateKey: string) {
+  const templates = getNoteTemplatesForWorkspaceTemplate(templateKey);
+  if (templates.length === 0) return;
+  const db = getDb();
+  await db.insert(s.notes).values(
+    templates.map((t, i) => ({
+      workspaceId,
+      title: t.title,
+      icon: t.icon,
+      document: t.document as any,
+      isTemplate: false,
+      templateKey: t.key,
+      position: String(1000 * (i + 1)) as any,
+      createdById: userId,
+    }))
+  );
+}
 
 // ─── Seeding logic per template ────────────────────────────────
 async function seedTodoGroups(
@@ -99,6 +118,11 @@ export async function seedWorkspace(
   templateKey: string
 ): Promise<void> {
   if (templateKey === 'leer' || !templateKey) return;
+  // Notes are seeded for every non-empty template, in addition to the
+  // template-specific todos/channels/calendar setup. Best-effort.
+  try {
+    await seedNotes(workspaceId, userId, templateKey);
+  } catch {}
 
   if (templateKey === 'solo-freelancer') {
     await seedTodoGroups(workspaceId, userId, [

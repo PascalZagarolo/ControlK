@@ -14,9 +14,11 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
   person: 'Personen',
   action: 'Aktionen',
   thread: 'Threads',
+  note: 'Notizen',
 };
 
 const KIND_ORDER: SearchHit['kind'][] = [
+  'note',
   'channel',
   'customer',
   'contract',
@@ -34,6 +36,7 @@ const KIND_GLYPH: Record<SearchHit['kind'], string> = {
   person: '@',
   action: '→',
   thread: '↳',
+  note: '✎',
 };
 
 function rankSearch(query: string, hits: SearchHit[]): SearchHit[] {

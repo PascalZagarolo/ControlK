@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { archiveNote, duplicateNote, setNoteScope } from '@/lib/actions/notes';
+import { NotePresence } from '@/components/notes/note-presence';
 import type { NoteScope } from '@/lib/types';
 
 export function NoteToolbar({
@@ -11,11 +12,13 @@ export function NoteToolbar({
   scope,
   shareToken,
   updatedAt,
+  currentUserId,
 }: {
   noteId: string;
   scope: NoteScope;
   shareToken?: string;
   updatedAt: string;
+  currentUserId?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -53,6 +56,7 @@ export function NoteToolbar({
       <span className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
         Notiz · zuletzt {new Date(updatedAt).toLocaleString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
       </span>
+      <NotePresence noteId={noteId} currentUserId={currentUserId} />
       <div className="ml-auto flex items-center gap-1.5">
         <div className="flex items-center gap-0.5 rounded-full border border-white/[0.06] bg-white/[0.02] p-0.5">
           {(['private', 'workspace', 'public'] as NoteScope[]).map((sc) => {
