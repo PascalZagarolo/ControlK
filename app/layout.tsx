@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/header/header';
@@ -6,6 +6,8 @@ import { CmdK } from '@/components/cmdk/cmd-k';
 import { KeyboardListener } from '@/components/cmdk/keyboard-listener';
 import { QuickCreateMount } from '@/components/todos/quick-create-mount';
 import { PusherProvider } from '@/components/realtime/pusher-provider';
+import { RegisterSW } from '@/components/pwa/register-sw';
+import { MobileFab } from '@/components/pwa/mobile-fab';
 import { getPusherClientConfig } from '@/lib/realtime/pusher-server';
 import { currentUser } from '@/lib/auth/current-user';
 
@@ -17,7 +19,21 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'uRent',
+  title: 'uRent — Workspace OS',
+  description: 'Privat + Business in einem Tool. Reality-anchored work.',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'uRent',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0c0d0f',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,6 +48,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <CmdK />
           <QuickCreateMount />
           <KeyboardListener />
+          <RegisterSW />
+          <MobileFab />
         </PusherProvider>
       </body>
     </html>

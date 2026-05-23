@@ -32,6 +32,7 @@ function toWorkspaceLite(row: any, role?: WorkspaceRole, memberCount?: number): 
     description: row.description ?? undefined,
     iconEmoji: row.iconEmoji ?? undefined,
     template: row.template ?? undefined,
+    scope: row.scope === 'private' ? 'private' : 'business',
     timezone: row.timezone ?? undefined,
     isPublic: row.isPublic === 1,
     archived: !!row.archivedAt,

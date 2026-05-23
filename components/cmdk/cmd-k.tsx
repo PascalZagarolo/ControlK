@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUIStore } from '@/lib/stores/ui-store';
+import { switchWorkspace } from '@/lib/actions/workspace';
 import type { SearchHit } from '@/lib/types';
 
 const KIND_LABEL: Record<SearchHit['kind'], string> = {
@@ -59,36 +60,55 @@ function rankSearch(query: string, hits: SearchHit[]): SearchHit[] {
   return scored.map((s) => s.hit);
 }
 
+type Mode = 'workspace' | 'global';
+
 export function CmdK() {
   const open = useUIStore((s) => s.cmdKOpen);
   const setOpen = useUIStore((s) => s.setCmdKOpen);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
-  const [allHits, setAllHits] = useState<SearchHit[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [mode, setMode] = useState<Mode>('workspace');
+  const [hitsByMode, setHitsByMode] = useState<Record<Mode, SearchHit[]>>({
+    workspace: [],
+    global: [],
+  });
+  const [loadedByMode, setLoadedByMode] = useState<Record<Mode, boolean>>({
+    workspace: false,
+    global: false,
+  });
+  const [, startTransition] = useTransition();
   const router = useRouter();
 
-  // Fetch index once per open
+  const loaded = loadedByMode[mode];
+  const allHits = hitsByMode[mode];
+
+  // Fetch index for the active mode (once per mode per open-session)
   useEffect(() => {
-    if (!open || loaded) return;
+    if (!open || loadedByMode[mode]) return;
     let cancelled = false;
     (async () => {
+      const url = mode === 'global' ? '/api/search/global' : '/api/search';
       try {
-        const res = await fetch('/api/search', { cache: 'no-store' });
+        const res = await fetch(url, { cache: 'no-store' });
         const data = await res.json();
         if (!cancelled) {
-          setAllHits(Array.isArray(data.hits) ? data.hits : []);
-          setLoaded(true);
+          setHitsByMode((prev) => ({
+            ...prev,
+            [mode]: Array.isArray(data.hits) ? data.hits : [],
+          }));
+          setLoadedByMode((prev) => ({ ...prev, [mode]: true }));
         }
       } catch {
-        if (!cancelled) setLoaded(true);
+        if (!cancelled) {
+          setLoadedByMode((prev) => ({ ...prev, [mode]: true }));
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, loaded]);
+  }, [open, mode, loadedByMode]);
 
   const filtered = useMemo(() => rankSearch(query, allHits), [query, allHits]);
 
@@ -120,6 +140,23 @@ export function CmdK() {
     setActiveIndex(0);
   }, [query]);
 
+  const onPick = (h: SearchHit) => {
+    setOpen(false);
+    // If the hit lives in a different workspace, switch first so server queries
+    // resolve against the right ws_id when the destination page renders.
+    if (h.workspace) {
+      startTransition(async () => {
+        try {
+          await switchWorkspace(h.workspace!.slug);
+        } catch {}
+        router.push(h.url);
+        router.refresh();
+      });
+    } else {
+      router.push(h.url);
+    }
+  };
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -132,12 +169,14 @@ export function CmdK() {
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setActiveIndex((i) => Math.max(0, i - 1));
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'g') {
+        e.preventDefault();
+        setMode((m) => (m === 'global' ? 'workspace' : 'global'));
       } else if (e.key === 'Enter') {
         const picked = flat[activeIndex];
         if (picked) {
           e.preventDefault();
-          setOpen(false);
-          router.push(picked.url);
+          onPick(picked);
         }
       }
     };
@@ -163,11 +202,41 @@ export function CmdK() {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={loaded ? 'Suche Channels, Kunden, Verträge, Fahrzeuge …' : 'Lade Index …'}
+            placeholder={
+              loaded
+                ? mode === 'global'
+                  ? 'Suche über ALLE Workspaces …'
+                  : 'Suche Channels, Kunden, Verträge, Fahrzeuge …'
+                : 'Lade Index …'
+            }
             className="flex-1 bg-transparent text-[15px] leading-none text-ink-50 outline-none placeholder:text-ink-300"
             autoFocus
             spellCheck={false}
           />
+          <div className="flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.02] p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode('workspace')}
+              className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.3px] transition-colors ${
+                mode === 'workspace'
+                  ? 'bg-white/[0.08] text-ink-50'
+                  : 'text-ink-300 hover:text-ink-100'
+              }`}
+            >
+              Workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('global')}
+              className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.3px] transition-colors ${
+                mode === 'global'
+                  ? 'bg-white/[0.08] text-[#5eb6ff]'
+                  : 'text-ink-300 hover:text-ink-100'
+              }`}
+            >
+              Global
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -199,10 +268,7 @@ export function CmdK() {
                         type="button"
                         key={h.id}
                         onMouseEnter={() => setActiveIndex(idx)}
-                        onClick={() => {
-                          setOpen(false);
-                          router.push(h.url);
-                        }}
+                        onClick={() => onPick(h)}
                         className={`mx-2 flex items-center gap-3 rounded-[8px] px-3 py-2 text-left transition-colors duration-100 ${
                           isActive ? 'bg-white/[0.07]' : 'hover:bg-white/[0.03]'
                         }`}
@@ -224,6 +290,22 @@ export function CmdK() {
                             </span>
                           )}
                         </span>
+                        {h.workspace && (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.3px]"
+                            style={{
+                              background: `${h.workspace.from}1f`,
+                              color: '#e6e7ec',
+                            }}
+                            title={h.workspace.name}
+                          >
+                            <span
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ background: h.workspace.from }}
+                            />
+                            {h.workspace.short}
+                          </span>
+                        )}
                         <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
                           {isActive ? '↵' : ''}
                         </span>
@@ -239,6 +321,7 @@ export function CmdK() {
         <div className="flex items-center gap-4 border-t border-white/[0.06] px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
           <span className="inline-flex items-center gap-1">↑↓ Navigieren</span>
           <span className="inline-flex items-center gap-1">↵ Öffnen</span>
+          <span className="inline-flex items-center gap-1">⌘G Global Toggle</span>
           <span className="ml-auto">Esc Schließen</span>
         </div>
       </div>

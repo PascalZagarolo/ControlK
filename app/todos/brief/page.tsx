@@ -4,6 +4,8 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { listTodos } from '@/lib/db/queries/todos';
 import { listTodoGroups } from '@/lib/db/queries/todo-groups';
+import { buildBrief, briefToScript } from '@/lib/brief/build-script';
+import { BriefSpeaker } from '@/components/todos/brief-speaker';
 import type { Todo } from '@/lib/types';
 
 function greeting(d = new Date()): string {
@@ -128,12 +130,24 @@ export default async function BriefPage() {
 
   const firstName = user.name.split(' ')[0] || user.name;
 
+  const briefData = buildBrief({
+    firstName,
+    todos,
+    groups,
+    currentUserId: user.id,
+  });
+  const script = briefToScript(briefData);
+  const aiEnabled = !!(process.env.AI_GATEWAY_API_KEY || process.env.OPENAI_API_KEY);
+
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-4 pb-32 pt-28 md:px-6">
       <div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
-          Daily Brief
-        </span>
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
+            Daily Brief
+          </span>
+          <BriefSpeaker script={script} aiUrl={aiEnabled ? '/api/brief/enhance' : undefined} />
+        </div>
         <h1 className="mt-1 text-[34px] font-medium leading-[1.1] tracking-[-0.4px] text-ink-50">
           {greeting()}, {firstName}.
         </h1>
@@ -338,8 +352,9 @@ export default async function BriefPage() {
 
       <div className="flex items-center justify-between border-t border-white/[0.06] pt-6 text-[11px] text-ink-300">
         <p>
-          Heuristisch generiert · keine externen Calls. Erweiterung auf Conversational-LLM via Vercel
-          AI Gateway später trivial.
+          {aiEnabled
+            ? 'Heuristisch generiert + AI-Polish via Vercel AI Gateway. Vorlesen nutzt deine Browser-Stimme (Web Speech API).'
+            : 'Heuristisch generiert · keine externen Calls. Setze AI_GATEWAY_API_KEY oder OPENAI_API_KEY für narrativen AI-Polish.'}
         </p>
         <Link
           href="/todos"

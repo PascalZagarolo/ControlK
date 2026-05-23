@@ -115,6 +115,26 @@ export default async function PublicHub({
           </div>
         </section>
 
+        {ws.scope !== 'private' && (
+          <section className="flex flex-col items-center gap-3 rounded-[14px] border border-[#5eb6ff]/30 bg-[#5eb6ff]/[0.05] p-6 text-center">
+            <p className="font-mono text-[10px] uppercase tracking-[0.4px] text-[#5eb6ff]">
+              · Termin oder Anfrage
+            </p>
+            <p className="text-[15px] font-medium text-ink-50">
+              Frag direkt einen Termin an.
+            </p>
+            <p className="text-[11.5px] leading-[1.55] text-ink-300">
+              Kein Account nötig. Nachricht, Wunsch-Datum, Email — fertig.
+            </p>
+            <Link
+              href={`/w/${ws.slug}/book`}
+              className="rounded-full bg-white px-4 py-2 text-[12.5px] font-medium leading-none text-black hover:bg-white/90"
+            >
+              Termin buchen →
+            </Link>
+          </section>
+        )}
+
         <section className="flex flex-col items-center gap-3 rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-6 text-center">
           <p className="text-[14px] text-ink-100">
             Möchtest du diesen Workspace betreten?

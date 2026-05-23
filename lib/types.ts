@@ -662,6 +662,7 @@ export type Workspace = {
   description?: string;
   iconEmoji?: string;
   template?: string;
+  scope?: 'business' | 'private';
   timezone?: string;
   isPublic?: boolean;
   archived?: boolean;
@@ -928,4 +929,12 @@ export type SearchHit = {
   title: string;
   subtitle?: string;
   url: string;
+  workspace?: {
+    slug: string;
+    name: string;
+    short: string;
+    from: string;
+    to: string;
+    scope?: 'business' | 'private';
+  };
 };
