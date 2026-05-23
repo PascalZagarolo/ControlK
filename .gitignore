@@ -1,0 +1,41 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+.next
+out
+build
+dist
+
+# Environment / secrets
+.env
+.env*.local
+.env.development
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+
+# Misc
+.vercel
+.turbo
+*.tsbuildinfo
+next-env.d.ts
+coverage
+.cache
+
+# Claude Code session state
+.claude
