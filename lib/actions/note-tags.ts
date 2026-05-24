@@ -20,7 +20,11 @@ type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 // lowercase, ASCII-only letters/digits, hyphen-separated, capped at 64.
 // Two tags collapse iff they share a slug, regardless of case or
 // spacing the user typed.
-export function slugifyTag(input: string): string {
+//
+// Kept non-exported because 'use server' files may only export async
+// functions — if another module needs slugify later, move this into
+// lib/notes/slug.ts (regular module) and import it back here.
+function slugifyTag(input: string): string {
   return input
     .toLowerCase()
     .normalize('NFD')
