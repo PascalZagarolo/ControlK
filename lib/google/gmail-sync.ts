@@ -12,6 +12,11 @@ import {
   listInboxMessageIds,
   type ParsedGmailMessage,
 } from './gmail';
+import {
+  classifyMessage,
+  resolveCustomerSenders,
+} from './classify-inbox';
+import { classifyNewDomains } from './classify-topic';
 
 // Hard cap on how many message details we fetch in one sync pass. Each
 // detail is ~5 Gmail quota units; the per-user limit is 250 units/sec.
@@ -127,6 +132,12 @@ async function runInitialSync(
   // 3. Reply-detection pass — flag sent items as awaiting / not.
   await recomputeAwaitingFlags(workspaceId);
 
+  // 4. AI topic classification — fire-and-forget for previously-unseen
+  //    sender domains. Capped so cron passes stay predictable.
+  await classifyNewDomains({ userId, workspaceId, parsed }).catch((e) =>
+    console.warn('[gmail-sync] topic classify failed:', e)
+  );
+
   await db
     .update(s.oauthAccounts)
     .set({
@@ -182,6 +193,12 @@ async function runIncrementalSync(
   // corresponding sent item.
   if (parsed.length > 0 || changes.readStateChanges.size > 0) {
     await recomputeAwaitingFlags(workspaceId);
+  }
+
+  if (parsed.length > 0) {
+    await classifyNewDomains({ userId, workspaceId, parsed }).catch((e) =>
+      console.warn('[gmail-sync] topic classify failed:', e)
+    );
   }
 
   // Read-state flips — apply without re-fetching the message.
@@ -251,8 +268,24 @@ async function upsertInboxItems(
 ): Promise<number> {
   if (parsed.length === 0) return 0;
   const db = getDb();
+
+  // Pre-fetch which inbound senders match customer contacts so the
+  // classifier can decide 'customer' vs 'promo/primary' deterministically.
+  // Only inbound matters — for sent items the sender IS us.
+  const inboundSenders = parsed
+    .filter((m) => m.direction === 'inbox')
+    .map((m) => m.senderEmail)
+    .filter((e): e is string => !!e);
+  const customerSet = await resolveCustomerSenders(workspaceId, inboundSenders);
+
   let inserted = 0;
   for (const m of parsed) {
+    const isCustomerSender =
+      m.direction === 'inbox' &&
+      !!m.senderEmail &&
+      customerSet.has(m.senderEmail.toLowerCase());
+    const category = classifyMessage(m, isCustomerSender);
+
     const res = await db
       .insert(s.inboxItems)
       .values({
@@ -269,6 +302,7 @@ async function upsertInboxItems(
         receivedAt: m.receivedAt,
         isRead: m.isRead,
         direction: m.direction,
+        category,
       })
       .onConflictDoUpdate({
         target: [s.inboxItems.sourceType, s.inboxItems.sourceId],
@@ -278,12 +312,15 @@ async function upsertInboxItems(
         // their original assignment — moving an inbox item between
         // workspaces is a future feature, not a sync side-effect.
         // Direction can flip if Gmail re-labels (rare), so we refresh it.
+        // Category re-runs because customer-match state may have
+        // changed (new contact added, etc.).
         set: {
           subject: m.subject,
           preview: m.preview,
           isRead: m.isRead,
           direction: m.direction,
           recipientEmail: m.recipientEmail,
+          category,
           updatedAt: new Date(),
         },
       });

@@ -183,6 +183,13 @@ export type ParsedGmailMessage = {
   isRead: boolean;
   /** 'sent' when the message carries the SENT label, otherwise 'inbox'. */
   direction: 'inbox' | 'sent';
+  /**
+   * Gmail's own category — one of the CATEGORY_* labels Gmail attaches
+   * via its native ML classifier. We use this as a heuristic in our
+   * own classifier (customer match always wins, but absent that, the
+   * Gmail bucket is a strong signal).
+   */
+  gmailCategory: 'promo' | 'social' | 'updates' | 'forums' | null;
 };
 
 export async function getMessageMetadata(
@@ -241,7 +248,23 @@ export async function getMessageMetadata(
     receivedAt: new Date(ts),
     isRead: !labelIds.includes('UNREAD'),
     direction: labelIds.includes('SENT') ? 'sent' : 'inbox',
+    gmailCategory: gmailCategoryFromLabels(labelIds),
   };
+}
+
+// Maps Gmail's CATEGORY_* labels to our normalized vocab. Gmail can
+// attach multiple CATEGORY_* labels to one message (rare); we pick the
+// first match in priority order — promo wins because it's the loudest
+// signal for "skip the noise".
+function gmailCategoryFromLabels(
+  labelIds: string[]
+): 'promo' | 'social' | 'updates' | 'forums' | null {
+  const set = new Set(labelIds);
+  if (set.has('CATEGORY_PROMOTIONS')) return 'promo';
+  if (set.has('CATEGORY_SOCIAL')) return 'social';
+  if (set.has('CATEGORY_UPDATES')) return 'updates';
+  if (set.has('CATEGORY_FORUMS')) return 'forums';
+  return null;
 }
 
 // ── Full message body (for detail view) ────────────────────────

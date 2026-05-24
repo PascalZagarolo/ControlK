@@ -5,6 +5,90 @@ import * as s from '../schema';
 
 export type InboxFilter = 'all' | 'unread' | 'archived';
 
+export type InboxCategoryKey =
+  | 'primary'
+  | 'customer'
+  | 'shipping'
+  | 'promo'
+  | 'social'
+  | 'updates'
+  | 'forums';
+
+export type InboxCounts = {
+  total: number;
+  byCategory: Record<InboxCategoryKey, number>;
+  topics: { topic: string; count: number }[];
+};
+
+/**
+ * Sidebar counts. Counts non-archived, non-snoozed inbox items per
+ * category, plus AI-derived topic buckets. Topics aggregate via JOIN
+ * to sender_topics on domain (extracted from sender_email).
+ */
+export async function getInboxCounts(workspaceId: string): Promise<InboxCounts> {
+  const db = getDb();
+  const visibleClause = or(
+    isNull(s.inboxItems.snoozedUntil),
+    sql`${s.inboxItems.snoozedUntil} <= now()`
+  )!;
+  const baseWhere = and(
+    eq(s.inboxItems.workspaceId, workspaceId),
+    eq(s.inboxItems.isArchived, false),
+    visibleClause
+  );
+
+  const [categoryRows, topicRows, totalRow] = await Promise.all([
+    db
+      .select({
+        category: s.inboxItems.category,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(s.inboxItems)
+      .where(baseWhere)
+      .groupBy(s.inboxItems.category),
+    db
+      .select({
+        topic: s.senderTopics.topic,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(s.inboxItems)
+      .innerJoin(
+        s.senderTopics,
+        and(
+          eq(s.senderTopics.workspaceId, s.inboxItems.workspaceId),
+          sql`${s.senderTopics.domain} = lower(split_part(${s.inboxItems.senderEmail}, '@', 2))`
+        )
+      )
+      .where(baseWhere)
+      .groupBy(s.senderTopics.topic)
+      .orderBy(sql`count(*) desc`)
+      .limit(15),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(s.inboxItems)
+      .where(baseWhere),
+  ]);
+
+  const byCategory: Record<InboxCategoryKey, number> = {
+    primary: 0,
+    customer: 0,
+    shipping: 0,
+    promo: 0,
+    social: 0,
+    updates: 0,
+    forums: 0,
+  };
+  for (const r of categoryRows) {
+    byCategory[r.category as InboxCategoryKey] = Number(r.n);
+  }
+
+  return {
+    total: Number(totalRow[0]?.n ?? 0),
+    byCategory,
+    topics: topicRows.map((r) => ({ topic: r.topic, count: Number(r.n) })),
+  };
+}
+
 export type InboxOverviewRow = {
   id: string;
   sourceType: string;
@@ -31,12 +115,18 @@ const DEFAULT_PAGE_SIZE = 50;
 // items hide from "all" and "unread" (their owner explicitly deferred
 // them); they DO surface in "archived" so the user can still find
 // what they snoozed if they need to dig it up.
+//
+// category + topic filters cascade through every mode (list/group/
+// awaiting). topic is a JOIN against sender_topics on the email's
+// domain — sql split_part keeps it server-side, no client mapping.
 export async function listInboxItemsPaginated(
   workspaceId: string,
   opts: {
     filter?: InboxFilter;
     page?: number;
     pageSize?: number;
+    category?: InboxCategoryKey | null;
+    topic?: string | null;
   } = {}
 ): Promise<InboxOverviewPage> {
   const db = getDb();
@@ -68,30 +158,54 @@ export async function listInboxItemsPaginated(
     );
   }
 
+  if (opts.category) {
+    conditions.push(eq(s.inboxItems.category, opts.category));
+  }
+
   const where = and(...conditions);
 
+  // Topic filter requires a JOIN to sender_topics on extracted domain.
+  // Built as a separate where-fragment that gets ANDed into the query
+  // both for the list select and the COUNT.
+  const topicJoinCondition = opts.topic
+    ? and(
+        eq(s.senderTopics.workspaceId, s.inboxItems.workspaceId),
+        sql`${s.senderTopics.domain} = lower(split_part(${s.inboxItems.senderEmail}, '@', 2))`,
+        eq(s.senderTopics.topic, opts.topic)
+      )
+    : null;
+
+  const baseSelect = db
+    .select({
+      id: s.inboxItems.id,
+      sourceType: s.inboxItems.sourceType,
+      senderName: s.inboxItems.senderName,
+      senderEmail: s.inboxItems.senderEmail,
+      subject: s.inboxItems.subject,
+      preview: s.inboxItems.preview,
+      receivedAt: s.inboxItems.receivedAt,
+      isRead: s.inboxItems.isRead,
+      isArchived: s.inboxItems.isArchived,
+    })
+    .from(s.inboxItems);
+
+  const baseCount = db
+    .select({ n: count() })
+    .from(s.inboxItems);
+
   const [rows, totalRows] = await Promise.all([
-    db
-      .select({
-        id: s.inboxItems.id,
-        sourceType: s.inboxItems.sourceType,
-        senderName: s.inboxItems.senderName,
-        senderEmail: s.inboxItems.senderEmail,
-        subject: s.inboxItems.subject,
-        preview: s.inboxItems.preview,
-        receivedAt: s.inboxItems.receivedAt,
-        isRead: s.inboxItems.isRead,
-        isArchived: s.inboxItems.isArchived,
-      })
-      .from(s.inboxItems)
+    (topicJoinCondition
+      ? baseSelect.innerJoin(s.senderTopics, topicJoinCondition)
+      : baseSelect
+    )
       .where(where)
       .orderBy(desc(s.inboxItems.receivedAt))
       .limit(pageSize)
       .offset((page - 1) * pageSize),
-    db
-      .select({ n: count() })
-      .from(s.inboxItems)
-      .where(where),
+    (topicJoinCondition
+      ? baseCount.innerJoin(s.senderTopics, topicJoinCondition)
+      : baseCount
+    ).where(where),
   ]);
 
   return {

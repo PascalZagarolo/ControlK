@@ -1876,6 +1876,20 @@ export const inboxSourceTypeEnum = pgEnum('inbox_source_type', [
 
 export const inboxDirectionEnum = pgEnum('inbox_direction', ['inbox', 'sent']);
 
+// "What KIND of message is this" — deterministic bucket. Customer beats
+// Promo because relationship beats Gmail's heuristic. AI-derived topic
+// (like "Fashion") is orthogonal and lives in sender_topics keyed by
+// domain so we never re-classify within the same domain.
+export const inboxCategoryEnum = pgEnum('inbox_category', [
+  'primary',
+  'customer',
+  'shipping',
+  'promo',
+  'social',
+  'updates',
+  'forums',
+]);
+
 export const inboxItems = pgTable(
   'inbox_items',
   {
@@ -1906,6 +1920,9 @@ export const inboxItems = pgTable(
     // from anyone other than the user — i.e. they haven't replied yet.
     // Recomputed at the end of every sync pass.
     awaitsTheirReply: boolean('awaits_their_reply').notNull().default(false),
+    // Categorization bucket — written by the deterministic classifier at
+    // sync time. AI-derived topic is separate (sender_topics table).
+    category: inboxCategoryEnum('category').notNull().default('primary'),
     isRead: boolean('is_read').notNull().default(false),
     isArchived: boolean('is_archived').notNull().default(false),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -1942,6 +1959,46 @@ export const inboxItems = pgTable(
       t.direction,
       t.awaitsTheirReply,
       t.receivedAt
+    ),
+    // Category sidebar — counts + per-category filtering on /inbox.
+    categoryIdx: index('inbox_items_category_idx').on(
+      t.workspaceId,
+      t.category,
+      t.isArchived
+    ),
+  })
+);
+
+// Per-domain topic cache. The AI classifier asks Claude once per
+// previously-unseen domain ("asos.com → Fashion") and stores here so
+// subsequent emails from the same sender are instant. Source records
+// whether the topic came from AI or a future manual override.
+export const senderTopicSourceEnum = pgEnum('sender_topic_source', [
+  'ai',
+  'manual',
+]);
+
+export const senderTopics = pgTable(
+  'sender_topics',
+  {
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    domain: varchar('domain', { length: 253 }).notNull(),
+    topic: varchar('topic', { length: 64 }).notNull(),
+    source: senderTopicSourceEnum('source').notNull().default('ai'),
+    classifiedAt: timestamp('classified_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex('sender_topics_pk').on(t.workspaceId, t.domain),
+    workspaceTopicIdx: index('sender_topics_workspace_topic_idx').on(
+      t.workspaceId,
+      t.topic
     ),
   })
 );

@@ -6,26 +6,57 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type {
   AwaitingRow,
   AwaitingSplit,
+  InboxCategoryKey,
+  InboxCounts,
   InboxFilter,
   InboxGroup,
   InboxOverviewPage,
   InboxOverviewRow,
 } from '@/lib/db/queries/inbox-overview';
 
+const CATEGORY_LABELS: Record<InboxCategoryKey, string> = {
+  primary: 'Primary',
+  customer: 'Kunden',
+  shipping: 'Versand',
+  promo: 'Promos',
+  social: 'Social',
+  updates: 'Updates',
+  forums: 'Forums',
+};
+
+// Render order in the sidebar — primary first, then relationship,
+// then noise. Mirrors the operations-hub framing: customers loud,
+// promos quiet, default in between.
+const CATEGORY_ORDER: InboxCategoryKey[] = [
+  'primary',
+  'customer',
+  'shipping',
+  'updates',
+  'social',
+  'promo',
+  'forums',
+];
+
 export function InboxOverviewClient({
   mode,
   filter,
+  category,
+  topic,
   gmailConnected,
   pageData,
   groups,
   awaiting,
+  counts,
 }: {
   mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
+  category: InboxCategoryKey | null;
+  topic: string | null;
   gmailConnected: boolean;
   pageData: InboxOverviewPage | null;
   groups: InboxGroup[] | null;
   awaiting: AwaitingSplit | null;
+  counts: InboxCounts | null;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -52,7 +83,17 @@ export function InboxOverviewClient({
           : 0;
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 pb-32 pt-24 md:px-6">
+    <div className="mx-auto flex w-full max-w-[1280px] gap-6 px-4 pb-32 pt-24 md:px-6">
+      {/* Sidebar — category + topic filters. Collapses below md but
+          stays visible on every desktop width. */}
+      <CategorySidebar
+        counts={counts}
+        activeCategory={category}
+        activeTopic={topic}
+        setQuery={setQuery}
+      />
+
+      <div className="min-w-0 flex-1">
       {/* Module header */}
       <header className="flex flex-col gap-6 pb-6">
         <div className="flex items-end justify-between gap-4">
@@ -107,7 +148,140 @@ export function InboxOverviewClient({
       {mode === 'list' && pageData && <ListView page={pageData} setQuery={setQuery} />}
       {mode === 'group' && groups && <GroupedView groups={groups} />}
       {mode === 'awaiting' && awaiting && <AwaitingView split={awaiting} />}
+      </div>
     </div>
+  );
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────
+
+function CategorySidebar({
+  counts,
+  activeCategory,
+  activeTopic,
+  setQuery,
+}: {
+  counts: InboxCounts | null;
+  activeCategory: InboxCategoryKey | null;
+  activeTopic: string | null;
+  setQuery: (patch: Record<string, string | null>) => void;
+}) {
+  const allActive = !activeCategory && !activeTopic;
+  return (
+    <aside className="hidden w-[220px] shrink-0 flex-col gap-5 md:flex">
+      <section className="flex flex-col">
+        <SidebarRow
+          label="Alle"
+          count={counts?.total ?? null}
+          active={allActive}
+          onClick={() => setQuery({ category: null, topic: null, p: null })}
+        />
+      </section>
+
+      <section className="flex flex-col gap-1">
+        <p className="px-2 font-mono text-[9.5px] uppercase tracking-[0.18em] text-[#52525B]">
+          Typ
+        </p>
+        {CATEGORY_ORDER.map((cat) => {
+          const c = counts?.byCategory[cat] ?? 0;
+          if (c === 0 && activeCategory !== cat) return null;
+          return (
+            <SidebarRow
+              key={cat}
+              label={CATEGORY_LABELS[cat]}
+              count={c}
+              active={activeCategory === cat}
+              onClick={() =>
+                setQuery({
+                  category: activeCategory === cat ? null : cat,
+                  topic: null,
+                  p: null,
+                })
+              }
+              dim={cat === 'promo' || cat === 'forums'}
+            />
+          );
+        })}
+      </section>
+
+      {counts && counts.topics.length > 0 && (
+        <section className="flex flex-col gap-1">
+          <p className="px-2 font-mono text-[9.5px] uppercase tracking-[0.18em] text-[#52525B]">
+            Themen
+          </p>
+          {counts.topics.map((t) => (
+            <SidebarRow
+              key={t.topic}
+              label={t.topic}
+              count={t.count}
+              active={activeTopic === t.topic}
+              onClick={() =>
+                setQuery({
+                  category: null,
+                  topic: activeTopic === t.topic ? null : t.topic,
+                  mode: 'list',
+                  p: null,
+                })
+              }
+              accent="#E8B86D"
+            />
+          ))}
+        </section>
+      )}
+
+      {counts && counts.topics.length === 0 && (
+        <p className="px-2 text-[11.5px] leading-[1.55] text-[#52525B]">
+          AI-Themen erscheinen, sobald neue Mails synced wurden. Cron alle
+          5 min.
+        </p>
+      )}
+    </aside>
+  );
+}
+
+function SidebarRow({
+  label,
+  count,
+  active,
+  onClick,
+  dim,
+  accent,
+}: {
+  label: string;
+  count: number | null;
+  active: boolean;
+  onClick: () => void;
+  dim?: boolean;
+  accent?: string;
+}) {
+  const baseText = active
+    ? '#FAFAFA'
+    : dim
+      ? '#52525B'
+      : accent ?? '#A1A1AA';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex items-baseline justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
+        active ? 'bg-white/[0.05]' : 'hover:bg-white/[0.03]'
+      }`}
+    >
+      <span
+        className="truncate text-[13px]"
+        style={{ color: baseText }}
+      >
+        {label}
+      </span>
+      {count !== null && (
+        <span
+          className="ml-2 shrink-0 font-mono text-[10.5px]"
+          style={{ color: active ? '#FAFAFA' : '#52525B' }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
 

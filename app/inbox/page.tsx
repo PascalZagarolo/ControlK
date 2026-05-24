@@ -3,8 +3,10 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import {
   getAwaitingSplit,
+  getInboxCounts,
   groupInboxBySender,
   listInboxItemsPaginated,
+  type InboxCategoryKey,
   type InboxFilter,
 } from '@/lib/db/queries/inbox-overview';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
@@ -16,7 +18,32 @@ type Search = {
   filter?: string;
   mode?: string;
   p?: string;
+  category?: string;
+  topic?: string;
 };
+
+const CATEGORY_KEYS = new Set<InboxCategoryKey>([
+  'primary',
+  'customer',
+  'shipping',
+  'promo',
+  'social',
+  'updates',
+  'forums',
+]);
+
+function parseCategory(raw: string | undefined): InboxCategoryKey | null {
+  if (!raw) return null;
+  return CATEGORY_KEYS.has(raw as InboxCategoryKey)
+    ? (raw as InboxCategoryKey)
+    : null;
+}
+
+function parseTopic(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed && trimmed.length <= 64 ? trimmed : null;
+}
 
 function parseFilter(raw: string | undefined): InboxFilter {
   if (raw === 'all' || raw === 'unread' || raw === 'archived') return raw;
@@ -47,36 +74,43 @@ export default async function Page({
   const filter = parseFilter(sp.filter);
   const mode = parseMode(sp.mode);
   const page = parsePage(sp.p);
+  const category = parseCategory(sp.category);
+  const topic = parseTopic(sp.topic);
 
-  // Fetch the right shape for the active mode. We deliberately don't
-  // load all three — group-by-sender and awaiting are heavier and
-  // the toggle re-navigates the URL anyway.
-  const [pageData, groups, awaiting, gmail] = await Promise.all([
-    mode === 'list'
-      ? listInboxItemsPaginated(ws.id, { filter, page })
+  // Force list mode when filtering by topic (the group/awaiting modes
+  // ignore topic for V1 — adding the JOIN to them is the next iteration).
+  const effectiveMode = topic ? 'list' : mode;
+
+  const [pageData, groups, awaiting, gmail, counts] = await Promise.all([
+    effectiveMode === 'list'
+      ? listInboxItemsPaginated(ws.id, { filter, page, category, topic })
       : Promise.resolve(null),
-    mode === 'group'
+    effectiveMode === 'group'
       ? groupInboxBySender(ws.id, {
           filter: filter === 'unread' ? 'unread' : 'all',
         })
       : Promise.resolve(null),
-    mode === 'awaiting'
+    effectiveMode === 'awaiting'
       ? getAwaitingSplit(ws.id)
       : Promise.resolve(null),
     fetchGmailConnectionState(user.id).catch(() => ({
       connected: false,
       syncedAt: null,
     })),
+    getInboxCounts(ws.id).catch(() => null),
   ]);
 
   return (
     <InboxOverviewClient
-      mode={mode}
+      mode={effectiveMode}
       filter={filter}
+      category={category}
+      topic={topic}
       gmailConnected={gmail.connected}
       pageData={pageData}
       groups={groups}
       awaiting={awaiting}
+      counts={counts}
     />
   );
 }
