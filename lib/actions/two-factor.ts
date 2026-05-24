@@ -1,14 +1,27 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { generateSecret, generateURI, verifySync } from 'otplib';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { verifyPassword } from '@/lib/auth/password';
 import { checkRateLimit } from '@/lib/auth/rate-limit';
+import {
+  sendTotpDisabledAlert,
+  sendTotpEnabledAlert,
+} from '@/lib/auth/security-mails';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
+
+async function readClientInfo(): Promise<{ ip: string | null; userAgent: string | null }> {
+  const h = await headers();
+  return {
+    ip: h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    userAgent: h.get('user-agent') ?? null,
+  };
+}
 
 // Step 1: generate provisional secret + otpauth URL (NOT yet enabled)
 export async function startTotpSetup(): Promise<Result<{ secret: string; otpauth: string; qrDataUrl: string }>> {
@@ -40,6 +53,10 @@ export async function confirmTotp(code: string): Promise<Result> {
   if (!result.valid) return { ok: false, error: 'Ungültiger Code.' };
 
   await db.update(s.users).set({ totpEnabledAt: new Date() }).where(eq(s.users.id, user.id));
+
+  const info = await readClientInfo();
+  sendTotpEnabledAlert({ email: user.email, ip: info.ip, userAgent: info.userAgent });
+
   return { ok: true };
 }
 
@@ -58,5 +75,9 @@ export async function disableTotp(formData: FormData): Promise<Result> {
     .update(s.users)
     .set({ totpSecret: null, totpEnabledAt: null })
     .where(eq(s.users.id, user.id));
+
+  const info = await readClientInfo();
+  sendTotpDisabledAlert({ email: user.email, ip: info.ip, userAgent: info.userAgent });
+
   return { ok: true };
 }

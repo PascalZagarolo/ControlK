@@ -22,6 +22,7 @@ import {
   markInboxItemRead,
   snoozeInboxItem,
 } from '@/lib/actions/inbox-actions';
+import { toast } from '@/lib/stores/toast-store';
 
 // ───────────────────────────────────────────────────────────────
 // Types + mock data
@@ -345,15 +346,27 @@ export function NotificationStack({
   // Fire a server action with optimistic local-remove. The card animates
   // out immediately; if the server call fails the row would re-appear
   // on the next foyer fetch — accept that mild visual flicker for the
-  // sake of perceived speed.
+  // sake of perceived speed. successMsg shows a toast on success;
+  // failures surface a generic "Aktion fehlgeschlagen" toast.
   const runAction = (
     cardId: string,
-    fn: () => Promise<unknown>
+    fn: () => Promise<{ ok: boolean }>,
+    successMsg?: string
   ): void => {
     dismiss(cardId);
     setSnoozeOpenFor(null);
     setHoveredId(null);
-    startAction(() => fn().then(() => router.refresh()).catch(() => {}));
+    startAction(() =>
+      fn()
+        .then((res) => {
+          if (res.ok && successMsg) toast(successMsg, 'success');
+          else if (!res.ok) toast('Aktion fehlgeschlagen', 'danger');
+          router.refresh();
+        })
+        .catch(() => {
+          toast('Aktion fehlgeschlagen', 'danger');
+        })
+    );
   };
 
   // Keyboard shortcuts only when a real card is under the cursor. We
@@ -375,15 +388,19 @@ export function NotificationStack({
       switch (e.key.toLowerCase()) {
         case 'e':
           e.preventDefault();
-          runAction(id, () => archiveInboxItem(id));
+          runAction(id, () => archiveInboxItem(id), 'Archiviert');
           break;
         case 'r':
           e.preventDefault();
-          runAction(id, () => markInboxItemRead(id));
+          runAction(id, () => markInboxItemRead(id), 'Als gelesen markiert');
           break;
         case 't':
           e.preventDefault();
-          runAction(id, () => createTodoFromInboxItem(id));
+          runAction(
+            id,
+            () => createTodoFromInboxItem(id),
+            '→ Todo erstellt'
+          );
           break;
         case 's':
           e.preventDefault();
@@ -518,13 +535,25 @@ export function NotificationStack({
                   <CardActions
                     visible={hoveredId === card.id}
                     onArchive={() =>
-                      runAction(card.id, () => archiveInboxItem(card.id))
+                      runAction(
+                        card.id,
+                        () => archiveInboxItem(card.id),
+                        'Archiviert'
+                      )
                     }
                     onMarkRead={() =>
-                      runAction(card.id, () => markInboxItemRead(card.id))
+                      runAction(
+                        card.id,
+                        () => markInboxItemRead(card.id),
+                        'Als gelesen markiert'
+                      )
                     }
                     onToTodo={() =>
-                      runAction(card.id, () => createTodoFromInboxItem(card.id))
+                      runAction(
+                        card.id,
+                        () => createTodoFromInboxItem(card.id),
+                        '→ Todo erstellt'
+                      )
                     }
                     onOpenSnooze={(e) => {
                       e.stopPropagation();
@@ -539,8 +568,10 @@ export function NotificationStack({
                 {snoozeOpenFor === card.id && (
                   <SnoozePicker
                     onPick={(preset) =>
-                      runAction(card.id, () =>
-                        snoozeInboxItem(card.id, preset)
+                      runAction(
+                        card.id,
+                        () => snoozeInboxItem(card.id, preset),
+                        snoozeLabel(preset)
                       )
                     }
                     onClose={() => setSnoozeOpenFor(null)}
@@ -554,6 +585,13 @@ export function NotificationStack({
 
     </>
   );
+}
+
+// Friendly toast text for the chosen snooze preset.
+function snoozeLabel(preset: 'three_hours' | 'tomorrow' | 'monday'): string {
+  if (preset === 'three_hours') return 'Bis in 3 Stunden gesnoozed';
+  if (preset === 'tomorrow') return 'Bis morgen früh gesnoozed';
+  return 'Bis Montag gesnoozed';
 }
 
 // ───────────────────────────────────────────────────────────────

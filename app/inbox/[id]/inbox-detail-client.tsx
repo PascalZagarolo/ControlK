@@ -9,6 +9,7 @@ import {
   markInboxItemRead,
   snoozeInboxItem,
 } from '@/lib/actions/inbox-actions';
+import { toast } from '@/lib/stores/toast-store';
 import type { GmailFullBody } from '@/lib/google/gmail';
 
 type ItemSummary = {
@@ -48,9 +49,23 @@ export function InboxDetailClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const runAction = (fn: () => Promise<unknown>, redirectAfter = '/') => {
+  const runAction = (
+    fn: () => Promise<{ ok: boolean }>,
+    successMsg: string,
+    redirectAfter = '/'
+  ) => {
     setSnoozeOpen(false);
-    start(() => fn().then(() => router.push(redirectAfter)).catch(() => {}));
+    start(() =>
+      fn()
+        .then((res) => {
+          if (res.ok) toast(successMsg, 'success');
+          else toast('Aktion fehlgeschlagen', 'danger');
+          router.push(redirectAfter);
+        })
+        .catch(() => {
+          toast('Aktion fehlgeschlagen', 'danger');
+        })
+    );
   };
 
   const gmailUrl =
@@ -77,7 +92,9 @@ export function InboxDetailClient({
           <ToolbarButton
             label="Archivieren"
             shortcut="E"
-            onClick={() => runAction(() => archiveInboxItem(item.id))}
+            onClick={() =>
+              runAction(() => archiveInboxItem(item.id), 'Archiviert')
+            }
             disabled={pending}
           />
           <ToolbarButton
@@ -89,7 +106,12 @@ export function InboxDetailClient({
           <ToolbarButton
             label="→ Todo"
             shortcut="T"
-            onClick={() => runAction(() => createTodoFromInboxItem(item.id))}
+            onClick={() =>
+              runAction(
+                () => createTodoFromInboxItem(item.id),
+                '→ Todo erstellt'
+              )
+            }
             disabled={pending}
           />
           {gmailUrl && (
@@ -107,7 +129,10 @@ export function InboxDetailClient({
           {snoozeOpen && (
             <SnoozeMenu
               onPick={(preset) =>
-                runAction(() => snoozeInboxItem(item.id, preset))
+                runAction(
+                  () => snoozeInboxItem(item.id, preset),
+                  snoozeLabel(preset)
+                )
               }
               onClose={() => setSnoozeOpen(false)}
             />
@@ -310,6 +335,12 @@ function formatDateTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function snoozeLabel(preset: 'three_hours' | 'tomorrow' | 'monday'): string {
+  if (preset === 'three_hours') return 'Bis in 3 Stunden gesnoozed';
+  if (preset === 'tomorrow') return 'Bis morgen früh gesnoozed';
+  return 'Bis Montag gesnoozed';
 }
 
 function formatSize(bytes: number): string {

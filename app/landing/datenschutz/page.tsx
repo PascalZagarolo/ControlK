@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 // Stand: bei jedem inhaltlichen Update auf das aktuelle Datum heben.
-const STAND = '28. Mai 2026';
+const STAND = '29. Mai 2026';
 
 export default function DatenschutzPage() {
   return (
@@ -157,15 +157,17 @@ export default function DatenschutzPage() {
       <p>
         Wenn du in den Konto-Einstellungen aktiv <strong>„Mit Gmail
         verbinden"</strong> wählst, erweitern wir den Google-Berechtigungs­umfang
-        um <code>https://www.googleapis.com/auth/gmail.readonly</code>.
-        Diese Erweiterung ist <strong>nicht</strong> Teil des regulären
-        Logins und passiert ausschließlich auf deine explizite Aktion
-        hin. Du musst die Erweiterung in einem separaten
+        um <code>https://www.googleapis.com/auth/gmail.modify</code>.
+        Dieser Scope umfasst sowohl das Lesen als auch das Setzen und
+        Entfernen von Labels (z. B. „INBOX", „UNREAD") für Nachrichten
+        in deinem Postfach. Die Erweiterung ist <strong>nicht</strong> Teil
+        des regulären Logins und passiert ausschließlich auf deine
+        explizite Aktion hin. Du musst sie in einem separaten
         Google-Consent-Dialog bestätigen.
       </p>
       <p>
-        Mit der Verbindung verarbeiten wir folgende Daten aus deinem
-        Gmail-Postfach:
+        <strong>Was wir aus Gmail lesen</strong> (regelmäßig, alle ~5
+        Minuten + beim Öffnen des Foyers):
       </p>
       <ul>
         <li>
@@ -179,13 +181,36 @@ export default function DatenschutzPage() {
           Vorschau-Text der ersten ~150 Zeichen der Nachricht), den
           Google selbst aus deinen Mails ableitet
         </li>
+        <li>
+          beim Öffnen einer einzelnen Nachricht zusätzlich den{' '}
+          <strong>Plain-Text-Body</strong> live von Gmail; dieser
+          Body wird ausschließlich im Browser angezeigt und{' '}
+          <strong>nicht in unserer Datenbank gespeichert</strong>
+        </li>
       </ul>
       <p>
-        Wir lesen <strong>keine vollständigen Nachrichten-Inhalte und
-        keine Anhänge</strong>. Wir holen ausschließlich Metadaten plus
-        den von Google bereitgestellten Snippet ab. Die Abfrage läuft
-        gegen die Gmail REST API; eine Synchronisation findet alle ~5
-        Minuten statt sowie beim Öffnen des Foyers.
+        <strong>Was wir in Gmail zurückschreiben</strong> (nur als Reaktion
+        auf deine konkreten Klicks):
+      </p>
+      <ul>
+        <li>
+          <strong>Archivieren</strong> einer Nachricht entfernt das
+          „INBOX"-Label in Gmail (gleiches Verhalten wie der „Archiv"-Button
+          in Gmail selbst)
+        </li>
+        <li>
+          <strong>Als gelesen markieren</strong> entfernt das
+          „UNREAD"-Label
+        </li>
+      </ul>
+      <p>
+        Wir <strong>löschen niemals</strong> Nachrichten, ändern{' '}
+        <strong>keine Betreffe oder Inhalte</strong>, verfassen{' '}
+        <strong>keine Antworten</strong> und greifen{' '}
+        <strong>nicht auf Anhänge</strong> zu. Auch wenn der gewählte
+        Google-Scope theoretisch mehr erlauben würde, beschränken wir
+        unsere tatsächlichen API-Aufrufe auf die oben genannten
+        Operationen.
       </p>
       <p>
         <strong>Zweck:</strong> Universal-Inbox im Foyer — du siehst

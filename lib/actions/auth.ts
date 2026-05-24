@@ -21,6 +21,10 @@ import {
   resetPasswordTemplate,
   magicLinkTemplate,
 } from '@/lib/email/send';
+import {
+  sendNewDeviceLoginAlert,
+  sendPasswordChangedAlert,
+} from '@/lib/auth/security-mails';
 import { verifySync } from 'otplib';
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -69,8 +73,9 @@ export async function signUp(formData: FormData): Promise<Result> {
     name,
     initials: initialsFromName(name),
     passwordHash,
-    // Auto-verify until a verified sender domain is configured.
-    emailVerifiedAt: new Date(),
+    // emailVerifiedAt stays null — the verification mail goes out at
+    // the bottom of this function and the user has to click the link.
+    // Until then a banner in the root layout reminds them.
   });
 
   // Bootstrap: create a personal workspace + add user as owner-member.
@@ -94,7 +99,37 @@ export async function signUp(formData: FormData): Promise<Result> {
 
   const { token, expiresAt } = await createSession(id, info);
   await setSessionCookie(token, expiresAt);
+
+  // Verification mail — fire-and-forget. If sending fails for any reason
+  // (Resend down, key missing, …) we still let the user in; they can
+  // resend from the in-app banner. Don't surface the failure as a
+  // sign-up error.
+  void enqueueVerificationEmail(id, email).catch((e) => {
+    console.error('[signUp] verification email failed:', e);
+  });
+
   return { ok: true };
+}
+
+/**
+ * Creates a one-time verification token in email_verifications and
+ * sends the user the link mail. Reusable from signUp and from the
+ * "Erneut senden" button on the verify banner.
+ */
+export async function enqueueVerificationEmail(
+  userId: string,
+  email: string
+): Promise<void> {
+  const db = getDb();
+  const { plain, hash } = generateToken();
+  await db.insert(s.emailVerifications).values({
+    userId,
+    email,
+    tokenHash: hash,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  });
+  const link = `${appUrl()}/verify-email?token=${plain}`;
+  await sendMail({ to: email, ...verifyEmailTemplate(link) });
 }
 
 function slugify(s: string): string {
@@ -147,9 +182,53 @@ export async function signIn(formData: FormData): Promise<Result & { needsTotp?:
     if (!result.valid) return { ok: false, error: 'Ungültiger 2FA-Code.', needsTotp: true };
   }
 
+  // Detect "new device" BEFORE creating this login's session so the
+  // current session doesn't count as prior history. Compare the IP
+  // + UA pair against the user's existing sessions.
+  const isNewDevice = await detectNewDevice(user.id, info.ip, info.userAgent);
+
   const { token, expiresAt } = await createSession(user.id, info);
   await setSessionCookie(token, expiresAt);
+
+  if (isNewDevice) {
+    sendNewDeviceLoginAlert({
+      email: user.email,
+      ip: info.ip,
+      userAgent: info.userAgent,
+    });
+  }
+
   return { ok: true };
+}
+
+/**
+ * Returns true when no prior session for the user matches the given
+ * (ip, userAgent) pair. Conservative on null inputs — if we can't
+ * fingerprint, we treat as "not new" to avoid noisy alerts.
+ */
+async function detectNewDevice(
+  userId: string,
+  ip: string | null,
+  userAgent: string | null
+): Promise<boolean> {
+  if (!ip && !userAgent) return false;
+  const db = getDb();
+  const rows = await db.query.sessions.findMany({
+    where: eq(s.sessions.userId, userId),
+    columns: { ipAddress: true, userAgent: true },
+    limit: 50,
+  });
+  if (rows.length === 0) {
+    // First-ever session for this user — already counts as "the new
+    // device", so don't alert (they're literally setting it up now).
+    return false;
+  }
+  const match = rows.some(
+    (r) =>
+      (ip ? r.ipAddress === ip : true) &&
+      (userAgent ? r.userAgent === userAgent : true)
+  );
+  return !match;
 }
 
 // ─── Sign Out ───────────────────────────────────────────────────
@@ -166,6 +245,31 @@ export async function signOutAllSessions(userId: string) {
 }
 
 // ─── Email verification ────────────────────────────────────────
+
+/**
+ * Re-sends the verification mail for the currently signed-in user.
+ * Rate-limited per-user so a runaway "Erneut senden" click doesn't
+ * blast Resend. Always returns ok=true to avoid leaking info about
+ * which emails exist.
+ */
+export async function resendVerificationEmail(): Promise<Result> {
+  const db = getDb();
+  const info = await clientInfo();
+  // Reuse the existing forgot-password rate-limit bucket — same
+  // human-pace expectation, no need for a new bucket name.
+  const rl = await checkRateLimit('forgot-password', `ip:${info.ip ?? 'unknown'}`);
+  if (!rl.ok) {
+    return { ok: false, error: `Zu viele Versuche. Bitte warte ${rl.retryAfterSec}s.` };
+  }
+  // Lazy session lookup — avoids importing requireUser at module top.
+  const { currentUser } = await import('@/lib/auth/current-user');
+  const user = await currentUser();
+  if (!user) return { ok: true };
+  if (user.emailVerified) return { ok: true };
+  await enqueueVerificationEmail(user.id, user.email);
+  return { ok: true };
+}
+
 export async function verifyEmail(token: string): Promise<Result> {
   const db = getDb();
   const hash = hashToken(token);
@@ -238,6 +342,21 @@ export async function resetPassword(formData: FormData): Promise<Result> {
   const info = await clientInfo();
   const { token: t, expiresAt } = await createSession(row.userId, info);
   await setSessionCookie(t, expiresAt);
+
+  // Security mail: password just changed. Look up the user's email for
+  // the To-address — the row only carries userId.
+  const user = await db.query.users.findFirst({
+    where: eq(s.users.id, row.userId),
+    columns: { email: true },
+  });
+  if (user) {
+    sendPasswordChangedAlert({
+      email: user.email,
+      ip: info.ip,
+      userAgent: info.userAgent,
+    });
+  }
+
   return { ok: true };
 }
 
