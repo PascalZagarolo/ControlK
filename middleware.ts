@@ -13,81 +13,77 @@ const PUBLIC_PREFIXES = [
   '/dev/',
 ];
 
-// Marketing-only public paths that the landing renders. We expose them
-// at the bare path on every host so the confirmation email link and
-// footer references resolve in dev (localhost) as well as on the
-// marketing host (ctrlk.de). The middleware rewrites them into the
-// /landing/* segment, so the page source stays colocated with the rest
-// of the marketing tree.
+// Bare paths that always render landing content, regardless of host —
+// reachable in dev as localhost:3000/impressum and in prod as
+// ctrlk.de/impressum. The page source lives at /landing/impressum.
 const LANDING_BARE_PATHS = new Set(['/impressum', '/datenschutz', '/danke']);
 
 const COOKIE = 'urent_session';
 
 // Marketing hostnames — when the incoming Host header matches one of these,
-// every request gets rewritten under /landing and auth is skipped. Production
-// will set this to "ctrlk.de,www.ctrlk.de" via Vercel env. Local dev can
-// preview the landing page via ?landing=1 instead.
+// the root path serves the marketing landing for anonymous visitors.
+// Authenticated visitors fall through to the Foyer like on any other host.
+// Local dev can preview the landing via ?landing=1 instead.
 const LANDING_HOSTS = (process.env.LANDING_HOSTS ?? 'ctrlk.de,www.ctrlk.de')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
+function landingRewrite(req: NextRequest, landingPath: string): NextResponse {
+  const url = req.nextUrl.clone();
+  url.pathname = landingPath;
+  const headers = new Headers(req.headers);
+  headers.set('x-route-class', 'landing');
+  headers.set('x-pathname', req.nextUrl.pathname);
+  return NextResponse.rewrite(url, { request: { headers } });
+}
+
+function passthrough(req: NextRequest, asLanding = false): NextResponse {
+  const headers = new Headers(req.headers);
+  headers.set('x-pathname', req.nextUrl.pathname);
+  if (asLanding) headers.set('x-route-class', 'landing');
+  return NextResponse.next({ request: { headers } });
+}
+
 export default function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const host = (req.headers.get('host') ?? '').toLowerCase().split(':')[0];
-  const wantsLanding =
-    LANDING_HOSTS.includes(host) || req.nextUrl.searchParams.get('landing') === '1';
+  const isMarketingHost =
+    LANDING_HOSTS.includes(host) ||
+    req.nextUrl.searchParams.get('landing') === '1';
 
-  // Marketing host: rewrite everything to /landing/* and stamp a request
-  // header so the root layout can drop the app chrome. Setting it via
-  // request.headers (not response.headers) is what makes it readable from
-  // headers() in server components downstream.
-  if (wantsLanding) {
-    const url = req.nextUrl.clone();
-    // Paths that stay canonical even on ctrlk.de — they exist at the
-    // top level, not under /landing, so rewriting would 404. Covers:
-    // - /api/*       : waitlist confirm link, OAuth callback, etc.
-    // - /sign-in, /sign-up, /forgot-password, /reset-password,
-    //   /verify-email, /magic-link : the landing CTAs link here.
-    if (
-      url.pathname.startsWith('/api/') ||
-      PUBLIC_PREFIXES.some(
-        (p) => url.pathname === p || url.pathname.startsWith(p + '/')
-      )
-    ) {
-      const reqHeaders = new Headers(req.headers);
-      reqHeaders.set('x-route-class', 'landing');
-      return NextResponse.next({ request: { headers: reqHeaders } });
-    }
-    if (!url.pathname.startsWith('/landing')) {
-      url.pathname = '/landing' + (url.pathname === '/' ? '' : url.pathname);
-    }
-    const reqHeaders = new Headers(req.headers);
-    reqHeaders.set('x-route-class', 'landing');
-    return NextResponse.rewrite(url, { request: { headers: reqHeaders } });
-  }
-
-  // Bare-path legal/marketing routes work on any host. Rewrite them into
-  // the /landing/* tree without requiring auth or the landing host.
+  // Bare marketing paths render landing content on any host.
   if (LANDING_BARE_PATHS.has(path)) {
-    const url = req.nextUrl.clone();
-    url.pathname = '/landing' + path;
-    const reqHeaders = new Headers(req.headers);
-    reqHeaders.set('x-route-class', 'landing');
-    return NextResponse.rewrite(url, { request: { headers: reqHeaders } });
+    return landingRewrite(req, '/landing' + path);
   }
 
-  const isPublic = PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + '/') || path === p);
-  const isLandingPath = path === '/landing' || path.startsWith('/landing/');
-  if (isPublic || isLandingPath) {
-    if (isLandingPath) {
-      const reqHeaders = new Headers(req.headers);
-      reqHeaders.set('x-route-class', 'landing');
-      return NextResponse.next({ request: { headers: reqHeaders } });
-    }
-    return NextResponse.next();
+  // The /landing tree itself — pass through with the landing class stamp
+  // so the root layout drops app chrome.
+  if (path === '/landing' || path.startsWith('/landing/')) {
+    return passthrough(req, true);
   }
 
+  // Marketing host: root path is conditional on auth.
+  //   - Anonymous visitor on ctrlk.de  → marketing landing
+  //   - Authenticated visitor on ctrlk.de → Foyer (fall through)
+  // Without this branch, signed-in users would land on the marketing page
+  // every time they navigate home.
+  if (isMarketingHost && path === '/') {
+    const token = req.cookies.get(COOKIE)?.value;
+    if (!token) return landingRewrite(req, '/landing');
+    // Authenticated — fall through; the Foyer renders at app/page.tsx.
+  }
+
+  // Public auth + utility prefixes — no cookie required.
+  const isPublic = PUBLIC_PREFIXES.some(
+    (p) => path === p || path.startsWith(p + '/')
+  );
+  if (isPublic) return passthrough(req);
+
+  // API routes — own auth handling per route.
+  if (path.startsWith('/api/')) return passthrough(req);
+
+  // Everything else requires a session.
   const token = req.cookies.get(COOKIE)?.value;
   if (!token) {
     const url = req.nextUrl.clone();
@@ -95,14 +91,7 @@ export default function middleware(req: NextRequest) {
     url.searchParams.set('from', path);
     return NextResponse.redirect(url);
   }
-  // Full validation (DB query) happens in server components via currentUser().
-  // Middleware only checks cookie presence to keep the edge path fast.
-  //
-  // Stamp the resolved pathname so server components (e.g. ProfileDock)
-  // can branch on the route without depending on a client-side hook.
-  const reqHeaders = new Headers(req.headers);
-  reqHeaders.set('x-pathname', path);
-  return NextResponse.next({ request: { headers: reqHeaders } });
+  return passthrough(req);
 }
 
 export const config = {
