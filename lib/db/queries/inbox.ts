@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 
@@ -55,7 +55,13 @@ export async function listFoyerInboxCards(
     where: and(
       eq(s.inboxItems.workspaceId, workspaceId),
       eq(s.inboxItems.isRead, false),
-      eq(s.inboxItems.isArchived, false)
+      eq(s.inboxItems.isArchived, false),
+      // Hide snoozed items until their wake-up time passes. NULL means
+      // never snoozed, so always visible.
+      or(
+        isNull(s.inboxItems.snoozedUntil),
+        sql`${s.inboxItems.snoozedUntil} <= now()`
+      )
     ),
     orderBy: [desc(s.inboxItems.receivedAt)],
     limit,

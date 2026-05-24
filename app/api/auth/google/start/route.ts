@@ -25,8 +25,13 @@ function safeRedirect(input: string | null): string {
 // Whitelist of OAuth scopes a request can ask for beyond the base
 // "who is this person" set. Lock this down so a malicious link can't
 // silently escalate to drive.readonly or whatever else.
+//
+// gmail.modify supersedes gmail.readonly (Google grants both when the
+// caller asks for modify), so the "Mit Gmail verbinden" CTA in
+// Settings asks for modify and gets read + modify in one consent.
 const ALLOWED_EXTRA_SCOPES = new Set<string>([
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
 ]);
 
 function parseExtraScopes(input: string | null): string[] {

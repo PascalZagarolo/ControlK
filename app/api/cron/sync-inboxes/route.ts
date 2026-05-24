@@ -10,7 +10,13 @@ export const dynamic = 'force-dynamic';
 // want to chunk the job; for now the simple loop is fine.
 export const maxDuration = 300;
 
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+// modify is a superset of readonly; either qualifies the account for
+// sync. We keep the broader filter so a user who upgrades to modify
+// later doesn't accidentally get dropped from the cron.
+const GMAIL_READ_SCOPES = new Set([
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+]);
 
 /**
  * Vercel cron — every 5 min, walk every Google account that has both
@@ -49,7 +55,7 @@ export async function GET(req: NextRequest) {
     );
 
   const eligible = candidates.filter((c) =>
-    (c.scopes ?? '').split(/\s+/).includes(GMAIL_SCOPE)
+    (c.scopes ?? '').split(/\s+/).some((s) => GMAIL_READ_SCOPES.has(s))
   );
 
   let synced = 0;

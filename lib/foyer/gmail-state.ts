@@ -3,7 +3,13 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+// Either of these satisfies the "Gmail is connected" check — modify
+// implicitly grants readonly's permissions, so a user with modify can
+// also list/read messages.
+const GMAIL_READ_SCOPES = new Set([
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+]);
 
 export type GmailFoyerState = {
   /** True when the user has a refresh token AND the gmail.readonly scope. */
@@ -38,7 +44,7 @@ export async function fetchGmailConnectionState(
       return { connected: false, syncedAt: null };
     }
     const scopes = (row.scopes ?? '').split(/\s+/).filter(Boolean);
-    if (!scopes.includes(GMAIL_SCOPE)) {
+    if (!scopes.some((s) => GMAIL_READ_SCOPES.has(s))) {
       return { connected: false, syncedAt: null };
     }
     return {

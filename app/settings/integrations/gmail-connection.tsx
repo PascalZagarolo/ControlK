@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { disconnectGoogleAction } from './gmail-actions';
 import type { GoogleConnection } from '@/lib/auth/google-tokens';
 
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
+const GMAIL_MODIFY = 'https://www.googleapis.com/auth/gmail.modify';
 
 // "Gmail-Verbindung" panel for /settings/integrations.
 //
@@ -16,8 +17,12 @@ export function GmailConnection({
 }: {
   connection: GoogleConnection | null;
 }) {
-  const hasGmailScope =
-    !!connection && connection.scopes.includes(GMAIL_SCOPE);
+  const hasModifyScope =
+    !!connection && connection.scopes.includes(GMAIL_MODIFY);
+  const hasReadScope =
+    !!connection &&
+    (hasModifyScope || connection.scopes.includes(GMAIL_READ));
+  const needsUpgrade = hasReadScope && !hasModifyScope;
 
   return (
     <section className="flex flex-col gap-3 rounded-[12px] border border-white/[0.08] bg-white/[0.02] p-5">
@@ -32,7 +37,11 @@ export function GmailConnection({
             Tokens verschlüsselt gespeichert.
           </p>
         </div>
-        <StatusBadge connection={connection} hasGmailScope={hasGmailScope} />
+        <StatusBadge
+          connection={connection}
+          hasModify={hasModifyScope}
+          hasRead={hasReadScope}
+        />
       </header>
 
       {connection && (
@@ -60,18 +69,29 @@ export function GmailConnection({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {!hasGmailScope ? (
+        {!hasReadScope ? (
           <Link
-            href={`/api/auth/google/start?scopes=${encodeURIComponent(GMAIL_SCOPE)}&from=/settings/integrations`}
+            href={`/api/auth/google/start?scopes=${encodeURIComponent(GMAIL_MODIFY)}&from=/settings/integrations`}
             className="inline-flex items-center gap-1.5 rounded-md bg-[#E8B86D] px-3.5 py-2 text-[13px] font-medium leading-none text-[#0A0A0C] transition-colors hover:bg-[#F0C079]"
           >
             <GoogleLogo size={14} />
             <span>{connection ? 'Mit Gmail verbinden' : 'Mit Google + Gmail verbinden'}</span>
           </Link>
+        ) : needsUpgrade ? (
+          // Read-only granted but new modify scope is needed for archive/
+          // mark-read actions. One-click upgrade — Google's consent
+          // dialog only asks about the *new* scope.
+          <Link
+            href={`/api/auth/google/start?scopes=${encodeURIComponent(GMAIL_MODIFY)}&from=/settings/integrations`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#E8B86D] px-3.5 py-2 text-[13px] font-medium leading-none text-[#0A0A0C] transition-colors hover:bg-[#F0C079]"
+          >
+            <GoogleLogo size={14} />
+            <span>Gmail-Zugriff erweitern</span>
+          </Link>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-[#5ee08a]/[0.10] px-3 py-1.5 text-[11.5px] font-medium leading-none text-[#5ee08a]">
             <span aria-hidden>✓</span>
-            <span>Gmail verbunden</span>
+            <span>Gmail verbunden (lesen + verwalten)</span>
           </span>
         )}
         {connection?.hasOfflineAccess && (
@@ -106,15 +126,24 @@ export function GmailConnection({
 
 function StatusBadge({
   connection,
-  hasGmailScope,
+  hasModify,
+  hasRead,
 }: {
   connection: GoogleConnection | null;
-  hasGmailScope: boolean;
+  hasModify: boolean;
+  hasRead: boolean;
 }) {
-  if (hasGmailScope) {
+  if (hasModify) {
     return (
       <span className="shrink-0 rounded-full border border-[#5ee08a]/30 bg-[#5ee08a]/[0.08] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.06em] text-[#5ee08a]">
         Aktiv
+      </span>
+    );
+  }
+  if (hasRead) {
+    return (
+      <span className="shrink-0 rounded-full border border-[#ffd96a]/30 bg-[#ffd96a]/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.06em] text-[#ffd96a]">
+        Nur Lesen
       </span>
     );
   }

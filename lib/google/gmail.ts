@@ -222,6 +222,46 @@ export async function getMessageMetadata(
   };
 }
 
+// ── Modify (archive / mark read / etc.) ────────────────────────
+
+/**
+ * Adds + removes labels on a Gmail message. The common operations
+ * are wrappers over this:
+ *   - Archive   = remove ['INBOX']
+ *   - Mark read = remove ['UNREAD']
+ *   - Trash     = the dedicated DELETE /messages/:id/trash endpoint
+ *
+ * Requires gmail.modify scope (gmail.readonly is insufficient).
+ */
+export async function modifyLabels(
+  accessToken: string,
+  messageId: string,
+  args: { add?: string[]; remove?: string[] }
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (args.add?.length) body.addLabelIds = args.add;
+  if (args.remove?.length) body.removeLabelIds = args.remove;
+  if (Object.keys(body).length === 0) return;
+
+  await gfetch(
+    `/messages/${encodeURIComponent(messageId)}/modify`,
+    accessToken,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+}
+
+export async function archiveMessage(accessToken: string, messageId: string): Promise<void> {
+  await modifyLabels(accessToken, messageId, { remove: ['INBOX'] });
+}
+
+export async function markMessageRead(accessToken: string, messageId: string): Promise<void> {
+  await modifyLabels(accessToken, messageId, { remove: ['UNREAD'] });
+}
+
 // ── Header parsing ──────────────────────────────────────────────
 
 // RFC-2822 "From: Anna Hoffmann <anna@x.de>" or just "anna@x.de".

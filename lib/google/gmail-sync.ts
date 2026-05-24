@@ -22,7 +22,12 @@ const INITIAL_FETCH_LIMIT = 50;
 // 200 emails since last sync, we still only persist the most recent 50.
 const INCREMENTAL_FETCH_LIMIT = 50;
 
-const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+// Either of these satisfies "can call list/get on the Gmail API" —
+// gmail.modify is a superset of gmail.readonly so we accept both.
+const GMAIL_READ_SCOPES = new Set([
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+]);
 
 export type SyncResult =
   | { ok: true; inserted: number; updated: number; deleted: number; mode: 'initial' | 'incremental' }
@@ -62,7 +67,7 @@ export async function syncGmailForUser(
     return { ok: false, reason: 'not_connected' };
   }
   const scopes = (account.scopes ?? '').split(/\s+/).filter(Boolean);
-  if (!scopes.includes(GMAIL_SCOPE)) {
+  if (!scopes.some((s) => GMAIL_READ_SCOPES.has(s))) {
     return { ok: false, reason: 'no_scope' };
   }
 

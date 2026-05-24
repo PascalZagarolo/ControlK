@@ -1897,6 +1897,11 @@ export const inboxItems = pgTable(
     isRead: boolean('is_read').notNull().default(false),
     isArchived: boolean('is_archived').notNull().default(false),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+    // Snooze is local-only — Gmail's native snooze requires user-chooser
+    // dialogs we don't want to reproduce. Items with snoozed_until in the
+    // future are hidden from the foyer stack; when the timestamp passes,
+    // the next foyer query naturally surfaces them again. No cron needed.
+    snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
     // Forward-looking semantic threading — fill when we can resolve
     // the message to a known entity (customer, project, todo).
     relatedEntityType: varchar('related_entity_type', { length: 32 }),

@@ -11,13 +11,17 @@
  * The cards live on a slightly different visual layer than the rest of
  * the page: thin border, near-zero background tint, 12px backdrop-blur.
  * That makes them feel like floating objects, not flat UI.
- *
- * Mock-data only for now. Wiring to real inbox comes in a follow-up.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import {
+  archiveInboxItem,
+  createTodoFromInboxItem,
+  markInboxItemRead,
+  snoozeInboxItem,
+} from '@/lib/actions/inbox-actions';
 
 // ───────────────────────────────────────────────────────────────
 // Types + mock data
@@ -248,6 +252,13 @@ export function NotificationStack({
   const [hasInitialized, setHasInitialized] = useState(false);
   const nextIdRef = useRef(7);
 
+  // Card the cursor is currently over — drives both the hover affordances
+  // (action icons + snooze popover) and the keyboard shortcuts. We keep
+  // a single id so two cards can't have actions visible simultaneously.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [snoozeOpenFor, setSnoozeOpenFor] = useState<string | null>(null);
+  const [, startAction] = useTransition();
+
   // Auto-trigger an incremental sync on foyer mount when (a) the user
   // has Gmail connected and (b) the last sync is older than the freshness
   // threshold. The cron handles the background case; this is the
@@ -331,6 +342,66 @@ export function NotificationStack({
     router.push(card.href);
   };
 
+  // Fire a server action with optimistic local-remove. The card animates
+  // out immediately; if the server call fails the row would re-appear
+  // on the next foyer fetch — accept that mild visual flicker for the
+  // sake of perceived speed.
+  const runAction = (
+    cardId: string,
+    fn: () => Promise<unknown>
+  ): void => {
+    dismiss(cardId);
+    setSnoozeOpenFor(null);
+    setHoveredId(null);
+    startAction(() => fn().then(() => router.refresh()).catch(() => {}));
+  };
+
+  // Keyboard shortcuts only when a real card is under the cursor. We
+  // suppress when typing in an input so the foyer's search field keeps
+  // working. Mock cards (no real DB row) ignore shortcuts.
+  useEffect(() => {
+    if (mode !== 'real' || !hoveredId) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      )
+        return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const id = hoveredId;
+      switch (e.key.toLowerCase()) {
+        case 'e':
+          e.preventDefault();
+          runAction(id, () => archiveInboxItem(id));
+          break;
+        case 'r':
+          e.preventDefault();
+          runAction(id, () => markInboxItemRead(id));
+          break;
+        case 't':
+          e.preventDefault();
+          runAction(id, () => createTodoFromInboxItem(id));
+          break;
+        case 's':
+          e.preventDefault();
+          setSnoozeOpenFor(id);
+          break;
+        case 'escape':
+          if (snoozeOpenFor) {
+            e.preventDefault();
+            setSnoozeOpenFor(null);
+          }
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoveredId, mode, snoozeOpenFor]);
+
   return (
     <>
       {/* Hide the webkit scrollbar on the stack — the cards are the affordance,
@@ -371,9 +442,10 @@ export function NotificationStack({
                 ? STACK_REVEAL_DELAY_S + i * STACK_STAGGER_S
                 : STACK_REVEAL_DELAY_S + STAGGER_LIMIT * STACK_STAGGER_S;
             return (
-              <motion.button
+              <motion.div
                 key={card.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 layout
                 initial={prefersReducedMotion ? false : { opacity: 0, x: -12 }}
                 animate={{
@@ -403,15 +475,21 @@ export function NotificationStack({
                   e.preventDefault();
                   dismiss(card.id);
                 }}
-                className="pointer-events-auto mb-3 block w-full cursor-pointer rounded-[10px] border border-[#1F1F23] p-3.5 text-left backdrop-blur-[12px] transition-[background-color,border-color,transform] duration-150 ease-out hover:translate-x-[2px] hover:border-[#2A2A30]"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.025)',
-                }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  setHoveredId(card.id);
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'rgba(255, 255, 255, 0.025)';
+                  // Keep hoveredId pinned while the snooze picker is open
+                  // so the picker's own hover-out doesn't kill the action.
+                  if (snoozeOpenFor !== card.id) {
+                    setHoveredId((prev) => (prev === card.id ? null : prev));
+                  }
+                }}
+                className="pointer-events-auto group relative mb-3 block w-full cursor-pointer rounded-[10px] border border-[#1F1F23] p-3.5 text-left backdrop-blur-[12px] transition-[background-color,border-color,transform] duration-150 ease-out hover:translate-x-[2px] hover:border-[#2A2A30]"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.025)',
                 }}
               >
                 <div className="flex items-center gap-1.5">
@@ -432,13 +510,220 @@ export function NotificationStack({
                 <p className="mt-1 truncate text-[12px] leading-tight text-[#A1A1AA]">
                   {card.preview}
                 </p>
-              </motion.button>
+
+                {/* Hover action row — only when the stack is rendering
+                    real (DB-backed) cards. Mock cards have no id to
+                    operate on, so we hide the actions there. */}
+                {mode === 'real' && (
+                  <CardActions
+                    visible={hoveredId === card.id}
+                    onArchive={() =>
+                      runAction(card.id, () => archiveInboxItem(card.id))
+                    }
+                    onMarkRead={() =>
+                      runAction(card.id, () => markInboxItemRead(card.id))
+                    }
+                    onToTodo={() =>
+                      runAction(card.id, () => createTodoFromInboxItem(card.id))
+                    }
+                    onOpenSnooze={(e) => {
+                      e.stopPropagation();
+                      setSnoozeOpenFor(card.id);
+                    }}
+                  />
+                )}
+
+                {/* Snooze preset picker — appears next to the snooze
+                    icon. Closing on outside click happens via the
+                    Escape key + the global hover-out logic. */}
+                {snoozeOpenFor === card.id && (
+                  <SnoozePicker
+                    onPick={(preset) =>
+                      runAction(card.id, () =>
+                        snoozeInboxItem(card.id, preset)
+                      )
+                    }
+                    onClose={() => setSnoozeOpenFor(null)}
+                  />
+                )}
+              </motion.div>
             );
           })}
         </AnimatePresence>
       </aside>
 
     </>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Action affordances on individual cards
+// ───────────────────────────────────────────────────────────────
+
+function CardActions({
+  visible,
+  onArchive,
+  onMarkRead,
+  onToTodo,
+  onOpenSnooze,
+}: {
+  visible: boolean;
+  onArchive: () => void;
+  onMarkRead: () => void;
+  onToTodo: () => void;
+  onOpenSnooze: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.9)] p-0.5 backdrop-blur-md transition-opacity duration-150"
+      style={{ opacity: visible ? 1 : 0 }}
+      aria-hidden={!visible}
+    >
+      <IconBtn
+        title="Archivieren (E)"
+        onClick={(e) => {
+          e.stopPropagation();
+          onArchive();
+        }}
+        disabled={!visible}
+      >
+        <ArchiveIcon />
+      </IconBtn>
+      <IconBtn
+        title="Snooze (S)"
+        onClick={onOpenSnooze}
+        disabled={!visible}
+      >
+        <ClockIcon />
+      </IconBtn>
+      <IconBtn
+        title="Als gelesen markieren (R)"
+        onClick={(e) => {
+          e.stopPropagation();
+          onMarkRead();
+        }}
+        disabled={!visible}
+      >
+        <CheckIcon />
+      </IconBtn>
+      <IconBtn
+        title="In Todo umwandeln (T)"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToTodo();
+        }}
+        disabled={!visible}
+      >
+        <CheckSquareIcon />
+      </IconBtn>
+    </div>
+  );
+}
+
+function IconBtn({
+  title,
+  onClick,
+  disabled,
+  children,
+}: {
+  title: string;
+  onClick: (e: React.MouseEvent) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded text-[#A1A1AA] transition-colors hover:bg-white/[0.08] hover:text-[#FAFAFA]"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SnoozePicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (preset: 'three_hours' | 'tomorrow' | 'monday') => void;
+  onClose: () => void;
+}) {
+  // Stop propagation at the wrapper so clicks inside don't bubble up
+  // and trigger the card's main navigation handler.
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-1.5 top-10 z-20 flex flex-col rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 text-[12px] shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur-md"
+    >
+      <SnoozeOption label="3 Stunden" sub="zurück um …" onPick={() => onPick('three_hours')} />
+      <SnoozeOption label="Morgen früh" sub="09:00 Uhr" onPick={() => onPick('tomorrow')} />
+      <SnoozeOption label="Montag" sub="09:00 Uhr" onPick={() => onPick('monday')} />
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-0.5 border-t border-white/[0.05] px-2.5 py-1.5 text-left text-[11px] text-[#52525B] hover:text-[#A1A1AA]"
+      >
+        Abbrechen
+      </button>
+    </div>
+  );
+}
+
+function SnoozeOption({
+  label,
+  sub,
+  onPick,
+}: {
+  label: string;
+  sub: string;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className="flex items-baseline gap-2 rounded-sm px-2.5 py-1.5 text-left text-[#cdcece] transition-colors hover:bg-white/[0.05] hover:text-white"
+    >
+      <span className="text-[12.5px]">{label}</span>
+      <span className="ml-auto font-mono text-[10px] text-[#52525B]">{sub}</span>
+    </button>
+  );
+}
+
+// Inline icons — keep these tiny to fit the 24px button hit area.
+function ArchiveIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
+    </svg>
+  );
+}
+function ClockIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m5 12 5 5L20 7" />
+    </svg>
+  );
+}
+function CheckSquareIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="m8 12 3 3 5-6" />
+    </svg>
   );
 }
 
