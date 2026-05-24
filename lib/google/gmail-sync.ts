@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
@@ -105,15 +105,27 @@ async function runInitialSync(
   //    don't miss messages that arrive while we're fetching.
   const profile = await getProfile(accessToken);
 
-  // 2. Pull a batch of recent inbox messages. Prefer unread for the
-  //    first sync since that's what the foyer surfaces.
-  const ids = await listInboxMessageIds(accessToken, {
-    maxResults: INITIAL_FETCH_LIMIT,
-    query: 'in:inbox',
-  });
+  // 2. Pull a batch of recent inbox messages + sent messages. Sent
+  //    messages power the "Du wartest auf …" split view and the
+  //    reply-detection pass below. Both lists are deduped at the
+  //    upsert layer (same (source_type, source_id) key).
+  const [inboxIds, sentIds] = await Promise.all([
+    listInboxMessageIds(accessToken, {
+      maxResults: INITIAL_FETCH_LIMIT,
+      labelIds: ['INBOX'],
+    }),
+    listInboxMessageIds(accessToken, {
+      maxResults: INITIAL_FETCH_LIMIT,
+      labelIds: ['SENT'],
+    }),
+  ]);
+  const allIds = Array.from(new Set([...inboxIds, ...sentIds].map((m) => m.id)));
 
-  const parsed = await fetchAllMetadata(accessToken, ids.map((m) => m.id));
+  const parsed = await fetchAllMetadata(accessToken, allIds);
   const inserted = await upsertInboxItems(userId, workspaceId, parsed);
+
+  // 3. Reply-detection pass — flag sent items as awaiting / not.
+  await recomputeAwaitingFlags(workspaceId);
 
   await db
     .update(s.oauthAccounts)
@@ -159,9 +171,18 @@ async function runIncrementalSync(
   }
 
   // Cap the new-messages list — see INCREMENTAL_FETCH_LIMIT note.
+  // History API returns BOTH inbound and sent additions since the
+  // last cursor, so we get the right mix automatically.
   const addedIds = Array.from(changes.addedIds).slice(0, INCREMENTAL_FETCH_LIMIT);
   const parsed = await fetchAllMetadata(accessToken, addedIds);
   const inserted = await upsertInboxItems(userId, workspaceId, parsed);
+
+  // Reply-detection re-runs after every incremental pass so a brand-
+  // new inbound reply immediately clears the awaiting-flag on the
+  // corresponding sent item.
+  if (parsed.length > 0 || changes.readStateChanges.size > 0) {
+    await recomputeAwaitingFlags(workspaceId);
+  }
 
   // Read-state flips — apply without re-fetching the message.
   let updated = 0;
@@ -242,10 +263,12 @@ async function upsertInboxItems(
         sourceThreadId: m.threadId,
         senderName: m.senderName,
         senderEmail: m.senderEmail,
+        recipientEmail: m.recipientEmail,
         subject: m.subject,
         preview: m.preview,
         receivedAt: m.receivedAt,
         isRead: m.isRead,
+        direction: m.direction,
       })
       .onConflictDoUpdate({
         target: [s.inboxItems.sourceType, s.inboxItems.sourceId],
@@ -254,14 +277,48 @@ async function upsertInboxItems(
         // preview/snippet routinely). Keep workspaceId/userId pinned to
         // their original assignment — moving an inbox item between
         // workspaces is a future feature, not a sync side-effect.
+        // Direction can flip if Gmail re-labels (rare), so we refresh it.
         set: {
           subject: m.subject,
           preview: m.preview,
           isRead: m.isRead,
+          direction: m.direction,
+          recipientEmail: m.recipientEmail,
           updatedAt: new Date(),
         },
       });
     inserted += res.rowCount ?? 0;
   }
   return inserted;
+}
+
+/**
+ * Recomputes awaits_their_reply for every SENT row in the workspace.
+ *
+ * Definition: a sent message awaits a reply when no other row in the
+ * same thread has a received_at strictly greater than the sent
+ * message's received_at. The "other" can be inbox OR sent (the user
+ * sending a follow-up to themselves still counts as "moved on").
+ *
+ * Implemented as a single SET … = NOT EXISTS(…) update so we avoid
+ * round-tripping per row. Cheap even for tens of thousands of rows.
+ */
+async function recomputeAwaitingFlags(workspaceId: string): Promise<void> {
+  const db = getDb();
+  // Drizzle's typed update doesn't surface the correlated-subquery
+  // pattern cleanly, so we drop to raw SQL — workspace-scoped, idx-
+  // backed via inbox_items_awaiting_idx + inbox_items_source_dedup_idx.
+  await db.execute(sql`
+    UPDATE inbox_items AS s
+    SET awaits_their_reply = NOT EXISTS (
+      SELECT 1 FROM inbox_items AS r
+      WHERE r.workspace_id = s.workspace_id
+        AND r.source_thread_id = s.source_thread_id
+        AND r.received_at > s.received_at
+        AND r.id <> s.id
+    ),
+    updated_at = NOW()
+    WHERE s.workspace_id = ${workspaceId}
+      AND s.direction = 'sent'
+  `);
 }

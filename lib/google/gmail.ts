@@ -63,13 +63,15 @@ type ListMessagesResponse = {
 
 export async function listInboxMessageIds(
   accessToken: string,
-  opts: { maxResults?: number; query?: string } = {}
+  opts: { maxResults?: number; query?: string; labelIds?: string[] } = {}
 ): Promise<{ id: string; threadId: string }[]> {
   const params = new URLSearchParams();
   params.set('maxResults', String(opts.maxResults ?? 50));
   if (opts.query) params.set('q', opts.query);
-  // labelIds=INBOX restricts to the inbox view (vs. all mail).
-  params.append('labelIds', 'INBOX');
+  // Default to INBOX for backward compat. Callers can override (e.g.
+  // ['SENT'] for outgoing-mail sync).
+  const labels = opts.labelIds ?? ['INBOX'];
+  for (const l of labels) params.append('labelIds', l);
   const data = await gfetch<ListMessagesResponse>(
     `/messages?${params.toString()}`,
     accessToken
@@ -172,10 +174,15 @@ export type ParsedGmailMessage = {
   threadId: string;
   senderName: string;
   senderEmail: string | null;
+  /** First recipient parsed from the To header — null when no To present. */
+  recipientName: string | null;
+  recipientEmail: string | null;
   subject: string | null;
   preview: string;
   receivedAt: Date;
   isRead: boolean;
+  /** 'sent' when the message carries the SENT label, otherwise 'inbox'. */
+  direction: 'inbox' | 'sent';
 };
 
 export async function getMessageMetadata(
@@ -189,6 +196,7 @@ export async function getMessageMetadata(
   const params = new URLSearchParams();
   params.set('format', 'metadata');
   params.append('metadataHeaders', 'From');
+  params.append('metadataHeaders', 'To');
   params.append('metadataHeaders', 'Subject');
   let detail: GmailMessageDetail;
   try {
@@ -205,20 +213,34 @@ export async function getMessageMetadata(
   const headers = detail.payload?.headers ?? [];
   const fromRaw =
     headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
+  const toRaw =
+    headers.find((h) => h.name.toLowerCase() === 'to')?.value ?? '';
   const subject =
     headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? null;
-  const { name, email } = parseFromHeader(fromRaw);
+  const { name: senderName, email: senderEmail } = parseFromHeader(fromRaw);
+  // To headers may carry multiple recipients separated by commas. We
+  // keep only the first — multi-recipient threads still collapse to a
+  // single "person you're waiting on" by convention, which matches
+  // the user's mental model in most B2B threads.
+  const firstTo = toRaw.split(',')[0]?.trim() ?? '';
+  const { name: recipientName, email: recipientEmail } = firstTo
+    ? parseFromHeader(firstTo)
+    : { name: null as string | null, email: null };
+  const labelIds = detail.labelIds ?? [];
   const ts = detail.internalDate ? Number(detail.internalDate) : Date.now();
 
   return {
     id: detail.id,
     threadId: detail.threadId,
-    senderName: name,
-    senderEmail: email,
+    senderName,
+    senderEmail,
+    recipientName: recipientName || null,
+    recipientEmail,
     subject,
     preview: (detail.snippet ?? '').trim(),
     receivedAt: new Date(ts),
-    isRead: !(detail.labelIds ?? []).includes('UNREAD'),
+    isRead: !labelIds.includes('UNREAD'),
+    direction: labelIds.includes('SENT') ? 'sent' : 'inbox',
   };
 }
 

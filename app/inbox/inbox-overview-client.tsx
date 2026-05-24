@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type {
+  AwaitingRow,
+  AwaitingSplit,
   InboxFilter,
   InboxGroup,
   InboxOverviewPage,
@@ -16,12 +18,14 @@ export function InboxOverviewClient({
   gmailConnected,
   pageData,
   groups,
+  awaiting,
 }: {
-  mode: 'list' | 'group';
+  mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
   gmailConnected: boolean;
   pageData: InboxOverviewPage | null;
   groups: InboxGroup[] | null;
+  awaiting: AwaitingSplit | null;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -41,7 +45,11 @@ export function InboxOverviewClient({
   const total =
     mode === 'list'
       ? pageData?.total ?? 0
-      : groups?.reduce((sum, g) => sum + g.totalCount, 0) ?? 0;
+      : mode === 'group'
+        ? groups?.reduce((sum, g) => sum + g.totalCount, 0) ?? 0
+        : awaiting
+          ? awaiting.onYou.length + awaiting.onThem.length
+          : 0;
 
   return (
     <div className="mx-auto w-full max-w-[1100px] px-4 pb-32 pt-24 md:px-6">
@@ -98,6 +106,7 @@ export function InboxOverviewClient({
       {/* Content */}
       {mode === 'list' && pageData && <ListView page={pageData} setQuery={setQuery} />}
       {mode === 'group' && groups && <GroupedView groups={groups} />}
+      {mode === 'awaiting' && awaiting && <AwaitingView split={awaiting} />}
     </div>
   );
 }
@@ -134,12 +143,17 @@ function ViewToggle({
   mode,
   onChange,
 }: {
-  mode: 'list' | 'group';
-  onChange: (next: 'list' | 'group') => void;
+  mode: 'list' | 'group' | 'awaiting';
+  onChange: (next: 'list' | 'group' | 'awaiting') => void;
 }) {
+  const labels = {
+    list: 'Chronologisch',
+    group: 'Nach Kunde',
+    awaiting: 'Wartet',
+  } as const;
   return (
     <div className="flex items-center gap-0.5 rounded-full border border-white/[0.06] bg-white/[0.02] p-0.5">
-      {(['list', 'group'] as const).map((m) => (
+      {(['list', 'group', 'awaiting'] as const).map((m) => (
         <button
           key={m}
           type="button"
@@ -150,7 +164,7 @@ function ViewToggle({
               : 'text-[#A1A1AA] hover:text-[#FAFAFA]'
           }`}
         >
-          {m === 'list' ? 'Chronologisch' : 'Nach Kunde'}
+          {labels[m]}
         </button>
       ))}
     </div>
@@ -404,6 +418,146 @@ function GroupCard({ group }: { group: InboxGroup }) {
       )}
     </li>
   );
+}
+
+// ── Awaiting split view ─────────────────────────────────────────
+
+function AwaitingView({ split }: { split: AwaitingSplit }) {
+  const { onYou, onThem } = split;
+  if (onYou.length === 0 && onThem.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <p className="text-[15px] font-medium text-ink-100">
+          Niemand wartet auf irgendwen.
+        </p>
+        <p className="text-[12.5px] text-ink-300">
+          Keine ungelesenen Mails, keine ungeantworteten Threads.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <AwaitingColumn
+        kicker="Auf dich wartet"
+        subtitle={`${onYou.length} ${onYou.length === 1 ? 'Person' : 'Personen'}`}
+        accent="receive"
+        rows={onYou}
+        emptyMsg="Niemand wartet gerade auf eine Antwort von dir."
+      />
+      <AwaitingColumn
+        kicker="Du wartest auf"
+        subtitle={`${onThem.length} ${onThem.length === 1 ? 'Person' : 'Personen'} · ältere zuerst`}
+        accent="send"
+        rows={onThem}
+        emptyMsg="Keine gesendeten Mails ohne Antwort (älter als 3 Tage)."
+      />
+    </div>
+  );
+}
+
+function AwaitingColumn({
+  kicker,
+  subtitle,
+  accent,
+  rows,
+  emptyMsg,
+}: {
+  kicker: string;
+  subtitle: string;
+  accent: 'receive' | 'send';
+  rows: AwaitingRow[];
+  emptyMsg: string;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <header className="flex flex-col gap-0.5 border-l-2 pl-3" style={{
+        borderColor: accent === 'receive' ? '#E8B86D' : '#71717A',
+      }}>
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#52525B]">
+          {kicker}
+        </span>
+        <p className="text-[13px] text-ink-100">{subtitle}</p>
+      </header>
+      {rows.length === 0 ? (
+        <p className="rounded-[10px] border border-white/[0.04] bg-white/[0.015] px-3 py-6 text-center text-[12.5px] leading-[1.6] text-ink-300">
+          {emptyMsg}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {rows.map((row) => (
+            <li key={row.id}>
+              <AwaitingRowItem row={row} accent={accent} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AwaitingRowItem({
+  row,
+  accent,
+}: {
+  row: AwaitingRow;
+  accent: 'receive' | 'send';
+}) {
+  // Urgency colouring: green-ish (calm) up to 5d, amber 6-13d, red 14d+.
+  // Only applied on the "Du wartest auf" column — receiving-side
+  // urgency is the user's own choice and doesn't need scolding.
+  const urgencyColor =
+    accent === 'send'
+      ? row.ageDays >= 14
+        ? '#D88A8A'
+        : row.ageDays >= 6
+          ? '#E8B86D'
+          : '#71717A'
+      : '#71717A';
+
+  const personLabel =
+    accent === 'send'
+      ? row.awaitingRecipient || row.senderName
+      : row.senderName;
+
+  return (
+    <Link
+      href={`/inbox/${row.id}`}
+      className="block rounded-[10px] border border-white/[0.04] bg-white/[0.015] px-3 py-2.5 transition-colors hover:border-white/[0.12] hover:bg-white/[0.03]"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <p
+          className={`min-w-0 flex-1 truncate text-[13px] font-medium leading-tight ${
+            row.isRead ? 'text-ink-200' : 'text-ink-50'
+          }`}
+        >
+          {cleanName(personLabel)}
+        </p>
+        <span
+          className="shrink-0 font-mono text-[10px] uppercase tracking-[0.06em]"
+          style={{ color: urgencyColor }}
+        >
+          {ageLabel(row.ageDays)}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-[12.5px] leading-tight text-ink-200">
+        {row.subject || '(kein Betreff)'}
+      </p>
+      {row.preview && (
+        <p className="mt-1 truncate text-[11.5px] leading-tight text-[#71717A]">
+          {row.preview}
+        </p>
+      )}
+    </Link>
+  );
+}
+
+function ageLabel(days: number): string {
+  if (days < 1) return 'heute';
+  if (days === 1) return '1 Tag';
+  if (days < 14) return `${days} Tage`;
+  if (days < 30) return `${Math.floor(days / 7)} Wochen`;
+  return `${Math.floor(days / 30)} Monate`;
 }
 
 // ── Empty + utils ────────────────────────────────────────────────

@@ -113,6 +113,120 @@ export async function listInboxItemsPaginated(
   };
 }
 
+// ── Awaiting split view ─────────────────────────────────────────
+
+export type AwaitingRow = InboxOverviewRow & {
+  /** For sent items: who we're waiting on. For inbox: null. */
+  awaitingRecipient: string | null;
+  /** Days since received_at — used to colour the row by urgency. */
+  ageDays: number;
+};
+
+export type AwaitingSplit = {
+  onYou: AwaitingRow[];
+  onThem: AwaitingRow[];
+};
+
+/**
+ * Split view powering "Auf dich wartet | Du wartest auf …".
+ *
+ * onYou: unread inbox items, capped at 20, newest first.
+ * onThem: sent items where awaits_their_reply is true AND the message
+ *         is at least AWAITING_GRACE_DAYS old (so brand-new sends
+ *         don't count as overdue). Sorted oldest-first — the longer
+ *         it's been, the more urgent.
+ *
+ * Both lists hide snoozed items.
+ */
+const AWAITING_GRACE_DAYS = 3;
+
+export async function getAwaitingSplit(workspaceId: string): Promise<AwaitingSplit> {
+  const db = getDb();
+  const now = Date.now();
+
+  const visibleClause = or(
+    isNull(s.inboxItems.snoozedUntil),
+    sql`${s.inboxItems.snoozedUntil} <= now()`
+  )!;
+
+  const [inboxRows, sentRows] = await Promise.all([
+    db
+      .select({
+        id: s.inboxItems.id,
+        sourceType: s.inboxItems.sourceType,
+        senderName: s.inboxItems.senderName,
+        senderEmail: s.inboxItems.senderEmail,
+        recipientEmail: s.inboxItems.recipientEmail,
+        subject: s.inboxItems.subject,
+        preview: s.inboxItems.preview,
+        receivedAt: s.inboxItems.receivedAt,
+        isRead: s.inboxItems.isRead,
+        isArchived: s.inboxItems.isArchived,
+      })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.direction, 'inbox'),
+          eq(s.inboxItems.isRead, false),
+          eq(s.inboxItems.isArchived, false),
+          visibleClause
+        )
+      )
+      .orderBy(desc(s.inboxItems.receivedAt))
+      .limit(20),
+    db
+      .select({
+        id: s.inboxItems.id,
+        sourceType: s.inboxItems.sourceType,
+        senderName: s.inboxItems.senderName,
+        senderEmail: s.inboxItems.senderEmail,
+        recipientEmail: s.inboxItems.recipientEmail,
+        subject: s.inboxItems.subject,
+        preview: s.inboxItems.preview,
+        receivedAt: s.inboxItems.receivedAt,
+        isRead: s.inboxItems.isRead,
+        isArchived: s.inboxItems.isArchived,
+      })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.direction, 'sent'),
+          eq(s.inboxItems.awaitsTheirReply, true),
+          eq(s.inboxItems.isArchived, false),
+          visibleClause,
+          // Grace period — brand-new sends aren't overdue yet.
+          sql`${s.inboxItems.receivedAt} < now() - interval '${sql.raw(String(AWAITING_GRACE_DAYS))} days'`
+        )
+      )
+      .orderBy(s.inboxItems.receivedAt) // oldest first = most overdue at top
+      .limit(20),
+  ]);
+
+  const toRow = (
+    r: (typeof inboxRows)[number],
+    asSent: boolean
+  ): AwaitingRow => ({
+    id: r.id,
+    sourceType: r.sourceType,
+    senderName: r.senderName,
+    senderEmail: r.senderEmail,
+    subject: r.subject,
+    preview: r.preview,
+    receivedAt: new Date(r.receivedAt).toISOString(),
+    isRead: r.isRead,
+    isArchived: r.isArchived,
+    awaitingRecipient: asSent ? r.recipientEmail : null,
+    ageDays: Math.floor((now - new Date(r.receivedAt).getTime()) / 86_400_000),
+  });
+
+  return {
+    onYou: inboxRows.map((r) => toRow(r, false)),
+    onThem: sentRows.map((r) => toRow(r, true)),
+  };
+}
+
 // ── Group-by-Entity (Stack-by-Customer) ─────────────────────────
 
 export type InboxGroup = {

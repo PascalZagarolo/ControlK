@@ -1874,6 +1874,8 @@ export const inboxSourceTypeEnum = pgEnum('inbox_source_type', [
   'calendar_invite',
 ]);
 
+export const inboxDirectionEnum = pgEnum('inbox_direction', ['inbox', 'sent']);
+
 export const inboxItems = pgTable(
   'inbox_items',
   {
@@ -1891,9 +1893,19 @@ export const inboxItems = pgTable(
     sourceThreadId: text('source_thread_id'),
     senderName: text('sender_name').notNull(),
     senderEmail: text('sender_email'),
+    // For SENT items: the (first) recipient email. Powers the
+    // "Du wartest auf X" split view + future sender/recipient profile.
+    recipientEmail: text('recipient_email'),
     subject: text('subject'),
     preview: text('preview'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
+    // Whether the message is incoming (inbox) or outgoing (sent). Drives
+    // the split-view layout + sender/recipient field interpretation.
+    direction: inboxDirectionEnum('direction').notNull().default('inbox'),
+    // For SENT items: true when no newer message exists in the thread
+    // from anyone other than the user — i.e. they haven't replied yet.
+    // Recomputed at the end of every sync pass.
+    awaitsTheirReply: boolean('awaits_their_reply').notNull().default(false),
     isRead: boolean('is_read').notNull().default(false),
     isArchived: boolean('is_archived').notNull().default(false),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -1922,6 +1934,14 @@ export const inboxItems = pgTable(
       t.workspaceId,
       t.isRead,
       t.isArchived
+    ),
+    // Powers the "Du wartest auf …" column — sent items still awaiting
+    // a reply, sorted by oldest-first (most overdue at the top).
+    awaitingIdx: index('inbox_items_awaiting_idx').on(
+      t.workspaceId,
+      t.direction,
+      t.awaitsTheirReply,
+      t.receivedAt
     ),
   })
 );

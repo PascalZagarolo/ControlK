@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import {
+  getAwaitingSplit,
   groupInboxBySender,
   listInboxItemsPaginated,
   type InboxFilter,
@@ -22,8 +23,10 @@ function parseFilter(raw: string | undefined): InboxFilter {
   return 'unread';
 }
 
-function parseMode(raw: string | undefined): 'list' | 'group' {
-  return raw === 'group' ? 'group' : 'list';
+function parseMode(raw: string | undefined): 'list' | 'group' | 'awaiting' {
+  if (raw === 'group') return 'group';
+  if (raw === 'awaiting') return 'awaiting';
+  return 'list';
 }
 
 function parsePage(raw: string | undefined): number {
@@ -46,9 +49,9 @@ export default async function Page({
   const page = parsePage(sp.p);
 
   // Fetch the right shape for the active mode. We deliberately don't
-  // load both — group-by-sender is heavier and the toggle re-navigates
-  // the URL anyway.
-  const [pageData, groups, gmail] = await Promise.all([
+  // load all three — group-by-sender and awaiting are heavier and
+  // the toggle re-navigates the URL anyway.
+  const [pageData, groups, awaiting, gmail] = await Promise.all([
     mode === 'list'
       ? listInboxItemsPaginated(ws.id, { filter, page })
       : Promise.resolve(null),
@@ -56,6 +59,9 @@ export default async function Page({
       ? groupInboxBySender(ws.id, {
           filter: filter === 'unread' ? 'unread' : 'all',
         })
+      : Promise.resolve(null),
+    mode === 'awaiting'
+      ? getAwaitingSplit(ws.id)
       : Promise.resolve(null),
     fetchGmailConnectionState(user.id).catch(() => ({
       connected: false,
@@ -70,6 +76,7 @@ export default async function Page({
       gmailConnected={gmail.connected}
       pageData={pageData}
       groups={groups}
+      awaiting={awaiting}
     />
   );
 }
