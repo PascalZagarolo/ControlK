@@ -7,6 +7,7 @@ import { listChannels } from '@/lib/db/queries/channels';
 import { listTodos } from '@/lib/db/queries/todos';
 import { listNotifications } from '@/lib/db/queries/notifications';
 import { listFoyerInboxCards } from '@/lib/db/queries/inbox';
+import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import type {
   FoyerData,
   FoyerEvent,
@@ -34,7 +35,7 @@ export async function buildFoyerData(input: {
   const startOfWeekFromToday = new Date(startOfToday.getTime() + 7 * DAY_MS);
 
   // Parallelize the safe queries
-  const [eventRows, channels, todos, notifications, latestMessage, recentNote, inboxCards] =
+  const [eventRows, channels, todos, notifications, latestMessage, recentNote, inboxCards, gmail] =
     await Promise.all([
       listCalendarEvents(input.workspaceId, startOfToday, startOfTomorrow).catch(
         () => [] as Awaited<ReturnType<typeof listCalendarEvents>>
@@ -45,6 +46,10 @@ export async function buildFoyerData(input: {
       fetchLatestUnreadMessage(input.workspaceId, input.userId).catch(() => null),
       fetchMostRecentNote(input.workspaceId).catch(() => null),
       listFoyerInboxCards(input.workspaceId).catch(() => []),
+      fetchGmailConnectionState(input.userId).catch(() => ({
+        connected: false,
+        syncedAt: null,
+      })),
     ]);
 
   // ─── Events ─────────────────────────────────────────────────
@@ -106,6 +111,7 @@ export async function buildFoyerData(input: {
     dueTomorrow,
     jetztSuggestions,
     inboxCards,
+    gmail,
   };
 }
 

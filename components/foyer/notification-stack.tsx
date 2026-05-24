@@ -184,28 +184,99 @@ function SourceIcon({ source, className }: { source: NotifSource; className?: st
 // Component
 // ───────────────────────────────────────────────────────────────
 
+// >5 min triggers a sync on foyer mount. Recent (< this) we trust the
+// cron has it under control; no point re-hitting Gmail on every load.
+const SYNC_FRESHNESS_MS = 60_000;
+
+type StackMode =
+  | 'mock' // No real query ran (anon foyer / sign-in page) — show demo
+  | 'connect' // Real query ran, user has no Gmail link — show CTA
+  | 'syncing' // Connected, no cards yet but auto-sync in flight — skeleton
+  | 'empty' // Connected, sync done, nothing unread — Inbox Zero
+  | 'real'; // Have real cards to show
+
 export function NotificationStack({
   dim = false,
   initial,
+  gmailConnected = false,
+  gmailSyncedAt = null,
 }: {
   dim?: boolean;
   /**
-   * Real inbox items from the server. When provided AND non-empty, the
-   * stack renders those instead of the demo mock. Empty array is treated
-   * as "real query ran but no unread items" — we still show mocks so
-   * the foyer doesn't look broken on fresh accounts. Pass `null`/omit
-   * to explicitly opt into mocks (server didn't query).
+   * Real inbox items from the server. Non-empty → render. Empty array
+   * means "the query ran but the workspace has 0 unread items right
+   * now" — combined with gmailConnected we decide between Inbox Zero
+   * vs the Connect CTA vs the demo mock. null/omit = no query ran.
    */
   initial?: NotifCard[] | null;
+  /** True when the user has gmail.readonly + a refresh token. */
+  gmailConnected?: boolean;
+  /** ISO timestamp of last successful Gmail sync, null if never. */
+  gmailSyncedAt?: string | null;
 }) {
   const router = useRouter();
   const prefersReducedMotion = useReducedMotion();
 
-  const seed = initial && initial.length > 0 ? initial : INITIAL_NOTIFS;
+  const realCards = initial ?? [];
+  const haveRealCards = realCards.length > 0;
+
+  // Decide what we should be showing right now. State transitions
+  // (syncing → empty/real) are driven by the auto-trigger effect below.
+  const [syncing, setSyncing] = useState(false);
+  const mode: StackMode = haveRealCards
+    ? 'real'
+    : initial === null || initial === undefined
+      ? 'mock'
+      : !gmailConnected
+        ? 'connect'
+        : syncing
+          ? 'syncing'
+          : 'empty';
+
+  const seed = mode === 'real' ? realCards : mode === 'mock' ? INITIAL_NOTIFS : [];
   const [items, setItems] = useState<NotifCard[]>(seed);
+
+  // Re-seed when the server-side query result changes (selecting another
+  // workspace, post-sync router.refresh()). Without this the local state
+  // would stay frozen on the first paint's seed.
+  useEffect(() => {
+    setItems(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, mode]);
+
   const [glowId, setGlowId] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const nextIdRef = useRef(7);
+
+  // Auto-trigger an incremental sync on foyer mount when (a) the user
+  // has Gmail connected and (b) the last sync is older than the freshness
+  // threshold. The cron handles the background case; this is the
+  // "I just opened the app and want my inbox up to date" path.
+  useEffect(() => {
+    if (!gmailConnected) return;
+    const last = gmailSyncedAt ? new Date(gmailSyncedAt).getTime() : 0;
+    if (Date.now() - last < SYNC_FRESHNESS_MS) return;
+
+    let cancelled = false;
+    setSyncing(true);
+    fetch('/api/inbox/sync', { method: 'POST' })
+      .catch(() => {
+        // Network/timeout — silent. Cron will catch up.
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSyncing(false);
+        // Pull the now-updated server-component data so the stack
+        // re-renders with fresh cards. router.refresh() re-runs
+        // the foyer's data fetch without a full page reload.
+        router.refresh();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmailConnected, gmailSyncedAt]);
 
   // After initial reveal, drop the stagger delay so dynamically-added
   // cards animate immediately (no 280ms wait for the new arrival).
@@ -284,6 +355,13 @@ export function NotificationStack({
             'linear-gradient(180deg, black 0, black calc(100% - 56px), transparent 100%)',
         }}
       >
+        {/* Non-card states: Connect CTA / Skeleton / Inbox Zero. Rendered
+            as a single placeholder so the stack's footprint stays steady
+            (no layout shift when sync completes and real cards arrive). */}
+        {mode !== 'real' && mode !== 'mock' && (
+          <StackPlaceholder mode={mode} />
+        )}
+
         <AnimatePresence initial={false}>
           {items.map((card, i) => {
             const isGlowing = card.id === glowId;
@@ -361,5 +439,97 @@ export function NotificationStack({
       </aside>
 
     </>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Non-card states
+// ───────────────────────────────────────────────────────────────
+
+function StackPlaceholder({ mode }: { mode: 'connect' | 'syncing' | 'empty' }) {
+  if (mode === 'syncing') {
+    // Skeleton triplet — same height as a real card so the layout
+    // doesn't shift when sync finishes and real cards drop in.
+    return (
+      <div className="pointer-events-none flex flex-col gap-3">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="rounded-[10px] border border-[#1F1F23] p-3.5 backdrop-blur-[12px]"
+            style={{ background: 'rgba(255, 255, 255, 0.025)' }}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className="h-2 w-2 rounded-full"
+                style={{ background: 'rgba(232,184,109,0.5)' }}
+              />
+              <div className="h-2 w-14 animate-pulse rounded bg-white/[0.06]" />
+              <div className="ml-auto h-2 w-6 animate-pulse rounded bg-white/[0.04]" />
+            </div>
+            <div className="mt-3 h-3 w-32 animate-pulse rounded bg-white/[0.08]" />
+            <div className="mt-2 h-2.5 w-48 animate-pulse rounded bg-white/[0.04]" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (mode === 'empty') {
+    // Inbox Zero — single calm card, no CTA. "Alles erledigt" tells the
+    // user the sync has run AND there's nothing waiting.
+    return (
+      <div className="pointer-events-none flex flex-col gap-3">
+        <div
+          className="rounded-[10px] border border-[#1F1F23] p-4 backdrop-blur-[12px]"
+          style={{ background: 'rgba(255, 255, 255, 0.025)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#52525B]"
+            >
+              Inbox
+            </span>
+            <span className="ml-auto text-[10px] text-[#52525B]">— zero —</span>
+          </div>
+          <p className="mt-2 text-[13px] font-medium leading-tight text-[#FAFAFA]">
+            Alles erledigt.
+          </p>
+          <p className="mt-1 text-[12px] leading-tight text-[#A1A1AA]">
+            Keine ungelesenen Nachrichten.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // mode === 'connect' — soft CTA. Real query ran but Gmail isn't
+  // linked yet; we don't want to fall through to demo mocks because
+  // that's misleading once the user is logged in.
+  return (
+    <div className="flex flex-col gap-3">
+      <a
+        href="/settings/integrations"
+        className="pointer-events-auto block rounded-[10px] border border-[#1F1F23] p-4 backdrop-blur-[12px] transition-colors hover:border-[#E8B86D]/40"
+        style={{ background: 'rgba(232,184,109,0.04)' }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#E8B86D]"
+          >
+            Inbox
+          </span>
+          <span className="ml-auto text-[10px] text-[#52525B]">→</span>
+        </div>
+        <p className="mt-2 text-[13px] font-medium leading-tight text-[#FAFAFA]">
+          Gmail verbinden.
+        </p>
+        <p className="mt-1 text-[12px] leading-tight text-[#A1A1AA]">
+          Damit deine wichtigen Mails hier landen — neben Notizen, Kanälen,
+          Erwähnungen.
+        </p>
+      </a>
+    </div>
   );
 }

@@ -70,10 +70,18 @@ export type FoyerData = {
   jetztSuggestions: FoyerSuggestion[];
   /**
    * Real inbox items rendered in the left-periphery NotificationStack.
-   * Optional — the stack falls back to its built-in demo data when not
-   * provided or when the workspace has nothing unread yet.
+   * Empty array means "Gmail is connected but no unread mails right
+   * now"; missing means "no real query ran" (anon foyer).
    */
   inboxCards?: NotifCard[];
+  /**
+   * Gmail connection state — drives the stack's empty/loading branches.
+   * connected=false → show "Mit Gmail verbinden" CTA instead of mocks.
+   * connected=true + empty inboxCards → Inbox-Zero state.
+   * syncedAt powers the auto-trigger debounce (don't re-sync on every
+   * foyer load if Gmail was just synced).
+   */
+  gmail?: { connected: boolean; syncedAt: string | null };
 };
 
 // ───────────────────────────────────────────────────────────────
@@ -323,7 +331,12 @@ export function FoyerClient(props: FoyerData) {
       {/* Notification stack — left periphery, ≥xl only. Inherits foyer dim
           via its own opacity prop instead of riding the parent div's opacity,
           because the stack is `fixed` and we want independent dim control. */}
-      <NotificationStack dim={dimRest} initial={props.inboxCards ?? null} />
+      <NotificationStack
+        dim={dimRest}
+        initial={props.inboxCards ?? null}
+        gmailConnected={props.gmail?.connected ?? false}
+        gmailSyncedAt={props.gmail?.syncedAt ?? null}
+      />
 
       <div
         className="relative z-10 flex min-h-screen flex-col transition-opacity duration-300 ease-out"
