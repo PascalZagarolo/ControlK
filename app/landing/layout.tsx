@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 
 const TITLE = 'Ctrl K — One workspace. Many lives.';
 const DESCRIPTION =
@@ -43,6 +44,10 @@ export default function LandingLayout({ children }: { children: React.ReactNode 
       }}
     >
       {children}
+      {/* Vercel Analytics — cookieless, no consent banner required.
+          Scoped to the marketing landing tree only; the app tree gets
+          its own analytics decision later. */}
+      <Analytics />
     </div>
   );
 }

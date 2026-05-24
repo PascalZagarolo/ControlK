@@ -561,10 +561,16 @@ export default function LandingPage() {
             />
             <span>Ctrl K — gebaut in der Öffentlichkeit aus Deutschland</span>
           </div>
-          <div style={{ display: 'flex', gap: 18 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
             <a href="mailto:hello@ctrlk.de" className="landing-footer-link">
               hello@ctrlk.de
             </a>
+            <Link href="/impressum" className="landing-footer-link">
+              Impressum
+            </Link>
+            <Link href="/datenschutz" className="landing-footer-link">
+              Datenschutz
+            </Link>
           </div>
         </div>
       </footer>

@@ -1785,10 +1785,14 @@ export const waitlistSignups = pgTable(
     source: text('source'),
     ipHash: varchar('ip_hash', { length: 32 }),
     userAgent: text('user_agent'),
+    confirmToken: varchar('confirm_token', { length: 64 }),
+    tokenSentAt: timestamp('token_sent_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     emailIdx: uniqueIndex('waitlist_email_idx').on(t.email),
     ipHashIdx: index('waitlist_iphash_idx').on(t.ipHash, t.createdAt),
+    tokenIdx: uniqueIndex('waitlist_token_idx').on(t.confirmToken),
   })
 );
