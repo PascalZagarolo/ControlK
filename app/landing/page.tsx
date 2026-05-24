@@ -431,7 +431,7 @@ export default function LandingPage() {
                   className="landing-roadmap-row"
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '240px minmax(0, 1fr)',
+                    gridTemplateColumns: '280px minmax(0, 1fr)',
                     gap: 48,
                     padding: '22px 0',
                     borderTop: i === 0 ? 'none' : `1px solid ${BORDER}`,
