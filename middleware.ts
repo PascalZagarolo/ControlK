@@ -44,10 +44,17 @@ export default function middleware(req: NextRequest) {
   // headers() in server components downstream.
   if (wantsLanding) {
     const url = req.nextUrl.clone();
-    // API routes stay canonical even on the marketing host — the waitlist
-    // confirmation link in the opt-in email points to /api/waitlist/confirm,
-    // and rewriting it under /landing/api would 404.
-    if (url.pathname.startsWith('/api/')) {
+    // Paths that stay canonical even on ctrlk.de — they exist at the
+    // top level, not under /landing, so rewriting would 404. Covers:
+    // - /api/*       : waitlist confirm link, OAuth callback, etc.
+    // - /sign-in, /sign-up, /forgot-password, /reset-password,
+    //   /verify-email, /magic-link : the landing CTAs link here.
+    if (
+      url.pathname.startsWith('/api/') ||
+      PUBLIC_PREFIXES.some(
+        (p) => url.pathname === p || url.pathname.startsWith(p + '/')
+      )
+    ) {
       const reqHeaders = new Headers(req.headers);
       reqHeaders.set('x-route-class', 'landing');
       return NextResponse.next({ request: { headers: reqHeaders } });
