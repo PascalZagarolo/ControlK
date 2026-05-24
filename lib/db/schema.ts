@@ -1847,6 +1847,11 @@ export const oauthAccounts = pgTable(
     refreshTokenEnc: text('refresh_token_enc'),
     accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
     scopes: text('scopes'),
+    // Gmail incremental-sync cursor. Captured at the end of every sync
+    // pass; the next pass asks Google for changes "since X" instead of
+    // re-listing the whole inbox. Nullable = no Gmail sync ever ran.
+    gmailHistoryId: text('gmail_history_id'),
+    gmailSyncedAt: timestamp('gmail_synced_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1855,6 +1860,71 @@ export const oauthAccounts = pgTable(
     userIdx: index('oauth_accounts_user_idx').on(t.userId),
   })
 );
+
+// ─── Universal Inbox ─────────────────────────────────────────────
+// External messages that landed somewhere the user cares about:
+// Gmail today, Outlook/Slack/Teams later. Internal app notifications
+// keep living in the `notifications` table — these two systems will
+// eventually feed the same "Inbox" page, but we keep them separate
+// at the schema layer so each source can evolve its own dedup rules.
+export const inboxSourceTypeEnum = pgEnum('inbox_source_type', [
+  'email_gmail',
+  'email_outlook',
+  'slack',
+  'calendar_invite',
+]);
+
+export const inboxItems = pgTable(
+  'inbox_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sourceType: inboxSourceTypeEnum('source_type').notNull(),
+    // Dedup key — Gmail message id, Slack ts, etc. Unique with sourceType
+    // so the same string from two sources doesn't collide.
+    sourceId: text('source_id').notNull(),
+    sourceThreadId: text('source_thread_id'),
+    senderName: text('sender_name').notNull(),
+    senderEmail: text('sender_email'),
+    subject: text('subject'),
+    preview: text('preview'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
+    isRead: boolean('is_read').notNull().default(false),
+    isArchived: boolean('is_archived').notNull().default(false),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    // Forward-looking semantic threading — fill when we can resolve
+    // the message to a known entity (customer, project, todo).
+    relatedEntityType: varchar('related_entity_type', { length: 32 }),
+    relatedEntityId: uuid('related_entity_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sourceDedup: uniqueIndex('inbox_items_source_dedup_idx').on(
+      t.sourceType,
+      t.sourceId
+    ),
+    workspaceListIdx: index('inbox_items_workspace_list_idx').on(
+      t.workspaceId,
+      t.receivedAt
+    ),
+    unreadIdx: index('inbox_items_unread_idx').on(
+      t.workspaceId,
+      t.isRead,
+      t.isArchived
+    ),
+  })
+);
+
+export const inboxItemsRelations = relations(inboxItems, ({ one }) => ({
+  workspace: one(workspaces, { fields: [inboxItems.workspaceId], references: [workspaces.id] }),
+  user: one(users, { fields: [inboxItems.userId], references: [users.id] }),
+}));
 
 // ─── OAuth pending states ────────────────────────────────────────
 // Holds the PKCE verifier + nonce + redirect target between /start and

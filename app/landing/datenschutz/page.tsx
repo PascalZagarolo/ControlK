@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 // Stand: bei jedem inhaltlichen Update auf das aktuelle Datum heben.
-const STAND = '24. Mai 2026';
+const STAND = '28. Mai 2026';
 
 export default function DatenschutzPage() {
   return (
@@ -132,10 +132,10 @@ export default function DatenschutzPage() {
       <p>
         Diese Daten verwenden wir ausschließlich, um dein Konto zu
         erstellen oder ein bestehendes Konto mit gleicher E-Mail mit
-        deiner Google-Identität zu verknüpfen. Wir greifen <strong>nicht</strong>{' '}
-        auf deine Gmail-Inhalte, Kontakte, Kalender oder andere
-        Google-Dienste zu — der Berechtigungsumfang ist auf{' '}
-        <code>openid email profile</code> beschränkt.
+        deiner Google-Identität zu verknüpfen. Beim reinen Login greifen
+        wir <strong>nicht</strong> auf deine Gmail-Inhalte, Kontakte,
+        Kalender oder andere Google-Dienste zu — der Berechtigungsumfang
+        ist auf <code>openid email profile</code> beschränkt.
       </p>
       <p>
         <strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. b DSGVO
@@ -153,7 +153,80 @@ export default function DatenschutzPage() {
         lassen.
       </p>
 
-      <h3>3.6 Reichweitenmessung (Analytics)</h3>
+      <h3>3.6 Gmail-Verbindung (optional)</h3>
+      <p>
+        Wenn du in den Konto-Einstellungen aktiv <strong>„Mit Gmail
+        verbinden"</strong> wählst, erweitern wir den Google-Berechtigungs­umfang
+        um <code>https://www.googleapis.com/auth/gmail.readonly</code>.
+        Diese Erweiterung ist <strong>nicht</strong> Teil des regulären
+        Logins und passiert ausschließlich auf deine explizite Aktion
+        hin. Du musst die Erweiterung in einem separaten
+        Google-Consent-Dialog bestätigen.
+      </p>
+      <p>
+        Mit der Verbindung verarbeiten wir folgende Daten aus deinem
+        Gmail-Postfach:
+      </p>
+      <ul>
+        <li>
+          <strong>Metadaten</strong> der letzten ungelesenen Nachrichten
+          deines Posteingangs: Absender-Name und -E-Mail, Betreff,
+          Empfangszeitpunkt, Gmail-Nachrichten-ID und Thread-ID,
+          Lesestatus
+        </li>
+        <li>
+          den von Google generierten <strong>Snippet</strong> (kurzer
+          Vorschau-Text der ersten ~150 Zeichen der Nachricht), den
+          Google selbst aus deinen Mails ableitet
+        </li>
+      </ul>
+      <p>
+        Wir lesen <strong>keine vollständigen Nachrichten-Inhalte und
+        keine Anhänge</strong>. Wir holen ausschließlich Metadaten plus
+        den von Google bereitgestellten Snippet ab. Die Abfrage läuft
+        gegen die Gmail REST API; eine Synchronisation findet alle ~5
+        Minuten statt sowie beim Öffnen des Foyers.
+      </p>
+      <p>
+        <strong>Zweck:</strong> Universal-Inbox im Foyer — du siehst
+        deine wichtigsten ungelesenen Mails neben Notizen, Kanälen und
+        Erwähnungen ohne in Gmail wechseln zu müssen. Wir nutzen die
+        Daten nicht zum Profiling, nicht für KI-Training, nicht zur
+        Weitergabe an Dritte.
+      </p>
+      <p>
+        <strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. a DSGVO
+        (ausdrückliche Einwilligung durch den Google-Consent + die
+        bewusste Aktivierung in den Konto-Einstellungen).
+      </p>
+      <p>
+        <strong>Speicherung:</strong> Die Gmail-OAuth-Tokens (Access-
+        und Refresh-Token) liegen <strong>AES-256-GCM-verschlüsselt</strong>{' '}
+        in der Datenbank; der Schlüssel liegt in einer separaten
+        Umgebungsvariable und nicht in der DB. Die abgerufenen
+        Metadaten werden in der `inbox_items`-Tabelle gespeichert und
+        bleiben bestehen bis du sie archivierst oder die Verbindung
+        trennst.
+      </p>
+      <p>
+        <strong>Widerruf:</strong> Du kannst die Verbindung jederzeit
+        in den Konto-Einstellungen unter „Integrationen → Gmail" mit
+        einem Klick trennen. Wir rufen dann sofort Google's
+        Token-Revoke-Endpoint auf und löschen die Tokens lokal. Die
+        bereits gespeicherten Metadaten werden zusätzlich auf Anfrage
+        an <a href="mailto:hello@ctrlk.de">hello@ctrlk.de</a> entfernt.
+        Unabhängig davon kannst du die Berechtigung auch direkt in den{' '}
+        <a
+          href="https://myaccount.google.com/permissions"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Google-Konto-Berechtigungen
+        </a>{' '}
+        widerrufen.
+      </p>
+
+      <h3>3.7 Reichweitenmessung (Analytics)</h3>
       <p>
         Wir nutzen <strong>Vercel Analytics</strong>. Vercel Analytics
         funktioniert <strong>cookieless</strong> und verzichtet auf
@@ -185,7 +258,8 @@ export default function DatenschutzPage() {
         <li><strong>Resend Inc.</strong> — E-Mail-Versand</li>
         <li>
           <strong>Google Ireland Limited</strong> — optional, nur wenn du
-          dich für „Mit Google anmelden" entscheidest
+          dich für „Mit Google anmelden" oder „Mit Gmail verbinden"
+          entscheidest
         </li>
       </ul>
       <p>

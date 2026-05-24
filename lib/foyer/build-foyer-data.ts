@@ -6,6 +6,7 @@ import { listCalendarEvents } from '@/lib/db/queries/calendar';
 import { listChannels } from '@/lib/db/queries/channels';
 import { listTodos } from '@/lib/db/queries/todos';
 import { listNotifications } from '@/lib/db/queries/notifications';
+import { listFoyerInboxCards } from '@/lib/db/queries/inbox';
 import type {
   FoyerData,
   FoyerEvent,
@@ -33,7 +34,7 @@ export async function buildFoyerData(input: {
   const startOfWeekFromToday = new Date(startOfToday.getTime() + 7 * DAY_MS);
 
   // Parallelize the safe queries
-  const [eventRows, channels, todos, notifications, latestMessage, recentNote] =
+  const [eventRows, channels, todos, notifications, latestMessage, recentNote, inboxCards] =
     await Promise.all([
       listCalendarEvents(input.workspaceId, startOfToday, startOfTomorrow).catch(
         () => [] as Awaited<ReturnType<typeof listCalendarEvents>>
@@ -43,6 +44,7 @@ export async function buildFoyerData(input: {
       listNotifications(input.userId, 50).catch(() => []),
       fetchLatestUnreadMessage(input.workspaceId, input.userId).catch(() => null),
       fetchMostRecentNote(input.workspaceId).catch(() => null),
+      listFoyerInboxCards(input.workspaceId).catch(() => []),
     ]);
 
   // ─── Events ─────────────────────────────────────────────────
@@ -59,7 +61,12 @@ export async function buildFoyerData(input: {
   const unreadMentions = notifications.filter(
     (n) => n.kind === 'mention' && !n.read
   ).length;
-  const unreadEmail = 0; // not yet wired — gated on inbound-email integration
+  // Email count is approximate: listFoyerInboxCards is capped at 6 for
+  // the stack render. Good enough for the foyer's "Unread total" badge;
+  // a precise count would need a separate COUNT query.
+  const unreadEmail = inboxCards.filter(
+    (c) => c.source === 'email'
+  ).length;
   const unreadTotal = unreadChannels + unreadMentions + unreadEmail;
 
   // ─── Todos ──────────────────────────────────────────────────
@@ -98,6 +105,7 @@ export async function buildFoyerData(input: {
     dueWeek,
     dueTomorrow,
     jetztSuggestions,
+    inboxCards,
   };
 }
 

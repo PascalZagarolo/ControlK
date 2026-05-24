@@ -25,7 +25,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 type NotifSource = 'email' | 'channel' | 'mention';
 
-type NotifCard = {
+export type NotifCard = {
   id: string;
   source: NotifSource;
   sourceLabel: string; // "Gmail" / "#flotte" / "Notizen"
@@ -184,11 +184,25 @@ function SourceIcon({ source, className }: { source: NotifSource; className?: st
 // Component
 // ───────────────────────────────────────────────────────────────
 
-export function NotificationStack({ dim = false }: { dim?: boolean }) {
+export function NotificationStack({
+  dim = false,
+  initial,
+}: {
+  dim?: boolean;
+  /**
+   * Real inbox items from the server. When provided AND non-empty, the
+   * stack renders those instead of the demo mock. Empty array is treated
+   * as "real query ran but no unread items" — we still show mocks so
+   * the foyer doesn't look broken on fresh accounts. Pass `null`/omit
+   * to explicitly opt into mocks (server didn't query).
+   */
+  initial?: NotifCard[] | null;
+}) {
   const router = useRouter();
   const prefersReducedMotion = useReducedMotion();
 
-  const [items, setItems] = useState<NotifCard[]>(INITIAL_NOTIFS);
+  const seed = initial && initial.length > 0 ? initial : INITIAL_NOTIFS;
+  const [items, setItems] = useState<NotifCard[]>(seed);
   const [glowId, setGlowId] = useState<string | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
   const nextIdRef = useRef(7);

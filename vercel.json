@@ -9,6 +9,10 @@
     {
       "path": "/api/cron/recompute-caches",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-inboxes",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

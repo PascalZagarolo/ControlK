@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { NotificationStack } from './notification-stack';
+import { NotificationStack, type NotifCard } from './notification-stack';
 
 // ───────────────────────────────────────────────────────────────
 // Types
@@ -68,6 +68,12 @@ export type FoyerData = {
    * suggestions; this component falls back to a static set if empty.
    */
   jetztSuggestions: FoyerSuggestion[];
+  /**
+   * Real inbox items rendered in the left-periphery NotificationStack.
+   * Optional — the stack falls back to its built-in demo data when not
+   * provided or when the workspace has nothing unread yet.
+   */
+  inboxCards?: NotifCard[];
 };
 
 // ───────────────────────────────────────────────────────────────
@@ -317,7 +323,7 @@ export function FoyerClient(props: FoyerData) {
       {/* Notification stack — left periphery, ≥xl only. Inherits foyer dim
           via its own opacity prop instead of riding the parent div's opacity,
           because the stack is `fixed` and we want independent dim control. */}
-      <NotificationStack dim={dimRest} />
+      <NotificationStack dim={dimRest} initial={props.inboxCards ?? null} />
 
       <div
         className="relative z-10 flex min-h-screen flex-col transition-opacity duration-300 ease-out"
