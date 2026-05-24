@@ -4,11 +4,18 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
-import { loadInboxDetailContext } from '@/lib/db/queries/inbox-detail';
+import { loadInboxDetailContext, resolveSyncedGmailIds } from '@/lib/db/queries/inbox-detail';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
-import { GmailAuthError, getFullMessage, type GmailFullBody } from '@/lib/google/gmail';
+import {
+  GmailAuthError,
+  getFullMessage,
+  listThreadMessages,
+  type GmailFullBody,
+  type GmailThreadMessage,
+} from '@/lib/google/gmail';
 import { InboxDetailClient } from './inbox-detail-client';
 import { InboxContextRail } from './inbox-context-rail';
+import { ThreadStrip, type ThreadRow } from './thread-strip';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,14 +38,36 @@ export default async function Page({
   });
   if (!item) notFound();
 
-  // Parallel: full email body from Gmail + auto-link rails from DB.
-  // The body fetch is the slow path (~200-400ms round-trip); the
-  // context queries usually return in <50ms. Promise.all keeps the
-  // page TTFB at body-fetch latency, not the sum of both.
-  const [body, context] = await Promise.all([
+  // Parallel: full email body from Gmail + auto-link rails from DB +
+  // thread metadata. Body is the slow path (~200-400ms); context and
+  // thread land in <50ms each. Promise.all keeps TTFB at the body
+  // fetch's latency, not the sum.
+  const [body, context, threadMessages] = await Promise.all([
     fetchBody(user.id, item.sourceType, item.sourceId).catch(() => null),
     loadInboxDetailContext(ws.id, item.id, item.senderEmail),
+    fetchThread(user.id, item.sourceType, item.sourceThreadId).catch(
+      () => [] as GmailThreadMessage[]
+    ),
   ]);
+
+  // Resolve thread message ids to local inbox rows so each row can
+  // link into our own /inbox/[id] route where possible.
+  const idMap = await resolveSyncedGmailIds(
+    ws.id,
+    threadMessages.map((t) => t.id)
+  ).catch(() => new Map<string, string>());
+
+  const threadRows: ThreadRow[] = threadMessages
+    .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+    .map((t) => ({
+      gmailId: t.id,
+      localId: idMap.get(t.id) ?? null,
+      from: t.from,
+      snippet: t.snippet,
+      receivedAt: t.receivedAt.toISOString(),
+      isRead: t.isRead,
+      isCurrent: t.id === item.sourceId,
+    }));
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] gap-8 px-4 pb-32 pt-24 md:px-6">
@@ -56,6 +85,11 @@ export default async function Page({
             preview: item.preview,
           }}
           body={body}
+          threadStrip={
+            threadRows.length > 1 ? (
+              <ThreadStrip rows={threadRows} threadId={item.sourceThreadId ?? null} />
+            ) : null
+          }
         />
       </main>
       <aside className="hidden w-[340px] shrink-0 lg:block">
@@ -79,6 +113,22 @@ async function fetchBody(
     // Auth error → token got revoked between auth and fetch. Let the
     // client render the metadata-only fallback.
     if (e instanceof GmailAuthError) return null;
+    throw e;
+  }
+}
+
+async function fetchThread(
+  userId: string,
+  sourceType: string,
+  threadId: string | null
+): Promise<GmailThreadMessage[]> {
+  if (sourceType !== 'email_gmail' || !threadId) return [];
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return [];
+  try {
+    return await listThreadMessages(token, threadId);
+  } catch (e) {
+    if (e instanceof GmailAuthError) return [];
     throw e;
   }
 }

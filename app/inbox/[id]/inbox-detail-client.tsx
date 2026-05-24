@@ -26,9 +26,12 @@ type ItemSummary = {
 export function InboxDetailClient({
   item,
   body,
+  threadStrip,
 }: {
   item: ItemSummary;
   body: GmailFullBody | null;
+  /** Pre-rendered server component (or null when thread has only this message). */
+  threadStrip?: React.ReactNode;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -111,6 +114,11 @@ export function InboxDetailClient({
           )}
         </div>
       </div>
+
+      {/* Thread strip — chronological list of all messages in the same
+          Gmail thread. Only rendered when there's actually a thread
+          (>1 message); the page passes null otherwise. */}
+      {threadStrip}
 
       {/* Email header */}
       <header className="flex flex-col gap-3 pt-2">

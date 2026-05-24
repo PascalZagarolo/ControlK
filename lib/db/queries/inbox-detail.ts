@@ -193,6 +193,41 @@ async function fetchCustomerOpenTodos(
   }
 }
 
+/**
+ * Look up which gmail message ids we already have synced into
+ * inbox_items, returning a sparse map id → local inbox_item id. Used
+ * by the thread strip to render links into our own /inbox/[id] routes
+ * where possible, and "open in Gmail" links for messages we haven't
+ * synced (sent mail, older history, etc.).
+ */
+export async function resolveSyncedGmailIds(
+  workspaceId: string,
+  gmailIds: string[]
+): Promise<Map<string, string>> {
+  if (gmailIds.length === 0) return new Map();
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({
+        sourceId: s.inboxItems.sourceId,
+        localId: s.inboxItems.id,
+      })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.sourceType, 'email_gmail'),
+          inArray(s.inboxItems.sourceId, gmailIds)
+        )
+      );
+    const out = new Map<string, string>();
+    for (const r of rows) out.set(r.sourceId, r.localId);
+    return out;
+  } catch {
+    return new Map();
+  }
+}
+
 async function fetchCustomerMentioningNotes(
   workspaceId: string,
   customerId: string

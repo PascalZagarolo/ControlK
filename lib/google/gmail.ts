@@ -351,6 +351,67 @@ export async function getFullMessage(
   };
 }
 
+// ── Thread (sibling messages in the same conversation) ─────────
+
+type GmailThreadResponse = {
+  id: string;
+  historyId?: string;
+  messages?: GmailFullMessage[];
+};
+
+export type GmailThreadMessage = {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  receivedAt: Date;
+  isRead: boolean;
+};
+
+/**
+ * Lists every message in a thread with header-only metadata (no body).
+ * Cheap relative to per-message fetches — Gmail returns the whole thread
+ * shape in one call. Capped at 20 messages; longer threads link out to
+ * Gmail rather than burn quota fetching dozens of headers.
+ */
+export async function listThreadMessages(
+  accessToken: string,
+  threadId: string,
+  opts: { max?: number } = {}
+): Promise<GmailThreadMessage[]> {
+  const max = opts.max ?? 20;
+  const params = new URLSearchParams();
+  params.set('format', 'metadata');
+  params.append('metadataHeaders', 'From');
+  params.append('metadataHeaders', 'Subject');
+
+  let data: GmailThreadResponse;
+  try {
+    data = await gfetch<GmailThreadResponse>(
+      `/threads/${encodeURIComponent(threadId)}?${params.toString()}`,
+      accessToken
+    );
+  } catch (e) {
+    if (e instanceof GmailAuthError) throw e;
+    return [];
+  }
+
+  const messages = (data.messages ?? []).slice(0, max);
+  return messages.map<GmailThreadMessage>((m) => {
+    const ts = m.internalDate ? Number(m.internalDate) : Date.now();
+    return {
+      id: m.id,
+      threadId: m.threadId,
+      from: headerOf(m.payload, 'From'),
+      subject: headerOf(m.payload, 'Subject') || '',
+      snippet: (m.snippet ?? '').trim(),
+      receivedAt: new Date(ts),
+      isRead: !(m.labelIds ?? []).includes('UNREAD'),
+    };
+  });
+}
+
 // ── Modify (archive / mark read / etc.) ────────────────────────
 
 /**
