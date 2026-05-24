@@ -195,10 +195,10 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* ── Section 2 — Manifesto (from the builder) ────────────────── */}
+      {/* ── Section 2 — Was im Workspace steckt (cool feature tease) ─── */}
       <section style={{ padding: '120px 28px 0' }}>
-        <Reveal>
-          <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+          <Reveal>
             <p
               style={{
                 color: MUTED,
@@ -206,50 +206,149 @@ export default function LandingPage() {
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
-                marginBottom: 28,
+                marginBottom: 14,
                 textAlign: 'center',
               }}
             >
-              Vom Builder
+              Was im Workspace steckt
             </p>
-
-            <div
+            <h2
               style={{
-                fontSize: 17,
-                lineHeight: 1.7,
-                letterSpacing: '-0.005em',
-                color: SECONDARY,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 22,
+                fontSize: 'clamp(28px, 4vw, 36px)',
+                fontWeight: 500,
+                letterSpacing: '-0.025em',
+                color: PRIMARY,
+                margin: 0,
+                marginBottom: 18,
+                lineHeight: 1.15,
+                textAlign: 'center',
               }}
             >
-              <p>
-                Ich bin Pascal. Ich baue Ctrl K, weil ich jeden Morgen sechs Tabs öffne, um zu
-                wissen, was heute wichtig ist — Gmail, Slack, Notion, Kalender, meine Notizen, ein
-                Kunden-Tool. Keines davon redet mit den anderen. Keines weiß, was wirklich zählt.
-              </p>
-              <p>
-                Ich habe jedes Produktivitäts-Tool ausprobiert, das versprochen hat, das zu lösen.
-                Notion ist ein Werkzeugkasten ohne Meinung. Slack ist eine Lärm-Maschine. Sunsama
-                ist ruhig, aber abgeschnitten von allem. Linear ist schnell, aber nur für
-                Software-Teams.
-              </p>
-              <p>
-                Also baue ich das Tool, das ich selbst nutzen will. Ein Workspace. Ruhig.
-                Opinionated. Gebaut um die Art, wie ich meinen Tag wirklich starte: mit Kaffee, mit
-                einem Blick auf das, was zählt, mit einer Entscheidung.
-              </p>
-            </div>
-
-            <p style={{ marginTop: 28, color: MUTED, fontSize: 13, textAlign: 'center' }}>
-              — Pascal, baut Ctrl K aus Deutschland.
+              Sechs Dinge, die sich anders anfühlen werden.
+            </h2>
+            <p
+              style={{
+                fontSize: 15,
+                lineHeight: 1.6,
+                color: SECONDARY,
+                margin: 0,
+                marginBottom: 80,
+                textAlign: 'center',
+                maxWidth: 520,
+                marginLeft: 'auto',
+                marginRight: 'auto',
+              }}
+            >
+              Keine Liste von Features, sondern eine Sammlung von Momenten.
+              Manche sind heute schon da, manche kommen — alle gehören
+              dahin, wo dein Tag wirklich passiert.
             </p>
+          </Reveal>
+
+          <div
+            className="landing-cool-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              columnGap: 56,
+              rowGap: 56,
+            }}
+          >
+            {[
+              {
+                code: '01',
+                kicker: 'Time-Travel',
+                title: 'Eine Zeitachse durch alles.',
+                body:
+                  'Scroll jede Notiz, jeden Kontakt, jedes Todo zurück in der Zeit. Was wusstest du über diesen Kunden vor sechs Monaten? Was hast du in dem Projekt damals entschieden? Ctrl K behält alles — du musst nur scrollen.',
+              },
+              {
+                code: '02',
+                kicker: 'Inverser Kalender',
+                title: 'Du sagst was wichtig ist. Die Zeit findet sich.',
+                body:
+                  'Wirf eine Aufgabe in den Kalender, ohne zu wissen wann. Ctrl K liest deine Muster, deine offenen Slots, deine Energie über den Tag — und legt sie an die richtige Stelle. Du verschiebst sie nur, wenn es sich falsch anfühlt.',
+              },
+              {
+                code: '03',
+                kicker: 'Semantic Threading',
+                title: 'Drei Kanäle, ein Gespräch.',
+                body:
+                  'Email mit dem Kunden, Slack-Thread mit dem Kollegen, WhatsApp-Notiz an dich selbst — alle zum gleichen Thema. Ctrl K erkennt es und zeigt es als eine durchgehende Konversation, nicht als drei zerrissene Stränge.',
+              },
+              {
+                code: '04',
+                kicker: 'Pre-Meeting Brief',
+                title: '30 Sekunden bevor der Call beginnt.',
+                body:
+                  'Ein leises Pop-up: wer das ist, was zuletzt besprochen wurde, was offen blieb, welche Dateien geteilt wurden, welche Versprechen offen sind. Du gehst nicht mehr blind in den ersten Call des Tages.',
+              },
+              {
+                code: '05',
+                kicker: 'Decision Log',
+                title: 'Markiere einen Moment als Entscheidung.',
+                body:
+                  'Klick auf eine Notiz, einen Chat-Verlauf, ein Briefing. Ctrl K legt es ab als „Entscheidung getroffen am 24. Mai". In 30 Tagen kommt es zurück mit einer einzigen Frage: noch wahr?',
+              },
+              {
+                code: '06',
+                kicker: 'Quiet Hours',
+                title: 'Es lernt, wann du nicht gestört werden willst.',
+                body:
+                  'Ctrl K liest deine Muster — wann du tief arbeitest, wann du verfügbar bist. Notifications, Briefings, Pings warten still, bis du wieder auftauchst. Kein Setup, keine Regeln, keine Ausreden.',
+              },
+            ].map((f, i) => (
+              <Reveal key={f.code} delay={Math.min(i * 0.04, 0.16)}>
+                <div className="landing-cool-card">
+                  <div
+                    style={{
+                      color: ACCENT,
+                      fontSize: 10.5,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
+                      marginBottom: 14,
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 8,
+                    }}
+                  >
+                    <span>{f.code}</span>
+                    <span style={{ color: MUTED }}>·</span>
+                    <span>{f.kicker}</span>
+                  </div>
+                  <h3
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 500,
+                      letterSpacing: '-0.02em',
+                      color: PRIMARY,
+                      margin: 0,
+                      marginBottom: 12,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {f.title}
+                  </h3>
+                  <p
+                    style={{
+                      fontSize: 14.5,
+                      lineHeight: 1.65,
+                      color: SECONDARY,
+                      margin: 0,
+                      letterSpacing: '-0.005em',
+                    }}
+                  >
+                    {f.body}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
           </div>
-        </Reveal>
+        </div>
       </section>
 
-      {/* ── Section 3 — Features ────────────────────────────────────── */}
+      {/* ── Section 3 — Five principles deep-dive ──────────────────── */}
       <section style={{ padding: '120px 28px 0' }}>
         <div style={{ maxWidth: 880, margin: '0 auto' }}>
           <Reveal>
@@ -264,7 +363,7 @@ export default function LandingPage() {
                 textAlign: 'center',
               }}
             >
-              Was im Workspace steckt
+              Die Idee
             </p>
             <h2
               style={{
@@ -626,6 +725,10 @@ export default function LandingPage() {
             grid-template-columns: 1fr !important;
             gap: 10px !important;
             padding: 18px 0 !important;
+          }
+          .landing-cool-grid {
+            grid-template-columns: 1fr !important;
+            row-gap: 40px !important;
           }
         }
       `}</style>
