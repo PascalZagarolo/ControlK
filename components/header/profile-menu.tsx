@@ -92,6 +92,9 @@ export function ProfileMenu({ placement = 'bottom', size = 28, ...props }: Profi
           <ItemLink href="/settings/security" icon={<ShieldIcon />}>
             Sicherheit & 2FA
           </ItemLink>
+          <ItemLink href="/settings/integrations" icon={<PlugIcon />}>
+            Integrationen
+          </ItemLink>
           <ItemLink href="/settings/account" icon={<DownloadIcon />}>
             Daten-Export
           </ItemLink>
@@ -171,6 +174,16 @@ function ShieldIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+function PlugIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22v-5" />
+      <path d="M9 7V2" />
+      <path d="M15 7V2" />
+      <path d="M6 13V8h12v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4Z" />
     </svg>
   );
 }
