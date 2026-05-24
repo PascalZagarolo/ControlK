@@ -222,6 +222,135 @@ export async function getMessageMetadata(
   };
 }
 
+// ── Full message body (for detail view) ────────────────────────
+
+type GmailBodyPart = {
+  mimeType?: string;
+  filename?: string;
+  body?: { data?: string; size?: number; attachmentId?: string };
+  parts?: GmailBodyPart[];
+};
+
+type GmailFullMessage = {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet?: string;
+  internalDate?: string;
+  payload?: GmailBodyPart & {
+    headers?: { name: string; value: string }[];
+  };
+};
+
+export type GmailFullBody = {
+  id: string;
+  threadId: string;
+  from: string;
+  to: string;
+  cc: string | null;
+  subject: string;
+  date: Date;
+  isRead: boolean;
+  /** Plain-text body (preferred). Empty string when the message is HTML-only. */
+  plain: string;
+  /** Whether the source actually contains an HTML body (informational). */
+  hasHtml: boolean;
+  attachments: { filename: string; mimeType: string; size: number }[];
+};
+
+// Gmail encodes everything as URL-safe base64. Standard atob/Buffer.from
+// with 'base64' wants '+' and '/', so we substitute back before decoding.
+function decodeBase64Url(input: string): string {
+  const padded = input.replace(/-/g, '+').replace(/_/g, '/');
+  // Buffer is server-only — this file already lives under server-only.
+  return Buffer.from(padded, 'base64').toString('utf8');
+}
+
+// Walk a Gmail payload tree, picking the best text candidate. We prefer
+// text/plain whenever available; the HTML-only fallback is left empty
+// in V1 to avoid an XSS surface. Attachments are listed for the UI but
+// not downloaded.
+function walkPayload(
+  payload: GmailBodyPart | undefined
+): {
+  plain: string;
+  hasHtml: boolean;
+  attachments: { filename: string; mimeType: string; size: number }[];
+} {
+  const out = { plain: '', hasHtml: false, attachments: [] as any[] };
+  const visit = (node: GmailBodyPart | undefined): void => {
+    if (!node) return;
+    const mime = (node.mimeType ?? '').toLowerCase();
+    const filename = (node.filename ?? '').trim();
+
+    if (filename && node.body?.attachmentId) {
+      out.attachments.push({
+        filename,
+        mimeType: mime || 'application/octet-stream',
+        size: node.body.size ?? 0,
+      });
+      return; // attachments don't contribute to body
+    }
+
+    if (mime === 'text/plain' && node.body?.data) {
+      if (!out.plain) out.plain = decodeBase64Url(node.body.data);
+    } else if (mime === 'text/html' && node.body?.data) {
+      out.hasHtml = true;
+      // V1: don't decode HTML to avoid sanitiser dependency. If the
+      // message is HTML-only, the UI shows the snippet + a hint.
+    }
+
+    if (Array.isArray(node.parts)) {
+      for (const child of node.parts) visit(child);
+    }
+  };
+  visit(payload);
+  return out;
+}
+
+function headerOf(
+  payload: GmailFullMessage['payload'],
+  name: string
+): string {
+  const v = payload?.headers?.find(
+    (h) => h.name.toLowerCase() === name.toLowerCase()
+  )?.value;
+  return v ?? '';
+}
+
+export async function getFullMessage(
+  accessToken: string,
+  messageId: string
+): Promise<GmailFullBody | null> {
+  let raw: GmailFullMessage;
+  try {
+    raw = await gfetch<GmailFullMessage>(
+      `/messages/${encodeURIComponent(messageId)}?format=full`,
+      accessToken
+    );
+  } catch (e) {
+    if (e instanceof GmailAuthError) throw e;
+    return null;
+  }
+
+  const decoded = walkPayload(raw.payload);
+  const ts = raw.internalDate ? Number(raw.internalDate) : Date.now();
+
+  return {
+    id: raw.id,
+    threadId: raw.threadId,
+    from: headerOf(raw.payload, 'From'),
+    to: headerOf(raw.payload, 'To'),
+    cc: headerOf(raw.payload, 'Cc') || null,
+    subject: headerOf(raw.payload, 'Subject') || '(kein Betreff)',
+    date: new Date(ts),
+    isRead: !(raw.labelIds ?? []).includes('UNREAD'),
+    plain: decoded.plain,
+    hasHtml: decoded.hasHtml,
+    attachments: decoded.attachments,
+  };
+}
+
 // ── Modify (archive / mark read / etc.) ────────────────────────
 
 /**

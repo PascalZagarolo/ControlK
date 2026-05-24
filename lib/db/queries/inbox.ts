@@ -84,7 +84,7 @@ export async function listFoyerInboxCards(
       sender: r.senderName,
       preview: previewText,
       minAgo: relativeMinutes(new Date(r.receivedAt)),
-      href: `/inbox?item=${r.id}`,
+      href: `/inbox/${r.id}`,
     };
   });
 }
