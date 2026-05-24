@@ -1773,3 +1773,22 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   createdBy: one(users, { fields: [projects.createdById], references: [users.id] }),
   todoGroups: many(todoGroups),
 }));
+
+// ─── Marketing waitlist (ctrlk.de landing) ───────────────────────
+// Pre-launch waitlist signups. Not linked to workspaces/users yet —
+// people sign up before they have either.
+export const waitlistSignups = pgTable(
+  'waitlist_signups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: text('email').notNull(),
+    source: text('source'),
+    ipHash: varchar('ip_hash', { length: 32 }),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    emailIdx: uniqueIndex('waitlist_email_idx').on(t.email),
+    ipHashIdx: index('waitlist_iphash_idx').on(t.ipHash, t.createdAt),
+  })
+);

@@ -148,6 +148,13 @@
       "when": 1779900000000,
       "tag": "0020_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1780000000000,
+      "tag": "0021_waitlist",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/header/header';
@@ -38,6 +39,21 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Middleware stamps x-route-class=landing on requests bound for the
+  // marketing site (ctrlk.de) so we can skip the entire app chrome —
+  // header, cmdk, realtime, pusher, current-user query. The landing
+  // segment has its own minimal layout for OG metadata.
+  const h = await headers();
+  const isLanding = h.get('x-route-class') === 'landing';
+
+  if (isLanding) {
+    return (
+      <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+        <body>{children}</body>
+      </html>
+    );
+  }
+
   const pusherConfig = getPusherClientConfig();
   const user = await currentUser();
   return (
