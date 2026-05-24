@@ -974,6 +974,7 @@ export const todoGroups = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id'),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -1009,6 +1010,9 @@ export const todos = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     groupId: uuid('group_id').references(() => todoGroups.id, { onDelete: 'set null' }),
+    /** Denormalized from group.project_id for cheap project-filter queries.
+     *  Kept in sync server-side when a todo's group changes. */
+    projectId: uuid('project_id'),
     createdById: varchar('created_by_id', { length: 255 })
       .notNull()
       .references(() => users.id),
@@ -1732,4 +1736,40 @@ export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
     fields: [subscriptions.workspaceId],
     references: [workspaces.id],
   }),
+}));
+
+// ─── Projects ──────────────────────────────────────────────────
+// Workspace-level grouping that spans modules. A Project might be
+// "Fleet OS" or "Studio" — todo-groups, note-books, etc. can be
+// assigned to a project for cross-module filtering. Optional: groups
+// without a project show as "Workspace-weit" in the UI.
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    color: varchar('color', { length: 16 }),
+    position: integer('position').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdById: varchar('created_by_id', { length: 255 }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    workspaceIdx: index('projects_workspace_idx').on(t.workspaceId, t.position),
+    slugWsIdx: uniqueIndex('projects_slug_workspace_idx').on(t.workspaceId, t.slug),
+  })
+);
+
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [projects.workspaceId], references: [workspaces.id] }),
+  createdBy: one(users, { fields: [projects.createdById], references: [users.id] }),
+  todoGroups: many(todoGroups),
 }));

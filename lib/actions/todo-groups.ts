@@ -31,6 +31,7 @@ export async function createTodoGroup(formData: FormData): Promise<Result<{ slug
   const description = String(formData.get('description') ?? '').trim() || null;
   const emoji = String(formData.get('emoji') ?? '').trim() || null;
   const color = String(formData.get('color') ?? '').trim() || null;
+  const projectId = String(formData.get('projectId') ?? '').trim() || null;
   const defaultAssigneeId = String(formData.get('defaultAssigneeId') ?? '') || null;
   const defaultPriority =
     (String(formData.get('defaultPriority') ?? '') as TodoPriority) || null;
@@ -61,6 +62,7 @@ export async function createTodoGroup(formData: FormData): Promise<Result<{ slug
     description,
     emoji,
     color,
+    projectId: projectId as any,
     position: nextPos,
     createdById: user.id,
     defaultAssigneeId,

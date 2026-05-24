@@ -1,88 +1,59 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { listTodos } from '@/lib/db/queries/todos';
-import {
-  countUngrouped,
-  listTodoGroups,
-  smartViewCounts,
-} from '@/lib/db/queries/todo-groups';
-import { listWorkspaceMembers } from '@/lib/db/queries/members';
-import { listWorkflows } from '@/lib/db/queries/workflows';
-import { getDb } from '@/lib/db/client';
-import * as s from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { TodosClient } from '@/components/todos/todos-client';
-import { detectWorkflowSuggestions } from '@/lib/db/queries/workflow-detection';
+import { listProjects } from '@/lib/db/queries/projects';
+import { listTodoOverviewGroups } from '@/lib/db/queries/todo-overview';
+import { TodosOverviewClient } from '@/components/todos-v2/todos-overview-client';
 
-export default async function Page() {
+export const dynamic = 'force-dynamic';
+
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect('/sign-in?from=/todos');
   const ws = await requireCurrentWorkspace();
+  const sp = await searchParams;
 
-  const [todos, groups, members, smartCounts, ungroupedCount, workflows] = await Promise.all([
-    listTodos(ws.id, user.id),
-    listTodoGroups(ws.id),
-    listWorkspaceMembers(ws.id),
-    smartViewCounts(ws.id, user.id),
-    countUngrouped(ws.id, user.id),
-    listWorkflows(ws.id),
+  const [projects, allGroups] = await Promise.all([
+    listProjects(ws.id),
+    listTodoOverviewGroups(ws.id),
   ]);
 
-  const db = getDb();
-  const [customerRows, contractRows, vehicleRows, channelRows] = await Promise.all([
-    db.query.customers.findMany({
-      where: eq(s.customers.workspaceId, ws.id),
-      columns: { id: true, slug: true, name: true },
-    }),
-    db.query.contracts.findMany({
-      where: eq(s.contracts.workspaceId, ws.id),
-      columns: { id: true, externalId: true, title: true },
-    }),
-    db.query.vehicles.findMany({
-      where: eq(s.vehicles.workspaceId, ws.id),
-      columns: { id: true, externalId: true, plate: true, model: true },
-    }),
-    db.query.channels.findMany({
-      where: eq(s.channels.workspaceId, ws.id),
-      columns: { id: true, slug: true, name: true },
-    }),
-  ]);
+  // Resolve the active project filter from the slug.
+  const activeProjectSlug = sp.project ?? null;
+  const activeProject = activeProjectSlug
+    ? projects.find((p) => p.slug === activeProjectSlug) ?? null
+    : null;
 
-  // Workflow-Detection runs on every load — cheap-enough heuristic that
-  // scans the last 90 days; if it gets slow, gate behind a per-workspace
-  // refresh interval.
-  const workflowSuggestions = await detectWorkflowSuggestions(ws.id).catch(() => []);
+  // Server-side filter; we already have all groups for this workspace and
+  // each carries its projectId, so this is a quick array filter — no second
+  // query needed.
+  const groups = !activeProjectSlug
+    ? allGroups
+    : activeProjectSlug === 'workspace'
+      ? allGroups.filter((g) => !g.projectId)
+      : activeProject
+        ? allGroups.filter((g) => g.projectId === activeProject.id)
+        : allGroups;
+
+  // Aggregate stats across the (filtered) groups for the module header.
+  const totalGroups = groups.length;
+  const totalOpen = groups.reduce((sum, g) => sum + g.openCount, 0);
+  const totalDueWeek = groups.reduce((sum, g) => sum + g.dueTodayCount, 0); // simplification — could split by week later
 
   return (
-    <TodosClient
-      workspaceId={ws.id}
-      todos={todos}
+    <TodosOverviewClient
+      projects={projects}
       groups={groups}
-      smartCounts={smartCounts}
-      ungroupedCount={ungroupedCount}
-      members={members}
-      customers={customerRows.map((c) => ({ dbId: c.id, slug: c.slug, name: c.name }))}
-      contracts={contractRows.map((c) => ({
-        dbId: c.id,
-        externalId: c.externalId ?? c.id,
-        title: c.title,
-      }))}
-      vehicles={vehicleRows.map((v) => ({
-        dbId: v.id,
-        externalId: v.externalId ?? v.id,
-        label: `${v.plate} · ${v.model}`,
-      }))}
-      channels={channelRows.map((c) => ({ dbId: c.id, slug: c.slug, name: c.name }))}
-      currentUser={{
-        id: user.id,
-        name: user.name,
-        initials: user.initials,
-        from: user.avatarFrom,
-        to: user.avatarTo,
+      activeProjectSlug={activeProjectSlug}
+      stats={{
+        groups: totalGroups,
+        open: totalOpen,
+        dueWeek: totalDueWeek,
       }}
-      workflows={workflows}
-      workflowSuggestionsCount={workflowSuggestions.length}
     />
   );
 }

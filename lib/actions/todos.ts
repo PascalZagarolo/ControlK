@@ -69,10 +69,13 @@ export async function createTodo(input: {
   const dueAt = input.dueAt ? new Date(input.dueAt) : null;
   if (dueAt && Number.isNaN(dueAt.getTime())) return { ok: false, error: 'Ungültiges Datum.' };
 
-  // Apply group defaults for fields the caller left unset
+  // Apply group defaults for fields the caller left unset.
+  // Also denormalize the group's projectId onto the todo so the
+  // project-filter query can be a single indexed where-clause.
   let priority: TodoPriority = input.priority ?? 'mittel';
   let visibility: TodoVisibility = input.visibility ?? 'team';
   let assigneeId: string | null = input.assigneeId || null;
+  let projectId: string | null = null;
   if (input.groupId) {
     const group = await db.query.todoGroups.findFirst({
       where: eq(s.todoGroups.id, input.groupId),
@@ -81,6 +84,7 @@ export async function createTodo(input: {
       if (!input.assigneeId && group.defaultAssigneeId) assigneeId = group.defaultAssigneeId;
       if (!input.priority && group.defaultPriority) priority = group.defaultPriority;
       if (!input.visibility && group.defaultVisibility) visibility = group.defaultVisibility;
+      projectId = (group as any).projectId ?? null;
     }
   }
 
@@ -101,6 +105,7 @@ export async function createTodo(input: {
       channelId: input.channelId || null,
       sourceMessageId: input.sourceMessageId || null,
       groupId: input.groupId || null,
+      projectId: projectId as any,
       onDoneTemplate: input.onDoneTemplate || null,
     })
     .returning();

@@ -2,19 +2,11 @@ import { notFound, redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { listTodos } from '@/lib/db/queries/todos';
-import {
-  countUngrouped,
-  getTodoGroupBySlug,
-  listTodoGroups,
-  smartViewCounts,
-} from '@/lib/db/queries/todo-groups';
-import { listWorkspaceMembers } from '@/lib/db/queries/members';
-import { listWorkflows } from '@/lib/db/queries/workflows';
-import { listShareLinksForGroup } from '@/lib/db/queries/share-links';
-import { getDb } from '@/lib/db/client';
-import * as s from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import { TodosClient } from '@/components/todos/todos-client';
+import { getTodoGroupBySlug } from '@/lib/db/queries/todo-groups';
+import { listProjects } from '@/lib/db/queries/projects';
+import { TodoGroupDetailClient } from '@/components/todos-v2/todo-group-detail-client';
+
+export const dynamic = 'force-dynamic';
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -25,69 +17,64 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const group = await getTodoGroupBySlug(ws.id, slug);
   if (!group) notFound();
 
-  const [todos, groups, members, smartCounts, ungroupedCount, workflows, shareLinks] =
-    await Promise.all([
-      listTodos(ws.id, user.id, { groupId: group.id }),
-      listTodoGroups(ws.id),
-      listWorkspaceMembers(ws.id),
-      smartViewCounts(ws.id, user.id),
-      countUngrouped(ws.id, user.id),
-      listWorkflows(ws.id),
-      listShareLinksForGroup(ws.id, group.id),
-    ]);
-
-  const db = getDb();
-  const [customerRows, contractRows, vehicleRows, channelRows] = await Promise.all([
-    db.query.customers.findMany({
-      where: eq(s.customers.workspaceId, ws.id),
-      columns: { id: true, slug: true, name: true },
-    }),
-    db.query.contracts.findMany({
-      where: eq(s.contracts.workspaceId, ws.id),
-      columns: { id: true, externalId: true, title: true },
-    }),
-    db.query.vehicles.findMany({
-      where: eq(s.vehicles.workspaceId, ws.id),
-      columns: { id: true, externalId: true, plate: true, model: true },
-    }),
-    db.query.channels.findMany({
-      where: eq(s.channels.workspaceId, ws.id),
-      columns: { id: true, slug: true, name: true },
-    }),
+  const [todos, projects] = await Promise.all([
+    listTodos(ws.id, user.id, { groupId: group.id }),
+    listProjects(ws.id),
   ]);
 
-  const activeGroup = groups.find((g) => g.slug === slug);
+  // Resolve the project this group belongs to (if any) — we need it for the
+  // breadcrumb and the "project label" in the header. group.projectId is on
+  // the row only if it was set; not all groups have one.
+  const project =
+    (group as any).projectId
+      ? projects.find((p) => p.id === (group as any).projectId) ?? null
+      : null;
+
+  const open = todos.filter(
+    (t) => t.status === 'offen' || t.status === 'in_arbeit'
+  );
+  const done = todos.filter((t) => t.status === 'erledigt');
+
+  const now = new Date();
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay.getTime() + 86_400_000);
+  const dueToday = open.filter(
+    (t) => t.dueAt && new Date(t.dueAt) >= startOfDay && new Date(t.dueAt) < endOfDay
+  ).length;
 
   return (
-    <TodosClient
-      workspaceId={ws.id}
-      todos={todos}
-      groups={groups}
-      smartCounts={smartCounts}
-      ungroupedCount={ungroupedCount}
-      members={members}
-      customers={customerRows.map((c) => ({ dbId: c.id, slug: c.slug, name: c.name }))}
-      contracts={contractRows.map((c) => ({
-        dbId: c.id,
-        externalId: c.externalId ?? c.id,
-        title: c.title,
-      }))}
-      vehicles={vehicleRows.map((v) => ({
-        dbId: v.id,
-        externalId: v.externalId ?? v.id,
-        label: `${v.plate} · ${v.model}`,
-      }))}
-      channels={channelRows.map((c) => ({ dbId: c.id, slug: c.slug, name: c.name }))}
-      currentUser={{
-        id: user.id,
-        name: user.name,
-        initials: user.initials,
-        from: user.avatarFrom,
-        to: user.avatarTo,
+    <TodoGroupDetailClient
+      group={{
+        id: group.id,
+        slug: group.slug,
+        name: group.name,
+        description: group.description ?? undefined,
+        emoji: group.emoji ?? undefined,
+        projectId: project?.id ?? null,
+        projectName: project?.name,
+        projectSlug: project?.slug,
       }}
-      activeGroup={activeGroup}
-      workflows={workflows}
-      shareLinks={shareLinks}
+      openTodos={open.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueAt: t.dueAt ?? null,
+        description: t.description ?? undefined,
+      }))}
+      doneTodos={done.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueAt: t.dueAt ?? null,
+      }))}
+      stats={{
+        open: open.length,
+        done: done.length,
+        dueToday,
+      }}
     />
   );
 }
