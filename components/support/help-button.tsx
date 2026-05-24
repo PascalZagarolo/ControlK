@@ -20,8 +20,8 @@ export function HelpButton() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Hilfe"
-        className="fixed bottom-4 right-4 z-30 hidden h-7 w-7 items-center justify-center rounded-full border border-[#1F1F23] text-[12px] text-[#52525B] backdrop-blur-md transition-colors duration-150 ease-out hover:border-[#2A2A30] hover:text-[#A1A1AA] md:flex"
-        style={{ background: 'rgba(14, 14, 17, 0.6)' }}
+        className="fixed bottom-6 right-6 z-30 hidden h-6 w-6 items-center justify-center rounded-full border border-[#1F1F23] text-[11px] text-[#52525B] backdrop-blur-md transition-colors duration-150 ease-out hover:border-[#2A2A30] hover:text-[#A1A1AA] md:flex"
+        style={{ background: 'rgba(14, 14, 17, 0.55)' }}
       >
         ?
       </button>

@@ -16,19 +16,33 @@ type Ws = {
   scope?: 'business' | 'private';
 };
 
+/** Tight scope label inside the active workspace pill. Single amber palette
+ *  for both business and private — variation comes from saturation, not hue. */
 function ScopeChip({ scope }: { scope: 'business' | 'private' }) {
   const isPrivate = scope === 'private';
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.4px]"
+      className="inline-flex items-center rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.4px]"
       style={{
-        background: isPrivate ? '#ffb45e1f' : '#5eb6ff1f',
-        color: isPrivate ? '#ffb45e' : '#5eb6ff',
+        background: isPrivate ? 'rgba(232, 184, 109, 0.08)' : 'rgba(232, 184, 109, 0.12)',
+        color: isPrivate ? '#C9A05F' : '#E8B86D',
       }}
       title={isPrivate ? 'Privater Workspace' : 'Business-Workspace'}
     >
-      {isPrivate ? '🏡 Privat' : '💼 Business'}
+      {isPrivate ? 'Privat' : 'Business'}
     </span>
+  );
+}
+
+/** Active-workspace indicator: a 4px amber dot. Per-workspace coloring lives
+ *  only inside the dropdown (Badge), where multiple workspaces need to be
+ *  visually distinguishable. */
+function ActiveDot() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-1 w-1 shrink-0 rounded-full bg-[#E8B86D]"
+    />
   );
 }
 
@@ -96,10 +110,10 @@ export function WorkspaceSwitcher({
     <div ref={wrapRef} className="relative flex items-center">
       <a
         href="/"
-        className="flex items-center gap-2 rounded-[6px] px-1 py-1.5 text-[15px] font-medium leading-none tracking-[-0.2px] text-ink-50 transition-colors hover:bg-white/[0.06]"
+        className="flex items-center gap-2 rounded-full px-2 py-1 text-[13px] font-normal leading-none text-[#FAFAFA] transition-colors hover:bg-white/[0.04]"
         aria-label={`${active.name} home`}
       >
-        <Badge ws={active} />
+        <ActiveDot />
         <span>{active.name}</span>
         {active.scope && <ScopeChip scope={active.scope} />}
       </a>

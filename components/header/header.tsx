@@ -23,7 +23,10 @@ export async function Header() {
     | 'private';
 
   return (
-    <header className="absolute left-1/2 top-3 z-50 flex h-[52px] -translate-x-1/2 items-center gap-8 rounded-[14px] border border-white/[0.08] bg-[rgba(12,13,15,0.78)] px-4 shadow-panel backdrop-blur-xl backdrop-saturate-150">
+    <header
+      className="absolute left-1/2 top-6 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#1F1F23] px-2 py-1.5 backdrop-blur-xl backdrop-saturate-150"
+      style={{ background: 'rgba(17, 17, 20, 0.55)' }}
+    >
       <WorkspaceSwitcher
         active={{
           id: active.id,
@@ -46,17 +49,17 @@ export async function Header() {
             | 'private',
         }))}
       />
+      <span aria-hidden className="mx-1 h-4 w-px bg-[#1F1F23]" />
       <NavTabs scope={activeScope} />
-      <div className="flex items-center gap-1">
-        <NotificationsBell initial={notifications} />
-        <ProfileMenu
-          name={user.name}
-          email={user.email}
-          initials={user.initials}
-          from={user.avatarFrom}
-          to={user.avatarTo}
-        />
-      </div>
+      <span aria-hidden className="mx-1 h-4 w-px bg-[#1F1F23]" />
+      <NotificationsBell initial={notifications} />
+      <ProfileMenu
+        name={user.name}
+        email={user.email}
+        initials={user.initials}
+        from={user.avatarFrom}
+        to={user.avatarTo}
+      />
     </header>
   );
 }

@@ -26,15 +26,17 @@ export function NavTabs({ scope = 'business' }: { scope?: 'business' | 'private'
   const pathname = usePathname();
   const visible = TABS.filter((t) => !t.scopes || t.scopes.includes(scope));
   return (
-    <nav className="flex items-center gap-1">
+    <nav className="flex items-center gap-1" aria-label="Module">
       {visible.map((t) => {
         const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
         return (
           <Link
             key={t.href}
             href={t.href}
-            className={`rounded-[6px] px-2.5 py-1.5 text-[13.5px] font-medium leading-none transition-colors duration-150 ${
-              active ? 'text-ink-50' : 'text-ink-200 hover:bg-white/[0.05] hover:text-ink-50'
+            className={`rounded-full px-3 py-1 text-[12.5px] font-normal leading-none transition-colors duration-150 ease-out ${
+              active
+                ? 'bg-white/[0.06] text-[#FAFAFA]'
+                : 'text-[#cbcbd0] hover:bg-white/[0.04] hover:text-[#FAFAFA]'
             }`}
           >
             {t.label}

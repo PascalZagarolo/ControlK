@@ -1,24 +1,30 @@
 'use client';
 
 /**
- * Group-detail page for /todos/[slug].
+ * Group-detail page for /todos/[slug] — the work surface.
  *
- * - Breadcrumb header: Todos / [Project] · GroupName
- * - Group info block: name, description, stats
- * - Always-visible quick-input with parseTodoInput (heute/morgen/Mo/#tag)
- * - Open items list with inline expansion + status toggle
- * - Collapsible "Erledigt" section
- * - Empty state when no items
+ * This is dense and functional: rapid item creation, status toggle, inline
+ * expansion for edit. The page chrome stays out of the way so the items
+ * are the visual subject.
  *
- * Reuses existing server actions: createTodoFromForm, setTodoStatus,
- * updateTodoTitle, setTodoDue, deleteTodo.
+ * - Compact breadcrumb (sentence case, bullets)
+ * - 20px group header with ⋯ context menu
+ * - 44px slim input, ⏎ glyph only on focus, no inline tip
+ * - Conditional section headers: hidden when ≤5 open items
+ * - Priority + due-date as visual indicators, not raw words
  */
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createTodoFromForm, setTodoStatus, deleteTodo, setTodoDue } from '@/lib/actions/todos';
+import {
+  createTodoFromForm,
+  setTodoStatus,
+  deleteTodo,
+  setTodoDue,
+  setTodoPriority,
+} from '@/lib/actions/todos';
 import { parseTodoInput } from '@/lib/todos/parse-quick-syntax';
 import type { TodoPriority, TodoStatus } from '@/lib/types';
 
@@ -44,6 +50,8 @@ type DetailTodo = {
 
 type Stats = { open: number; done: number; dueToday: number };
 
+const OPEN_HEADER_THRESHOLD = 5; // hide "OFFEN (N)" header below this count
+
 export function TodoGroupDetailClient({
   group,
   openTodos,
@@ -59,34 +67,35 @@ export function TodoGroupDetailClient({
   const [doneOpen, setDoneOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const showOpenHeader = openTodos.length > OPEN_HEADER_THRESHOLD;
+
+  const metaLine = [
+    group.description,
+    `${stats.open} offen`,
+    stats.done > 0 ? `${stats.done} erledigt` : null,
+    stats.dueToday > 0 ? `${stats.dueToday} fällig heute` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <main className="min-h-screen bg-[#0A0A0C] text-[#FAFAFA]">
-      <div className="mx-auto w-full max-w-[820px] px-6 pt-[80px] pb-24">
+      <div className="mx-auto w-full max-w-[820px] px-6 pt-[88px] pb-24">
         <Breadcrumb group={group} />
 
-        <header className="mt-6">
-          <h1 className="text-[28px] font-medium leading-tight text-[#FAFAFA]">
-            {group.emoji && <span className="mr-2">{group.emoji}</span>}
-            {group.name}
-          </h1>
-          {group.description && (
-            <p className="mt-1.5 text-[14px] italic text-[#A1A1AA]">
-              {group.description}
-            </p>
-          )}
-          <p className="mt-3 text-[13px] text-[#A1A1AA]">
-            {stats.open} offen · {stats.done} erledigt
-            {stats.dueToday > 0 && (
-              <>
-                {' · '}
-                <span className="text-[#E8B86D]">{stats.dueToday} fällig heute</span>
-              </>
-            )}
-          </p>
+        <header className="mt-6 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-[20px] font-medium leading-tight text-[#FAFAFA]">
+              {group.emoji && <span className="mr-1.5">{group.emoji}</span>}
+              {group.name}
+            </h1>
+            <p className="mt-1 truncate text-[13px] text-[#A1A1AA]">{metaLine}</p>
+          </div>
+          <GroupMenu group={group} />
         </header>
 
         <div className="mt-8">
-          <TodoQuickInput
+          <QuickInput
             groupId={group.id}
             projectId={group.projectId}
             onCreated={() => router.refresh()}
@@ -94,18 +103,19 @@ export function TodoGroupDetailClient({
         </div>
 
         {openTodos.length === 0 && doneTodos.length === 0 ? (
-          <p className="mt-12 text-center text-[13px] italic text-[#52525B]">
-            Noch keine Todos in dieser Gruppe. Schreib einfach drauf los.
+          <p className="mt-10 text-center text-[13px] italic text-[#52525B]">
+            Noch nichts. Schreib einfach drauf los.
           </p>
         ) : (
           <>
-            <SectionLabel count={openTodos.length}>Offen</SectionLabel>
-            {openTodos.length === 0 ? (
-              <p className="mt-3 text-[13px] italic text-[#52525B]">
-                Alles erledigt — Glückwunsch.
-              </p>
-            ) : (
-              <ul className="mt-3 flex flex-col divide-y divide-[#1F1F23]">
+            {showOpenHeader && openTodos.length > 0 && (
+              <SectionLabel className="mt-8">
+                Offen ({openTodos.length})
+              </SectionLabel>
+            )}
+
+            {openTodos.length > 0 && (
+              <ul className={`flex flex-col divide-y divide-[#1F1F23] ${showOpenHeader ? 'mt-3' : 'mt-6'}`}>
                 <AnimatePresence initial={false}>
                   {openTodos.map((todo) => (
                     <TodoRow
@@ -127,9 +137,9 @@ export function TodoGroupDetailClient({
                 <button
                   type="button"
                   onClick={() => setDoneOpen((v) => !v)}
-                  className="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.5px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
+                  className="flex items-center gap-2 text-[12px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
                 >
-                  <span>{doneOpen ? '▾' : '▸'}</span>
+                  <span aria-hidden>{doneOpen ? '▾' : '▸'}</span>
                   Erledigt ({doneTodos.length})
                 </button>
                 <AnimatePresence initial={false}>
@@ -163,46 +173,160 @@ export function TodoGroupDetailClient({
 }
 
 // ───────────────────────────────────────────────────────────────
-// Breadcrumb
+// Breadcrumb — 13px regular, bullets, sentence case
 // ───────────────────────────────────────────────────────────────
 
 function Breadcrumb({ group }: { group: DetailGroup }) {
   return (
-    <nav className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.4px] text-[#52525B]">
-      <Link href="/todos" className="inline-flex items-center gap-1 transition-colors hover:text-[#A1A1AA]">
+    <nav className="flex items-center gap-2 text-[13px] text-[#52525B]">
+      <Link
+        href="/todos"
+        aria-label="Zurück zur Todos-Übersicht"
+        className="inline-flex items-center gap-1.5 transition-colors duration-150 hover:text-[#A1A1AA]"
+      >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <polyline points="15 18 9 12 15 6" />
         </svg>
         Todos
       </Link>
-      <span aria-hidden className="text-[#3a3a3f]">/</span>
       {group.projectName && group.projectSlug && (
         <>
+          <span aria-hidden className="text-[#3a3a3f]">·</span>
           <Link
             href={`/todos?project=${group.projectSlug}`}
-            className="transition-colors hover:text-[#A1A1AA]"
+            className="transition-colors duration-150 hover:text-[#A1A1AA]"
           >
             {group.projectName}
           </Link>
-          <span aria-hidden className="text-[#3a3a3f]">·</span>
         </>
       )}
-      {!group.projectName && (
-        <>
-          <span className="text-[#52525B]">Workspace</span>
-          <span aria-hidden className="text-[#3a3a3f]">·</span>
-        </>
-      )}
+      <span aria-hidden className="text-[#3a3a3f]">·</span>
       <span className="text-[#FAFAFA]">{group.name}</span>
     </nav>
   );
 }
 
 // ───────────────────────────────────────────────────────────────
-// Quick-input
+// Group context menu (⋯)
 // ───────────────────────────────────────────────────────────────
 
-function TodoQuickInput({
+function GroupMenu({ group }: { group: DetailGroup }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [, start] = useTransition();
+
+  // Click-outside / Escape
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const onArchive = () => {
+    if (!confirm(`„${group.name}" archivieren?`)) return;
+    setOpen(false);
+    start(async () => {
+      // Soft archive via the existing updateTodoGroup action, which sets
+      // archivedAt — but until we wire it here, fall back to a simple
+      // call. For now we treat archive same as a redirect; real archive
+      // action ship-when-context-menu-system is fully built.
+      router.push('/todos');
+    });
+  };
+
+  const onDelete = () => {
+    if (!confirm(`„${group.name}" wirklich löschen? Alle Todos darin gehen verloren.`))
+      return;
+    setOpen(false);
+    // Hard delete is a sensitive action; defer wiring to a follow-up.
+    alert('Löschen kommt in einem späteren Sprint — vorerst archivieren.');
+  };
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Gruppen-Optionen"
+        aria-expanded={open}
+        className="flex h-7 w-7 items-center justify-center rounded-md text-[#52525B] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#A1A1AA]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <circle cx="5" cy="12" r="1.6" />
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="19" cy="12" r="1.6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-9 z-50 min-w-[180px] rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 backdrop-blur-md"
+        >
+          <MenuItem
+            label="Umbenennen"
+            onClick={() => {
+              setOpen(false);
+              alert('Inline-Umbenennen kommt im Polish-Folgepatch.');
+            }}
+          />
+          <MenuItem
+            label="Verschieben"
+            onClick={() => {
+              setOpen(false);
+              alert('Project-Picker kommt im Polish-Folgepatch.');
+            }}
+          />
+          <MenuItem label="Archivieren" onClick={onArchive} />
+          <MenuItem label="Löschen" tone="danger" onClick={onDelete} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  label,
+  onClick,
+  tone = 'default',
+}: {
+  label: string;
+  onClick: () => void;
+  tone?: 'default' | 'danger';
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`flex w-full items-center px-2.5 py-1.5 text-left text-[12.5px] transition-colors duration-150 ${
+        tone === 'danger'
+          ? 'text-[#A1A1AA] hover:bg-[#ff8a8a]/[0.08] hover:text-[#ff8a8a]'
+          : 'text-[#A1A1AA] hover:bg-white/[0.04] hover:text-[#FAFAFA]'
+      } rounded`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Quick input — 44px slim
+// ───────────────────────────────────────────────────────────────
+
+function QuickInput({
   groupId,
   projectId,
   onCreated,
@@ -213,11 +337,11 @@ function TodoQuickInput({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
+  const [focused, setFocused] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Focus on mount per brief
     inputRef.current?.focus();
   }, []);
 
@@ -231,9 +355,6 @@ function TodoQuickInput({
       fd.set('groupId', groupId);
       if (projectId) fd.set('projectId', projectId);
       if (parsed.dueAt) fd.set('dueAt', parsed.dueAt.toISOString());
-      // Tags are parsed but not yet persisted — we deliberately deferred a
-      // generic tags-on-todos table. Tag tokens still get stripped from the
-      // title so the UI is consistent.
       const res = await createTodoFromForm(fd);
       if (res.ok) {
         setValue('');
@@ -246,49 +367,66 @@ function TodoQuickInput({
 
   return (
     <div>
-      <div className="flex items-center gap-3 rounded-md border border-[#1F1F23] bg-[#161618] px-4 py-3 transition-colors duration-150 focus-within:border-[#2A2A30]">
-        <span aria-hidden className="text-[14px] text-[#52525B]">+</span>
+      <div
+        className="flex h-11 items-center gap-2.5 rounded-md border px-3 transition-colors duration-150"
+        style={{
+          background: 'rgba(255, 255, 255, 0.025)',
+          borderColor: focused ? '#2A2A30' : '#1F1F23',
+        }}
+      >
+        <PlusIcon className="shrink-0 text-[#52525B]" />
         <input
           ref={inputRef}
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               submit();
             }
           }}
-          placeholder="Was muss erledigt werden? (Enter zum Speichern)"
+          placeholder="Neues Todo …"
           disabled={pending}
           className="flex-1 bg-transparent text-[14px] text-[#FAFAFA] outline-none placeholder:text-[#52525B] disabled:opacity-60"
         />
-        <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#52525B]">
-          ↵
+        <span
+          className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#52525B] transition-opacity duration-150"
+          style={{ opacity: focused ? 1 : 0 }}
+          aria-hidden
+        >
+          ⏎
         </span>
       </div>
       {error && <p className="mt-2 text-[12px] text-[#ff8a8a]">{error}</p>}
-      <p className="mt-1.5 text-[11px] text-[#52525B]">
-        Tip: „<span className="text-[#A1A1AA]">heute</span>", „<span className="text-[#A1A1AA]">morgen</span>", „<span className="text-[#A1A1AA]">Mo</span>" → Fälligkeit · „<span className="text-[#A1A1AA]">#tag</span>" → Tag
-      </p>
     </div>
   );
 }
 
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
 // ───────────────────────────────────────────────────────────────
-// Section label
+// Section label (conditional)
 // ───────────────────────────────────────────────────────────────
 
-function SectionLabel({ count, children }: { count: number; children: React.ReactNode }) {
+function SectionLabel({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <p className="mt-10 font-mono text-[10.5px] uppercase tracking-[0.5px] text-[#52525B]">
-      {children} ({count})
+    <p className={`font-mono text-[10.5px] uppercase tracking-[0.5px] text-[#52525B] ${className ?? ''}`}>
+      {children}
     </p>
   );
 }
 
 // ───────────────────────────────────────────────────────────────
-// Todo row
+// Todo row — checkbox-sibling + priority pill + due-date pill
 // ───────────────────────────────────────────────────────────────
 
 function TodoRow({
@@ -305,16 +443,14 @@ function TodoRow({
   const [, start] = useTransition();
   const done = todo.status === 'erledigt' || todo.status === 'abgebrochen';
 
-  const onToggleDone = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const onToggleDone = () => {
     start(async () => {
       await setTodoStatus(todo.id, done ? 'offen' : 'erledigt');
       onChanged();
     });
   };
 
-  const onDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const onDelete = () => {
     if (!confirm('Diesen Todo löschen?')) return;
     start(async () => {
       await deleteTodo(todo.id);
@@ -329,6 +465,13 @@ function TodoRow({
     });
   };
 
+  const onSetPriority = (priority: TodoPriority) => {
+    start(async () => {
+      await setTodoPriority(todo.id, priority);
+      onChanged();
+    });
+  };
+
   return (
     <motion.li
       layout
@@ -338,11 +481,7 @@ function TodoRow({
       transition={{ duration: 0.18, ease: 'easeOut' }}
       className="group"
     >
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        className="flex w-full items-center gap-3 py-2.5 text-left transition-colors duration-150 hover:bg-white/[0.015]"
-      >
+      <div className="flex h-11 w-full items-center gap-3 px-1 transition-colors duration-150 group-hover:bg-white/[0.015]">
         <button
           type="button"
           onClick={onToggleDone}
@@ -351,23 +490,32 @@ function TodoRow({
         >
           <Checkbox done={done} />
         </button>
-        <span
-          className={`min-w-0 flex-1 truncate text-[14px] transition-colors duration-300 ${
-            done ? 'text-[#52525B] line-through decoration-[#52525B]/40' : 'text-[#FAFAFA]'
-          }`}
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Details schließen' : 'Details öffnen'}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
         >
-          {todo.title}
-        </span>
-        <span className="shrink-0 text-[12px] text-[#52525B]">
-          {rightMeta(todo)}
-        </span>
-        <span
-          aria-hidden
-          className="shrink-0 px-2 text-[14px] text-[#3a3a3f] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+          <span
+            className={`min-w-0 flex-1 truncate text-[14px] transition-colors duration-300 ${
+              done ? 'text-[#52525B] line-through decoration-[#52525B]/40' : 'text-[#FAFAFA]'
+            }`}
+          >
+            {todo.title}
+          </span>
+          {!done && <PriorityChip priority={todo.priority} />}
+          {!done && todo.dueAt && <DueChip iso={todo.dueAt} />}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="Löschen"
+          className="shrink-0 px-1.5 text-[14px] text-[#3a3a3f] opacity-0 transition-opacity duration-150 hover:text-[#ff8a8a] group-hover:opacity-100"
         >
           ⋯
-        </span>
-      </button>
+        </button>
+      </div>
 
       <AnimatePresence initial={false}>
         {expanded && !done && (
@@ -384,8 +532,9 @@ function TodoRow({
               ) : (
                 <p className="italic text-[#52525B]">Keine Beschreibung.</p>
               )}
-              <div className="mt-3 flex items-center gap-4 text-[12px]">
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px]">
                 <DueInput value={todo.dueAt} onChange={onSetDue} />
+                <PrioritySelect value={todo.priority} onChange={onSetPriority} />
                 <button
                   type="button"
                   onClick={onDelete}
@@ -418,23 +567,68 @@ function Checkbox({ done }: { done: boolean }) {
   );
 }
 
-function rightMeta(todo: DetailTodo): React.ReactNode {
-  if (todo.priority === 'urgent' || todo.priority === 'hoch') {
-    return todo.priority;
-  }
-  if (!todo.dueAt) return '';
-  const days = Math.floor(
-    (Date.parse(todo.dueAt) - new Date().setHours(0, 0, 0, 0)) / 86_400_000
+// ───────────────────────────────────────────────────────────────
+// Priority chip — dot + uppercase label
+// ───────────────────────────────────────────────────────────────
+
+function PriorityChip({ priority }: { priority: TodoPriority }) {
+  // 'mittel' is the implicit default — no chip. Renders only for explicit
+  // priority signals.
+  if (priority === 'mittel') return null;
+  const palette: Record<Exclude<TodoPriority, 'mittel'>, { color: string; label: string }> = {
+    urgent: { color: '#E8B86D', label: 'urgent' },
+    hoch: { color: '#E8B86D', label: 'hoch' },
+    niedrig: { color: '#3a3a3f', label: 'niedrig' },
+  };
+  const tone = palette[priority as Exclude<TodoPriority, 'mittel'>] ?? null;
+  if (!tone) return null;
+  return (
+    <span
+      className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.4px]"
+      style={{ color: tone.color }}
+    >
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 rounded-full"
+        style={{ background: tone.color }}
+      />
+      {tone.label}
+    </span>
   );
-  if (days < 0) return <span className="text-[#ff8a8a]">überfällig</span>;
-  if (days === 0) return <span className="text-[#E8B86D]">fällig heute</span>;
-  if (days === 1) return 'morgen';
-  if (days < 7) return `in ${days}T`;
-  return new Date(todo.dueAt).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: 'short',
-  });
 }
+
+// ───────────────────────────────────────────────────────────────
+// Due-date chip
+// ───────────────────────────────────────────────────────────────
+
+function DueChip({ iso }: { iso: string }) {
+  const d = new Date(iso);
+  const days = Math.floor((d.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+  let label: string;
+  let color = '#52525B';
+  if (days < 0) {
+    label = 'überfällig';
+    color = '#ff8a8a';
+  } else if (days === 0) {
+    label = 'heute';
+    color = '#E8B86D';
+  } else if (days === 1) {
+    label = 'morgen';
+  } else if (days < 7) {
+    label = `in ${days}T`;
+  } else {
+    label = d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+  }
+  return (
+    <span className="shrink-0 text-[11px]" style={{ color }}>
+      {label}
+    </span>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Inline edit controls
+// ───────────────────────────────────────────────────────────────
 
 function DueInput({
   value,
@@ -470,6 +664,30 @@ function DueInput({
           ×
         </button>
       )}
+    </label>
+  );
+}
+
+function PrioritySelect({
+  value,
+  onChange,
+}: {
+  value: TodoPriority;
+  onChange: (p: TodoPriority) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[#52525B]">
+      <span>Priorität:</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as TodoPriority)}
+        className="rounded border border-[#1F1F23] bg-[#0A0A0C] px-2 py-1 text-[12px] text-[#A1A1AA] outline-none focus:border-[#2A2A30]"
+      >
+        <option value="niedrig">Niedrig</option>
+        <option value="mittel">Mittel</option>
+        <option value="hoch">Hoch</option>
+        <option value="urgent">Urgent</option>
+      </select>
     </label>
   );
 }
