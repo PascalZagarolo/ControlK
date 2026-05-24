@@ -1,13 +1,15 @@
 {
-  "name": "uRent — Workspace OS",
-  "short_name": "uRent",
-  "description": "Privat + Business in einem Tool. Reality-anchored work.",
+  "name": "Ctrl K — One workspace. Many lives.",
+  "short_name": "Ctrl K",
+  "description": "Der ruhige Operations-Hub für Solo-Founder und Teams. Inbox, Notizen, Todos, Kalender, Kontakte — ein Cmd+K von überall.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0c0d0f",
-  "theme_color": "#0c0d0f",
+  "background_color": "#0A0A0C",
+  "theme_color": "#0A0A0C",
+  "lang": "de",
+  "categories": ["productivity", "business"],
   "icons": [
     {
       "src": "/icon-192.png",
@@ -24,13 +26,19 @@
   ],
   "shortcuts": [
     {
-      "name": "Brief vorlesen",
-      "short_name": "Brief",
-      "url": "/todos/brief",
+      "name": "Foyer öffnen",
+      "short_name": "Foyer",
+      "url": "/",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Schnellcapture",
+      "name": "Inbox",
+      "short_name": "Inbox",
+      "url": "/inbox",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Schnellcapture Todo",
       "short_name": "Neuer Todo",
       "url": "/todos?capture=1",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]

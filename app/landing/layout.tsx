@@ -2,13 +2,38 @@ import type { Metadata, Viewport } from 'next';
 
 const TITLE = 'Ctrl K — One workspace. Many lives.';
 const DESCRIPTION =
-  'Der ruhige Operations-Hub. Ein Cmd+K von überall — Inbox, Notizen, Todos, Kalender, dein Tag.';
+  'Der ruhige Operations-Hub. Inbox, Notizen, Todos, Kalender, Kontakte — ein Cmd+K von überall. Gmail-Integration, AI-Briefing, Stack-by-Customer, Wartet-auf-Antwort-Split. Gebaut in Deutschland.';
 const SITE_URL = 'https://ctrlk.de';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: TITLE,
   description: DESCRIPTION,
+  applicationName: 'Ctrl K',
+  keywords: [
+    'Operations Hub',
+    'Inbox Zero',
+    'Notizen',
+    'Todos',
+    'Kalender',
+    'Gmail Integration',
+    'Cmd+K',
+    'Productivity Tool',
+    'Solo Founder',
+    'CRM Email',
+    'Smart Briefing',
+    'Workspace',
+    'Ctrl K',
+  ],
+  authors: [{ name: 'Pascal Zagarolo', url: SITE_URL }],
+  creator: 'Pascal Zagarolo',
+  publisher: 'Pascal Zagarolo',
+  category: 'productivity',
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
   alternates: { canonical: '/' },
   openGraph: {
     title: TITLE,
@@ -23,7 +48,17 @@ export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
   },
-  robots: { index: true, follow: true },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-snippet': -1,
+      'max-image-preview': 'large',
+      'max-video-preview': -1,
+    },
+  },
 };
 
 export const viewport: Viewport = {

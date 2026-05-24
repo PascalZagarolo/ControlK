@@ -24,19 +24,74 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
+const SITE_URL = 'https://ctrlk.de';
+const SITE_NAME = 'Ctrl K';
+const DEFAULT_TITLE = 'Ctrl K — One workspace. Many lives.';
+const DEFAULT_DESCRIPTION =
+  'Der ruhige Operations-Hub für Solo-Founder und Teams. Inbox, Notizen, Todos, Kalender, Kontakte — ein Cmd+K von überall.';
+
 export const metadata: Metadata = {
-  title: 'uRent — Workspace OS',
-  description: 'Privat + Business in einem Tool. Reality-anchored work.',
+  metadataBase: new URL(SITE_URL),
+  // Title-Template — child pages can override `title` with just a
+  // short string and it becomes "X — Ctrl K". Pages that want the
+  // full title verbatim use { title: { absolute: '…' } }.
+  title: {
+    default: DEFAULT_TITLE,
+    template: '%s — Ctrl K',
+  },
+  description: DEFAULT_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: [
+    'Operations Hub',
+    'Inbox Zero',
+    'Notizen',
+    'Todos',
+    'Kalender',
+    'Workspace',
+    'Productivity',
+    'Cmd+K',
+    'Gmail Integration',
+    'Solo Founder Tool',
+  ],
+  authors: [{ name: 'Pascal Zagarolo', url: SITE_URL }],
+  creator: 'Pascal Zagarolo',
+  publisher: 'Pascal Zagarolo',
+  category: 'productivity',
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  alternates: { canonical: '/' },
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'uRent',
+    title: SITE_NAME,
   },
+  openGraph: {
+    type: 'website',
+    locale: 'de_DE',
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  // App-side routes are auth-walled (see robots.ts), so crawlers index
+  // whatever the landing tree exposes. Per-route robots overrides on
+  // share-link surfaces handle their own visibility.
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0c0d0f',
+  // Aligned with the landing canvas (#0A0A0C) for a consistent
+  // status-bar tint across marketing + app on mobile.
+  themeColor: '#0A0A0C',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',

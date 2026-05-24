@@ -11,6 +11,33 @@ const MUTED = '#52525B';
 const ACCENT = '#E8B86D';
 
 export default function LandingPage() {
+  // JSON-LD structured data — gives Google rich-snippet eligibility +
+  // surfaces "by Pascal Zagarolo" + the product category in SERPs.
+  // SoftwareApplication is the closest schema to "web-based productivity
+  // tool with optional subscription".
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Ctrl K',
+    description:
+      'Der ruhige Operations-Hub für Solo-Founder und Teams. Inbox, Notizen, Todos, Kalender, Kontakte — ein Cmd+K von überall.',
+    url: 'https://ctrlk.de',
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web Browser',
+    inLanguage: 'de-DE',
+    author: {
+      '@type': 'Person',
+      name: 'Pascal Zagarolo',
+      url: 'https://ctrlk.de',
+    },
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'EUR',
+      availability: 'https://schema.org/PreOrder',
+    },
+  };
+
   return (
     <main
       style={{
@@ -20,6 +47,11 @@ export default function LandingPage() {
         fontFamily: 'var(--font-inter), -apple-system, system-ui, sans-serif',
       }}
     >
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
       {/* Floating top nav */}
       <nav
         aria-label="Primär"
