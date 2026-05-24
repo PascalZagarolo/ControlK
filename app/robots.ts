@@ -24,6 +24,7 @@ export default function robots(): MetadataRoute.Robots {
           '/workspace/',
           '/workspaces/',
           '/inbox',
+          '/notifications',
           '/notes',
           '/notes/',
           '/todos',

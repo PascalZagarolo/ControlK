@@ -143,11 +143,11 @@ export function NotificationsBell({ initial }: { initial: Notification[] }) {
           )}
           <div className="border-t border-white/[0.06] px-3 py-2 text-center">
             <a
-              href="/inbox"
+              href="/notifications"
               onClick={() => setOpen(false)}
               className="font-mono text-[10.5px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-ink-50"
             >
-              Alle in Inbox öffnen
+              Alle Benachrichtigungen
             </a>
           </div>
         </div>
