@@ -6,6 +6,11 @@ import { useUIStore } from '@/lib/stores/ui-store';
 import { switchWorkspace } from '@/lib/actions/workspace';
 import type { SearchHit } from '@/lib/types';
 
+// customer / contract / vehicle entities are intentionally absent from
+// the visible search surface — the matching modules are not active in
+// the product right now. Server search may still return rows for them,
+// but kinds we don't list here are filtered out in render. To bring
+// a module back, re-add its kind here AND in the relevant places below.
 const KIND_LABEL: Record<SearchHit['kind'], string> = {
   channel: 'Channels',
   customer: 'Kunden',
@@ -20,9 +25,6 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
 const KIND_ORDER: SearchHit['kind'][] = [
   'note',
   'channel',
-  'customer',
-  'contract',
-  'vehicle',
   'person',
   'thread',
   'action',
@@ -209,7 +211,7 @@ export function CmdK() {
               loaded
                 ? mode === 'global'
                   ? 'Suche über ALLE Workspaces …'
-                  : 'Suche Channels, Kunden, Verträge, Fahrzeuge …'
+                  : 'Suche Notizen, Channels, Personen …'
                 : 'Lade Index …'
             }
             className="flex-1 bg-transparent text-[15px] leading-none text-ink-50 outline-none placeholder:text-ink-300"

@@ -16,9 +16,6 @@ const TABS: Tab[] = [
   { label: 'Todos', href: '/todos' },
   { label: 'Notizen', href: '/notes' },
   { label: 'Channels', href: '/channels' },
-  { label: 'Kunden', href: '/kunden', scopes: ['business'] },
-  { label: 'Flotte', href: '/flotte', scopes: ['business'] },
-  { label: 'Verträge', href: '/vertraege', scopes: ['business'] },
   { label: 'Kalender', href: '/kalender' },
 ];
 
