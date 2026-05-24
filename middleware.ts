@@ -90,7 +90,12 @@ export default function middleware(req: NextRequest) {
   }
   // Full validation (DB query) happens in server components via currentUser().
   // Middleware only checks cookie presence to keep the edge path fast.
-  return NextResponse.next();
+  //
+  // Stamp the resolved pathname so server components (e.g. ProfileDock)
+  // can branch on the route without depending on a client-side hook.
+  const reqHeaders = new Headers(req.headers);
+  reqHeaders.set('x-pathname', path);
+  return NextResponse.next({ request: { headers: reqHeaders } });
 }
 
 export const config = {

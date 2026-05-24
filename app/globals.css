@@ -62,3 +62,9 @@ body {
     box-shadow: none !important;
   }
 }
+
+/* Notes save-state indicator pulse — used by app/notes/[id]/note-toolbar */
+@keyframes notePulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}

@@ -24,7 +24,31 @@ import '@blocknote/mantine/style.css';
 import { saveNoteDocument } from '@/lib/actions/notes';
 import { useYjsDoc } from '@/lib/notes/use-yjs-doc';
 import { createTodoFromNote, createEventFromNote } from '@/lib/actions/notes-actions';
+import { useNoteSaveStore, countWordsInText } from '@/lib/notes/note-save-store';
 import { EmbedRenderer } from './embeds/embed-renderer';
+
+// Walk a BlockNote document and extract its inline text. Used to keep
+// the toolbar's word count in sync with the editor without serialising
+// the entire JSON tree just to count.
+function extractDocumentText(blocks: unknown): string {
+  let out = '';
+  const visit = (nodes: unknown): void => {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      if (typeof node === 'string') {
+        out += node + ' ';
+        continue;
+      }
+      if (!node || typeof node !== 'object') continue;
+      const n = node as Record<string, unknown>;
+      if (typeof n.text === 'string') out += n.text + ' ';
+      if (Array.isArray(n.content)) visit(n.content);
+      if (Array.isArray(n.children)) visit(n.children);
+    }
+  };
+  visit(blocks);
+  return out;
+}
 
 type MentionKind = 'customer' | 'contract' | 'vehicle' | 'channel';
 
@@ -176,6 +200,20 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
   const lastSerializedRef = useRef<string>(JSON.stringify(initialBlocks ?? []));
   const hydratedRef = useRef(false);
 
+  // Push save state + word count into the shared store so the toolbar
+  // can render the pulse indicator and the "X Wörter" counter without
+  // a prop chain. The store is keyed implicitly by noteId via the
+  // titleInput's hydrate() — we just write the current values.
+  const storeSetSaving = useNoteSaveStore((s) => s.setSaving);
+  const storeSetSavedAt = useNoteSaveStore((s) => s.setSavedAt);
+  const storeSetWordCount = useNoteSaveStore((s) => s.setWordCount);
+
+  // Seed the initial word count on mount so the toolbar isn't stuck on
+  // "0 Wörter" for an existing non-empty note before the first edit.
+  useEffect(() => {
+    storeSetWordCount(countWordsInText(extractDocumentText(initialDocument)));
+  }, [initialDocument, storeSetWordCount]);
+
   // Bootstrap server content into the Yjs fragment if and only if:
   //   1. IndexedDB has finished hydrating (yjsReady)
   //   2. The fragment is still empty (nothing in IndexedDB for this note)
@@ -216,15 +254,20 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
         if (next === lastSerializedRef.current) return;
         lastSerializedRef.current = next;
         setSaving(true);
+        storeSetSaving(true);
         try {
           await saveNoteDocument(noteId, blocks);
-          setSavedAt(new Date());
+          const now = new Date();
+          setSavedAt(now);
+          storeSetSavedAt(now);
+          storeSetWordCount(countWordsInText(extractDocumentText(blocks)));
         } catch (e) {
           // Offline / server unreachable — document is safe in IndexedDB,
           // we'll retry on the next change. No alert to avoid being noisy.
           console.warn('[note-editor] save failed (will retry on next edit)', e);
         } finally {
           setSaving(false);
+          storeSetSaving(false);
         }
       }, 800);
     });
@@ -423,55 +466,122 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
           </>
         )}
       </BlockNoteView>
-      {!readOnly && (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-10 font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
-          {saving
-            ? 'Speichere …'
-            : savedAt
-              ? `Gespeichert · ${savedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-              : ''}
-        </div>
-      )}
       <style jsx global>{`
-        .note-editor-shell .bn-editor {
-          padding-top: 8px;
-          padding-bottom: 240px;
-        }
-        .note-editor-shell .bn-container {
-          background: transparent !important;
-        }
+        /* ── Notes editor: iA-Writer flat-canvas treatment ──────────────
+         * The defaults from @blocknote/mantine assume a "panel" shell with
+         * borders, hover handles, and drag affordances. We strip all of
+         * that so the editor disappears into the canvas — what's left is
+         * just text with our typography.
+         */
+        .note-editor-shell .bn-container,
         .note-editor-shell .bn-editor,
-        .note-editor-shell .bn-editor p,
-        .note-editor-shell .bn-editor li,
+        .note-editor-shell [data-content-type] {
+          background: transparent !important;
+          box-shadow: none !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+        }
+        .note-editor-shell .bn-editor {
+          padding-top: 0;
+          padding-bottom: 240px;
+          padding-left: 0 !important;
+          padding-right: 0 !important;
+        }
+
+        /* Kill the per-block hover chrome: drag handle, "+" insert, the
+         * whole side-control gutter that Notion-style editors render. */
+        .note-editor-shell .bn-side-menu,
+        .note-editor-shell .bn-block-side-menu,
+        .note-editor-shell [class*='SideMenu'],
+        .note-editor-shell [class*='blockSideMenu'],
+        .note-editor-shell [data-popper-placement][role='tooltip'] {
+          display: none !important;
+        }
+
+        /* Typography: 15px / 1.7 / #D4D4D8 Geist Sans on body paragraphs.
+         * Headings stay tighter for visual rhythm. */
+        .note-editor-shell .bn-editor,
+        .note-editor-shell [data-content-type='paragraph'],
+        .note-editor-shell [data-content-type='bulletListItem'],
+        .note-editor-shell [data-content-type='numberedListItem'],
+        .note-editor-shell [data-content-type='checkListItem'] {
+          font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
+            'Segoe UI', system-ui, sans-serif;
+          font-size: 15px;
+          line-height: 1.7;
+          color: #d4d4d8;
+          letter-spacing: -0.005em;
+        }
+        .note-editor-shell h1,
+        .note-editor-shell h2,
+        .note-editor-shell h3,
         .note-editor-shell .bn-editor h1,
         .note-editor-shell .bn-editor h2,
         .note-editor-shell .bn-editor h3 {
-          color: #e6e7ec;
-        }
-        .note-editor-shell .bn-editor h1 {
-          font-size: 28px;
+          color: #fafafa;
           font-weight: 500;
-          letter-spacing: -0.3px;
+          letter-spacing: -0.02em;
+          line-height: 1.3;
         }
-        .note-editor-shell .bn-editor h2 {
-          font-size: 22px;
-          font-weight: 500;
-          letter-spacing: -0.2px;
+        .note-editor-shell .bn-editor h1 { font-size: 24px; }
+        .note-editor-shell .bn-editor h2 { font-size: 20px; }
+        .note-editor-shell .bn-editor h3 { font-size: 16px; }
+
+        /* Inline accents */
+        .note-editor-shell code {
+          font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace !important;
+          font-size: 0.92em;
+          background: rgba(255, 255, 255, 0.05);
+          padding: 1px 5px;
+          border-radius: 4px;
+          color: #fafafa;
         }
-        .note-editor-shell .bn-editor h3 {
-          font-size: 18px;
-          font-weight: 500;
+        .note-editor-shell pre,
+        .note-editor-shell [data-content-type='codeBlock'] {
+          font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace !important;
+          background: rgba(255, 255, 255, 0.03) !important;
+          border-left: 2px solid #1f1f23 !important;
+          color: #e5e5e7 !important;
+          font-size: 13px !important;
+          padding: 12px 16px !important;
         }
-        .note-editor-shell [data-content-type='paragraph'] {
-          font-size: 14.5px;
-          line-height: 1.6;
+        .note-editor-shell blockquote,
+        .note-editor-shell [data-content-type='blockquote'] {
+          border-left: 2px solid #1f1f23 !important;
+          padding-left: 16px !important;
+          color: #a1a1aa !important;
+          font-style: normal !important;
         }
+        .note-editor-shell a {
+          color: #e8b86d !important;
+          text-decoration: underline;
+          text-decoration-color: rgba(232, 184, 109, 0.3);
+          text-underline-offset: 2px;
+        }
+        .note-editor-shell hr {
+          border: 0 !important;
+          border-top: 1px solid #1f1f23 !important;
+          margin: 24px 0 !important;
+        }
+
+        /* Custom placeholder — "Schreib drauf los." on the first empty
+         * paragraph, no Mantine default. */
+        .note-editor-shell .bn-editor [data-content-type='paragraph']:first-child:empty::before,
+        .note-editor-shell .bn-editor [data-content-type='paragraph'].is-empty:first-child::before {
+          content: 'Schreib drauf los.';
+          color: #52525b;
+          font-style: italic;
+          pointer-events: none;
+        }
+
+        /* Slash menu + mention popover */
         .note-editor-shell .bn-slash-menu,
         .note-editor-shell .mantine-Menu-dropdown,
         .note-editor-shell [data-mantine-styles] [class*='Popover'] {
           background: rgba(20, 21, 23, 0.96) !important;
           border: 1px solid rgba(255, 255, 255, 0.08) !important;
           backdrop-filter: blur(12px);
+          color: #e5e5e7 !important;
         }
       `}</style>
     </div>

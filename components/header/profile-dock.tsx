@@ -1,5 +1,19 @@
+import { headers } from 'next/headers';
 import { currentUser } from '@/lib/auth/current-user';
 import { ProfileMenu } from './profile-menu';
+
+// Writing surfaces where any floating chrome competes with the text.
+// The avatar still lives in the top-dock there if the user wants to
+// reach account settings; we only suppress the bottom-left anchor.
+const HIDE_ON_PREFIXES = ['/notes/'];
+
+function isHiddenRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  // /notes (list) is fine — only deep routes like /notes/:id hide.
+  return HIDE_ON_PREFIXES.some(
+    (prefix) => pathname.startsWith(prefix) && pathname.length > prefix.length
+  );
+}
 
 /**
  * Bottom-left anchor for the user's avatar + account menu.
@@ -12,6 +26,9 @@ import { ProfileMenu } from './profile-menu';
  * top dock and may render or not on its own terms.
  */
 export async function ProfileDock() {
+  const h = await headers();
+  if (isHiddenRoute(h.get('x-pathname'))) return null;
+
   const user = await currentUser();
   if (!user) return null;
 

@@ -1,31 +1,45 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { renameNote, setNoteIcon } from '@/lib/actions/notes';
+import { renameNote } from '@/lib/actions/notes';
+import { useNoteSaveStore } from '@/lib/notes/note-save-store';
 
+/**
+ * Plain editable title — no background, no border, no icon picker. Sits
+ * directly on the canvas above the editor body.
+ *
+ * Writes to the shared save-state store so the toolbar's breadcrumb
+ * updates instantly. Persists to the server on blur (and on each
+ * keystroke via the debounced save loop inside the store consumer if
+ * we want it; for now blur-only keeps the action-write rate sane).
+ */
 export function NoteTitleInput({
   noteId,
   initialTitle,
-  initialIcon,
 }: {
   noteId: string;
   initialTitle: string;
-  initialIcon?: string;
 }) {
-  const [title, setTitle] = useState(initialTitle);
-  const [icon, setIcon] = useState(initialIcon ?? '');
-  const [iconOpen, setIconOpen] = useState(false);
+  const router = useRouter();
   const [, start] = useTransition();
   const ref = useRef<HTMLTextAreaElement>(null);
-  const router = useRouter();
+  const hydrate = useNoteSaveStore((s) => s.hydrate);
+  const setTitle = useNoteSaveStore((s) => s.setTitle);
+  // We bind value to the store so the textarea stays in sync if any
+  // other surface (autosave callback, undo, etc.) writes to it.
+  const title = useNoteSaveStore((s) =>
+    s.noteId === noteId ? s.title : initialTitle
+  );
 
+  // First mount + note switch: hydrate the store with the canonical
+  // server title so the toolbar breadcrumb has something to show before
+  // the user types.
   useEffect(() => {
-    setTitle(initialTitle);
-    setIcon(initialIcon ?? '');
-  }, [initialTitle, initialIcon]);
+    hydrate({ noteId, title: initialTitle });
+  }, [hydrate, noteId, initialTitle]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea so multi-line titles wrap cleanly.
   useEffect(() => {
     const ta = ref.current;
     if (!ta) return;
@@ -34,73 +48,36 @@ export function NoteTitleInput({
   }, [title]);
 
   const commitTitle = () => {
-    const t = title.trim() || 'Unbenannt';
-    if (t === initialTitle) return;
+    const next = title.trim();
+    if (next === initialTitle.trim()) return;
     start(async () => {
-      await renameNote(noteId, t);
-      router.refresh();
-    });
-  };
-
-  const commitIcon = (next: string) => {
-    setIcon(next);
-    setIconOpen(false);
-    start(async () => {
-      await setNoteIcon(noteId, next || null);
+      await renameNote(noteId, next || 'Unbenannt');
       router.refresh();
     });
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setIconOpen((o) => !o)}
-          className="flex h-12 w-12 items-center justify-center rounded-[10px] text-[28px] transition-colors hover:bg-white/[0.04]"
-          aria-label="Icon ändern"
-        >
-          {icon || <span className="text-[18px] text-ink-300">＋</span>}
-        </button>
-        {iconOpen && (
-          <div className="absolute left-0 top-14 z-20 flex flex-wrap gap-1.5 rounded-[12px] border border-white/[0.08] bg-[rgba(20,21,23,0.96)] p-2 backdrop-blur-xl">
-            {['📝', '📋', '📌', '📅', '✏️', '💡', '⭐', '🎯', '🚐', '🔧', '🏡', '💼', '🎓', '🧠'].map((e) => (
-              <button
-                key={e}
-                type="button"
-                onClick={() => commitIcon(e)}
-                className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[18px] hover:bg-white/[0.08]"
-              >
-                {e}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => commitIcon('')}
-              className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[14px] text-ink-300 hover:bg-white/[0.08]"
-              title="Entfernen"
-            >
-              ∅
-            </button>
-          </div>
-        )}
-      </div>
-      <textarea
-        ref={ref}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={commitTitle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            ref.current?.blur();
-          }
-        }}
-        rows={1}
-        spellCheck={false}
-        placeholder="Unbenannt"
-        className="resize-none border-0 bg-transparent text-[36px] font-medium leading-[1.15] tracking-[-0.4px] text-ink-50 outline-none placeholder:text-ink-300"
-      />
-    </div>
+    <textarea
+      ref={ref}
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={commitTitle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          // Hand focus to the editor body. BlockNote mounts in a sibling
+          // node — look for the first focusable [contenteditable] inside
+          // the .bn-container wrapper.
+          const editor = document.querySelector<HTMLElement>(
+            '.bn-container [contenteditable="true"]'
+          );
+          editor?.focus();
+        }
+      }}
+      rows={1}
+      spellCheck={false}
+      placeholder="Titel"
+      className="resize-none border-0 bg-transparent text-[28px] font-medium leading-[1.2] tracking-[-0.02em] text-[#FAFAFA] outline-none placeholder:text-[#52525B]"
+    />
   );
 }

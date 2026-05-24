@@ -1693,6 +1693,56 @@ export const noteRevisionsRelations = relations(noteRevisions, ({ one }) => ({
   createdBy: one(users, { fields: [noteRevisions.createdById], references: [users.id] }),
 }));
 
+// ─── Tags (workspace-scoped) ─────────────────────────────────────
+// Single tag pool per workspace. Tags are reusable across attachments —
+// note_tags is the only junction today, but the pattern fits todos,
+// contacts, etc. later. (workspace_id, slug) is the dedup key so
+// "Work" and "work" collapse on insert.
+export const tags = pgTable(
+  'tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: varchar('slug', { length: 64 }).notNull(),
+    color: varchar('color', { length: 16 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    workspaceSlugIdx: uniqueIndex('tags_workspace_slug_idx').on(t.workspaceId, t.slug),
+    workspaceIdx: index('tags_workspace_idx').on(t.workspaceId, t.name),
+  })
+);
+
+export const noteTags = pgTable(
+  'note_tags',
+  {
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    tagId: uuid('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex('note_tags_pk').on(t.noteId, t.tagId),
+    tagIdx: index('note_tags_tag_idx').on(t.tagId),
+  })
+);
+
+export const tagsRelations = relations(tags, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [tags.workspaceId], references: [workspaces.id] }),
+  noteTags: many(noteTags),
+}));
+
+export const noteTagsRelations = relations(noteTags, ({ one }) => ({
+  note: one(notes, { fields: [noteTags.noteId], references: [notes.id] }),
+  tag: one(tags, { fields: [noteTags.tagId], references: [tags.id] }),
+}));
+
 // ─── User Settings (BYOK AI keys, prefs) ───────────────────────
 export const userSettings = pgTable('user_settings', {
   userId: varchar('user_id', { length: 255 })
