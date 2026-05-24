@@ -8,6 +8,8 @@ import { listTodos } from '@/lib/db/queries/todos';
 import { listNotifications } from '@/lib/db/queries/notifications';
 import { listFoyerInboxCards } from '@/lib/db/queries/inbox';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
+import { collectBriefingSignals } from '@/lib/foyer/briefing-signals';
+import { getOrGenerateBriefing } from '@/lib/foyer/briefing-ai';
 import type {
   FoyerData,
   FoyerEvent,
@@ -98,6 +100,28 @@ export async function buildFoyerData(input: {
     recentNote,
   });
 
+  // Smart briefing — gathers structured signals + asks AI for a 2-3
+  // sentence narrative. Falls back to a deterministic one-liner when
+  // AI is not configured. Cached per user with signal-hash + 1h TTL,
+  // so steady-state foyer loads are O(1) DB lookup.
+  const briefing = await (async () => {
+    try {
+      const signals = await collectBriefingSignals({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        todayEvents: events,
+      });
+      return await getOrGenerateBriefing({
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        signals,
+      });
+    } catch (e) {
+      console.warn('[build-foyer-data] briefing failed:', e);
+      return null;
+    }
+  })();
+
   return {
     userName: input.userName,
     events,
@@ -112,6 +136,7 @@ export async function buildFoyerData(input: {
     jetztSuggestions,
     inboxCards,
     gmail,
+    briefing,
   };
 }
 

@@ -82,6 +82,18 @@ export type FoyerData = {
    * foyer load if Gmail was just synced).
    */
   gmail?: { connected: boolean; syncedAt: string | null };
+  /**
+   * Smart briefing — 2-3 sentence narrative summarising what matters
+   * right now. Falls back to a deterministic one-liner when AI isn't
+   * configured. isFallback=true means the prose was rule-built, not
+   * model-generated; we render with a subtle tone tweak in that case.
+   */
+  briefing?: {
+    narrative: string;
+    generatedAt: string;
+    fromCache: boolean;
+    isFallback: boolean;
+  } | null;
 };
 
 // ───────────────────────────────────────────────────────────────
@@ -365,7 +377,13 @@ export function FoyerClient(props: FoyerData) {
               </p>
             </header>
 
-            <div className="mt-14 flex w-full justify-center">
+            {props.briefing && (
+              <div className="mt-10 flex w-full justify-center">
+                <SmartBriefing briefing={props.briefing} dim={dimRest} />
+              </div>
+            )}
+
+            <div className="mt-8 flex w-full justify-center">
               <DailyBriefing
                 events={props.events}
                 dueToday={props.dueToday}
@@ -583,6 +601,46 @@ function ArrowUpRight({ className }: { className?: string }) {
 
 function Num({ children }: { children: React.ReactNode }) {
   return <span className="font-medium text-[#FAFAFA]">{children}</span>;
+}
+
+function SmartBriefing({
+  briefing,
+  dim,
+}: {
+  briefing: NonNullable<FoyerData['briefing']>;
+  dim: boolean;
+}) {
+  // Prose block, centred, max 600px so long sentences don't stretch
+  // across the whole foyer column. Subtle amber dot to anchor the eye
+  // and signal "this is the briefing"; otherwise zero chrome.
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.18, ease: 'easeOut' }}
+      className="w-full max-w-[600px]"
+      style={{ opacity: dim ? 0.6 : 1 }}
+    >
+      <div className="flex items-start gap-3 px-1">
+        <span
+          aria-hidden
+          className="mt-[7px] inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{
+            background: briefing.isFallback ? '#52525B' : '#E8B86D',
+            boxShadow: briefing.isFallback
+              ? 'none'
+              : '0 0 8px rgba(232, 184, 109, 0.5)',
+          }}
+        />
+        <p
+          className="flex-1 text-[14.5px] leading-[1.65] text-[#D4D4D8]"
+          style={{ letterSpacing: '-0.005em' }}
+        >
+          {briefing.narrative}
+        </p>
+      </div>
+    </motion.div>
+  );
 }
 
 function DailyBriefing({

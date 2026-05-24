@@ -1978,6 +1978,24 @@ export const senderTopicSourceEnum = pgEnum('sender_topic_source', [
   'manual',
 ]);
 
+// Per-user cache for the AI-generated daily briefing on the Foyer.
+// signal_hash invalidates immediately when underlying state changes
+// (new awaiting reply, completed todo, etc.); expires_at adds a soft
+// TTL so we eventually re-generate even if nothing materially changed
+// (model phrasing can move with time-of-day cues).
+export const userBriefings = pgTable('user_briefings', {
+  userId: varchar('user_id', { length: 255 })
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  narrative: text('narrative').notNull(),
+  signalHash: varchar('signal_hash', { length: 64 }).notNull(),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
 export const senderTopics = pgTable(
   'sender_topics',
   {
