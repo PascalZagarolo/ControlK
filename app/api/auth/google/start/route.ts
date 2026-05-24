@@ -22,6 +22,21 @@ function safeRedirect(input: string | null): string {
   return '/';
 }
 
+// Whitelist of OAuth scopes a request can ask for beyond the base
+// "who is this person" set. Lock this down so a malicious link can't
+// silently escalate to drive.readonly or whatever else.
+const ALLOWED_EXTRA_SCOPES = new Set<string>([
+  'https://www.googleapis.com/auth/gmail.readonly',
+]);
+
+function parseExtraScopes(input: string | null): string[] {
+  if (!input) return [];
+  return input
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && ALLOWED_EXTRA_SCOPES.has(s));
+}
+
 function fail(origin: string, reason: string) {
   const url = new URL('/sign-in', origin);
   url.searchParams.set('oauth_error', reason);
@@ -39,6 +54,7 @@ export async function GET(req: NextRequest) {
   if (!rl.ok) return fail(origin, 'rate_limited');
 
   const redirectTo = safeRedirect(req.nextUrl.searchParams.get('from'));
+  const extraScopes = parseExtraScopes(req.nextUrl.searchParams.get('scopes'));
   const redirectUri = `${origin}/api/auth/google/callback`;
 
   const state = newState();
@@ -62,6 +78,12 @@ export async function GET(req: NextRequest) {
     return fail(origin, 'state_insert_failed');
   }
 
-  const url = buildAuthUrl({ state, codeChallenge, nonce, redirectUri });
+  const url = buildAuthUrl({
+    state,
+    codeChallenge,
+    nonce,
+    redirectUri,
+    extraScopes,
+  });
   return NextResponse.redirect(url, { status: 303 });
 }

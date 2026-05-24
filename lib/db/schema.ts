@@ -1839,6 +1839,14 @@ export const oauthAccounts = pgTable(
     email: text('email'),
     name: text('name'),
     avatarUrl: text('avatar_url'),
+    // OAuth API tokens — populated only when the user opted into a flow
+    // that requested offline access (gmail.readonly etc.). Login-only
+    // OAuth (openid email profile) leaves these null; we never need
+    // a long-lived token for "who is this person" verification.
+    accessTokenEnc: text('access_token_enc'),
+    refreshTokenEnc: text('refresh_token_enc'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    scopes: text('scopes'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

@@ -10,6 +10,7 @@ import {
 import { createSession } from '@/lib/auth/sessions';
 import { setSessionCookie } from '@/lib/auth/cookies';
 import { newUserId } from '@/lib/auth/tokens';
+import { encryptSecret } from '@/lib/auth/secret-encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,21 @@ function fail(origin: string, reason: string) {
   const url = new URL('/sign-in', origin);
   url.searchParams.set('oauth_error', reason);
   return NextResponse.redirect(url, { status: 303 });
+}
+
+// Encrypt-or-skip. If APP_ENCRYPTION_KEY isn't configured, plain login
+// must still work — we just don't get persisted Gmail tokens. The
+// server logs the misconfig once so it surfaces in deploy logs without
+// crashing the callback.
+function safeEncrypt(plaintext: string): string | null {
+  try {
+    return encryptSecret(plaintext);
+  } catch (e) {
+    console.warn(
+      '[oauth/google/callback] APP_ENCRYPTION_KEY not set — OAuth tokens will NOT be persisted'
+    );
+    return null;
+  }
 }
 
 function initialsFromName(name: string): string {
@@ -85,13 +101,14 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${row.origin}/api/auth/google/callback`;
 
   let claims;
+  let tokens: Awaited<ReturnType<typeof exchangeCode>>;
   try {
-    const { idToken } = await exchangeCode({
+    tokens = await exchangeCode({
       code,
       codeVerifier: row.codeVerifier,
       redirectUri,
     });
-    claims = await verifyIdToken(idToken, row.nonce);
+    claims = await verifyIdToken(tokens.idToken, row.nonce);
   } catch (e) {
     console.error(
       '[oauth/google/callback] exchange/verify failed:',
@@ -99,6 +116,29 @@ export async function GET(req: NextRequest) {
     );
     return fail(origin, 'token_exchange_failed');
   }
+
+  // Wrap the token-write into a single helper so the three insert/update
+  // branches below stay readable. Refresh tokens are only emitted on a
+  // fresh consent (prompt=consent) — subsequent calls keep the existing
+  // refresh_token row instead of clearing it.
+  const tokenFields = (existingRefreshEnc?: string | null) => {
+    const accessEnc = tokens.accessToken
+      ? safeEncrypt(tokens.accessToken)
+      : null;
+    const refreshEnc = tokens.refreshToken
+      ? safeEncrypt(tokens.refreshToken)
+      : existingRefreshEnc ?? null;
+    const expiresAt =
+      tokens.accessToken && tokens.expiresIn
+        ? new Date(Date.now() + tokens.expiresIn * 1000)
+        : null;
+    return {
+      accessTokenEnc: accessEnc,
+      refreshTokenEnc: refreshEnc,
+      accessTokenExpiresAt: expiresAt,
+      scopes: tokens.scope ?? null,
+    };
+  };
 
   // We only auto-link / auto-create on Google-verified emails. In
   // practice Google nearly always verifies, but we'd rather bounce
@@ -122,6 +162,7 @@ export async function GET(req: NextRequest) {
         email: claims.email,
         name: claims.name ?? null,
         avatarUrl: claims.picture ?? null,
+        ...tokenFields(existingOauth.refreshTokenEnc),
         updatedAt: new Date(),
       })
       .where(eq(s.oauthAccounts.id, existingOauth.id));
@@ -140,6 +181,7 @@ export async function GET(req: NextRequest) {
         email: claims.email,
         name: claims.name ?? null,
         avatarUrl: claims.picture ?? null,
+        ...tokenFields(null),
       });
       if (!existingUser.emailVerifiedAt) {
         // Google says this email is verified, so we can mark our row.
@@ -166,6 +208,7 @@ export async function GET(req: NextRequest) {
         email: claims.email,
         name: claims.name ?? null,
         avatarUrl: claims.picture ?? null,
+        ...tokenFields(null),
       });
       const wsSlug = await uniqueWorkspaceSlug(slugify(name));
       const [ws] = await db

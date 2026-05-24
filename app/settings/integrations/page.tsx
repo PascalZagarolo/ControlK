@@ -6,12 +6,16 @@ import {
   isIntegrationConfigured,
   type IntegrationMeta,
 } from '@/lib/integrations/registry';
+import { getGoogleConnection } from '@/lib/auth/google-tokens';
+import { GmailConnection } from './gmail-connection';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
   const user = await currentUser();
   if (!user) redirect('/sign-in?from=/settings/integrations');
+
+  const googleConnection = await getGoogleConnection(user.id);
 
   const items = INTEGRATIONS.map((meta) => ({
     meta,
@@ -52,6 +56,8 @@ export default async function Page() {
           , Sprint G).
         </p>
       </div>
+
+      <GmailConnection connection={googleConnection} />
 
       {(['calendar', 'chat', 'dev', 'project'] as const).map((cat) => (
         <section key={cat} className="flex flex-col gap-2">

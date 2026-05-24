@@ -53,35 +53,58 @@ export function newNonce(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// Base scopes for plain "who is this person" sign-in. Any scope beyond
+// this list (e.g. Gmail readonly) is opt-in and lives in extraScopes.
+const BASE_SCOPES = ['openid', 'email', 'profile'];
+
 export function buildAuthUrl(opts: {
   state: string;
   codeChallenge: string;
   nonce: string;
   redirectUri: string;
   loginHint?: string;
+  extraScopes?: string[];
 }): string {
   const url = new URL(AUTH_URL);
+  // Dedup scopes so requesting "email" + an extra scope doesn't double-bill.
+  const scopes = Array.from(new Set([...BASE_SCOPES, ...(opts.extraScopes ?? [])]));
+  const hasExtras = scopes.length > BASE_SCOPES.length;
+
   url.searchParams.set('client_id', clientId());
   url.searchParams.set('redirect_uri', opts.redirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'openid email profile');
+  url.searchParams.set('scope', scopes.join(' '));
   url.searchParams.set('state', opts.state);
   url.searchParams.set('nonce', opts.nonce);
   url.searchParams.set('code_challenge', opts.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
-  // 'select_account' forces the account chooser even if the user is signed
-  // in to exactly one Google account — important on shared devices.
-  url.searchParams.set('prompt', 'select_account');
-  url.searchParams.set('access_type', 'online');
+  // For extra-scope flows we MUST force consent so Google issues a
+  // refresh token. Without prompt=consent the user gets a silent
+  // redirect and we never see refresh_token in the response.
+  url.searchParams.set('prompt', hasExtras ? 'consent' : 'select_account');
+  url.searchParams.set('access_type', hasExtras ? 'offline' : 'online');
+  if (hasExtras) {
+    // Lets Google return a refresh token even if the user previously
+    // approved this client without one.
+    url.searchParams.set('include_granted_scopes', 'true');
+  }
   if (opts.loginHint) url.searchParams.set('login_hint', opts.loginHint);
   return url.toString();
 }
+
+export type TokenExchangeResult = {
+  idToken: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresIn?: number; // seconds until access_token expires
+  scope?: string; // space-separated list of granted scopes
+};
 
 export async function exchangeCode(opts: {
   code: string;
   codeVerifier: string;
   redirectUri: string;
-}): Promise<{ idToken: string }> {
+}): Promise<TokenExchangeResult> {
   const body = new URLSearchParams({
     code: opts.code,
     client_id: clientId(),
@@ -101,9 +124,21 @@ export async function exchangeCode(opts: {
     const errBody = await res.text().catch(() => '');
     throw new Error(`Google token exchange failed (${res.status}): ${errBody.slice(0, 200)}`);
   }
-  const json = (await res.json()) as { id_token?: string };
+  const json = (await res.json()) as {
+    id_token?: string;
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
   if (!json.id_token) throw new Error('Google did not return an id_token');
-  return { idToken: json.id_token };
+  return {
+    idToken: json.id_token,
+    accessToken: json.access_token,
+    refreshToken: json.refresh_token,
+    expiresIn: json.expires_in,
+    scope: json.scope,
+  };
 }
 
 export type GoogleClaims = {
