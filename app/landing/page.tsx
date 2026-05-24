@@ -159,7 +159,10 @@ export default function LandingPage() {
           <Reveal delay={0.16}>
             <div style={{ textAlign: 'center', marginTop: 28 }}>
               <a href="#waitlist" className="landing-cta">
-                Get early access →
+                <span>Get early access</span>
+                <span className="landing-cta-arrow" aria-hidden>
+                  →
+                </span>
               </a>
             </div>
           </Reveal>
@@ -192,8 +195,62 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* ── Section 2 — Features ────────────────────────────────────── */}
-      <section style={{ padding: '160px 28px 0' }}>
+      {/* ── Section 2 — Manifesto (from the builder) ────────────────── */}
+      <section style={{ padding: '120px 28px 0' }}>
+        <Reveal>
+          <div style={{ maxWidth: 560, margin: '0 auto' }}>
+            <p
+              style={{
+                color: MUTED,
+                fontSize: 11.5,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
+                marginBottom: 28,
+                textAlign: 'center',
+              }}
+            >
+              Vom Builder
+            </p>
+
+            <div
+              style={{
+                fontSize: 17,
+                lineHeight: 1.7,
+                letterSpacing: '-0.005em',
+                color: SECONDARY,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 22,
+              }}
+            >
+              <p>
+                Ich bin Pascal. Ich baue Ctrl K, weil ich jeden Morgen sechs Tabs öffne, um zu
+                wissen, was heute wichtig ist — Gmail, Slack, Notion, Kalender, meine Notizen, ein
+                Kunden-Tool. Keines davon redet mit den anderen. Keines weiß, was wirklich zählt.
+              </p>
+              <p>
+                Ich habe jedes Produktivitäts-Tool ausprobiert, das versprochen hat, das zu lösen.
+                Notion ist ein Werkzeugkasten ohne Meinung. Slack ist eine Lärm-Maschine. Sunsama
+                ist ruhig, aber abgeschnitten von allem. Linear ist schnell, aber nur für
+                Software-Teams.
+              </p>
+              <p>
+                Also baue ich das Tool, das ich selbst nutzen will. Ein Workspace. Ruhig.
+                Opinionated. Gebaut um die Art, wie ich meinen Tag wirklich starte: mit Kaffee, mit
+                einem Blick auf das, was zählt, mit einer Entscheidung.
+              </p>
+            </div>
+
+            <p style={{ marginTop: 28, color: MUTED, fontSize: 13, textAlign: 'center' }}>
+              — Pascal, baut Ctrl K aus Deutschland.
+            </p>
+          </div>
+        </Reveal>
+      </section>
+
+      {/* ── Section 3 — Features ────────────────────────────────────── */}
+      <section style={{ padding: '120px 28px 0' }}>
         <div style={{ maxWidth: 880, margin: '0 auto' }}>
           <Reveal>
             <p
@@ -221,7 +278,7 @@ export default function LandingPage() {
                 textAlign: 'center',
               }}
             >
-              Fünf Bausteine, statt sechs offener Tabs.
+              Fünf Prinzipien. Ein Workspace.
             </h2>
           </Reveal>
 
@@ -321,15 +378,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Section 3 — Roadmap (single calm paragraph) ─────────────── */}
+      {/* ── Section 4 — Roadmap timeline ────────────────────────────── */}
       <section style={{ padding: '160px 28px 0' }}>
-        <Reveal>
-          <div
-            style={{
-              maxWidth: 640,
-              margin: '0 auto',
-            }}
-          >
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <Reveal>
             <p
               style={{
                 color: MUTED,
@@ -337,32 +389,107 @@ export default function LandingPage() {
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
-                marginBottom: 22,
+                marginBottom: 36,
               }}
             >
               Was kommt
             </p>
-            <p
-              style={{
-                fontSize: 18,
-                lineHeight: 1.75,
-                letterSpacing: '-0.005em',
-                color: SECONDARY,
-                margin: 0,
-              }}
-            >
-              Heute:{' '}
-              <span style={{ color: PRIMARY }}>Foyer, Todos, Notizen, Channels, Kalender.</span>{' '}
-              Im nächsten Quartal: ein echter universal Inbox mit Gmail-Integration und semantischem
-              Threading. Danach: zeitbewusstes Briefing, kontextuelles Erinnern, der Inverse Kalender
-              — die Features, die Ctrl K wie einen echten Assistant fühlen lassen statt nur wie ein
-              Tool. Teams, Slack, Outlook kommen, wenn das Fundament steht.
-            </p>
-          </div>
-        </Reveal>
+
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {[
+                {
+                  label: 'Jetzt',
+                  when: 'Q2 2026',
+                  body: 'Fundament. Foyer, Todos, Notizen. Single-User. Interne Beta.',
+                  color: PRIMARY,
+                  isNow: true,
+                },
+                {
+                  label: 'Als Nächstes',
+                  when: 'Q3 2026',
+                  body: 'Universal Inbox. Gmail OAuth, semantisches Threading, echte Daten im Stack.',
+                  color: SECONDARY,
+                  isNow: false,
+                },
+                {
+                  label: 'Später',
+                  when: 'Q4 2026',
+                  body: 'Kontextuelles Erinnern. Inverse Kalender. Zeitbewusstes Briefing. Die Features, die Ctrl K zum Assistenten machen.',
+                  color: MUTED,
+                  isNow: false,
+                },
+                {
+                  label: 'Irgendwann',
+                  when: '2027',
+                  body: 'Teams, Slack, Outlook, Plattform-Schicht.',
+                  color: '#3F3F46',
+                  isNow: false,
+                },
+              ].map((row, i) => (
+                <div
+                  key={row.label}
+                  className="landing-roadmap-row"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '240px minmax(0, 1fr)',
+                    gap: 48,
+                    padding: '22px 0',
+                    borderTop: i === 0 ? 'none' : `1px solid ${BORDER}`,
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 10,
+                      color: row.color,
+                      fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
+                      fontSize: 12,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      transition: 'color 140ms ease-out',
+                    }}
+                  >
+                    {row.isNow && (
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          background: ACCENT,
+                          boxShadow: '0 0 8px rgba(232,184,109,0.45)',
+                          flexShrink: 0,
+                          alignSelf: 'center',
+                          marginTop: -1,
+                        }}
+                      />
+                    )}
+                    <span>{row.label}</span>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                    <span>{row.when}</span>
+                  </div>
+                  <p
+                    style={{
+                      margin: 0,
+                      color: row.color,
+                      fontSize: 15,
+                      lineHeight: 1.6,
+                      letterSpacing: '-0.005em',
+                      transition: 'color 140ms ease-out',
+                    }}
+                  >
+                    {row.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
       </section>
 
-      {/* ── Section 4 — Waitlist ────────────────────────────────────── */}
+      {/* ── Section 5 — Waitlist ────────────────────────────────────── */}
       <section
         id="waitlist"
         style={{
@@ -451,10 +578,11 @@ export default function LandingPage() {
           font-size: 15px;
           letter-spacing: -0.005em;
           position: relative;
-          padding: 6px 0;
+          padding: 6px 2px;
           display: inline-flex;
-          gap: 6px;
+          gap: 8px;
           align-items: center;
+          transition: letter-spacing 220ms cubic-bezier(0.22, 1, 0.36, 1);
         }
         .landing-cta::after {
           content: '';
@@ -464,26 +592,17 @@ export default function LandingPage() {
           bottom: 0;
           height: 1px;
           background: ${ACCENT};
-          transform: scaleX(0.18);
-          transform-origin: left center;
+          opacity: 0.4;
+          transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .landing-cta:hover { letter-spacing: 0.005em; }
+        .landing-cta:hover::after { opacity: 1; }
+        .landing-cta-arrow {
+          display: inline-block;
+          will-change: transform;
           transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
         }
-        .landing-cta:hover::after { transform: scaleX(1); }
-        .landing-cta-inline {
-          color: ${PRIMARY};
-          text-decoration: none;
-          border-bottom: 1px solid ${ACCENT};
-          padding-bottom: 1px;
-          transition: color 140ms ease-out;
-        }
-        .landing-cta-inline:hover { color: ${ACCENT}; }
-        .landing-underline {
-          background-image: linear-gradient(${ACCENT}, ${ACCENT});
-          background-repeat: no-repeat;
-          background-size: 100% 1px;
-          background-position: 0 100%;
-          padding-bottom: 1px;
-        }
+        .landing-cta:hover .landing-cta-arrow { transform: translateX(4px); }
         .landing-nav-cta:hover { color: ${PRIMARY}; }
         .landing-footer-link {
           color: ${MUTED};
@@ -496,6 +615,11 @@ export default function LandingPage() {
             grid-template-columns: 1fr !important;
             gap: 14px !important;
             padding: 28px 0 !important;
+          }
+          .landing-roadmap-row {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+            padding: 18px 0 !important;
           }
         }
       `}</style>
