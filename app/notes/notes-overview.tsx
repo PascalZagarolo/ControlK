@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { NoteOverviewItem } from '@/lib/types';
+import type { PreviewBlock } from '@/lib/db/queries/notes';
 import { NewNoteButton } from './new-note-button';
 
 // Right pane click target — wrapping the preview in a Link means the
@@ -31,9 +32,11 @@ function formatRelative(iso: string): string {
 export function NotesOverview({
   items,
   selectedId,
+  previewBlocks,
 }: {
   items: NoteOverviewItem[];
   selectedId: string | null;
+  previewBlocks: PreviewBlock[];
 }) {
   // Resolve the active note. If no selection (or selection points at a
   // note that's been deleted/archived since the link was generated),
@@ -149,17 +152,16 @@ export function NotesOverview({
                   )}
                   <span>zuletzt {formatRelative(active.updatedAt)}</span>
                 </p>
-                {active.isEmpty ? (
+                {active.isEmpty || previewBlocks.length === 0 ? (
                   <p className="mt-10 text-[14px] italic leading-[1.7] text-[#52525B]">
                     Diese Notiz ist leer. Klick auf "Öffnen", um zu schreiben.
                   </p>
                 ) : (
-                  <p className="mt-8 whitespace-pre-line text-[15px] leading-[1.75] text-[#D4D4D8]">
-                    {active.excerpt}
-                    {active.excerpt.length >= 240 && (
-                      <span className="text-[#52525B]"> …</span>
-                    )}
-                  </p>
+                  <div className="mt-8 flex flex-col gap-3">
+                    {previewBlocks.map((b, i) => (
+                      <PreviewBlockNode key={i} block={b} />
+                    ))}
+                  </div>
                 )}
               </div>
             </OpenInEditorLink>
@@ -170,6 +172,80 @@ export function NotesOverview({
       </div>
     </div>
   );
+}
+
+// Per-block preview renderer. Keeps the same typography vocabulary as
+// the editor itself (15/1.7 #D4D4D8 body, headings tight #FAFAFA) so
+// what you see in the preview matches what you wrote.
+function PreviewBlockNode({ block }: { block: PreviewBlock }) {
+  const baseProse = 'text-[15px] leading-[1.7] text-[#D4D4D8] letter-spacing-[-0.005em]';
+  switch (block.kind) {
+    case 'heading': {
+      const size = block.level === 1 ? 'text-[22px]' : block.level === 2 ? 'text-[18px]' : 'text-[15px]';
+      return (
+        <h3 className={`${size} font-medium leading-tight tracking-[-0.02em] text-[#FAFAFA]`}>
+          {block.text}
+        </h3>
+      );
+    }
+    case 'bullet':
+      return (
+        <div className="flex gap-2.5">
+          <span aria-hidden className="mt-[10px] h-[3px] w-[3px] shrink-0 rounded-full bg-[#71717A]" />
+          <p className={baseProse}>{block.text}</p>
+        </div>
+      );
+    case 'numbered':
+      return (
+        <div className="flex gap-2.5">
+          <span className="mt-[1px] shrink-0 font-mono text-[13px] text-[#71717A]">
+            {block.index}.
+          </span>
+          <p className={baseProse}>{block.text}</p>
+        </div>
+      );
+    case 'check':
+      return (
+        <div className="flex items-baseline gap-2.5">
+          <span
+            aria-hidden
+            className={`mt-[3px] inline-flex h-[12px] w-[12px] shrink-0 items-center justify-center rounded-sm border ${
+              block.checked
+                ? 'border-[#E8B86D] bg-[#E8B86D]'
+                : 'border-[#3F3F46] bg-transparent'
+            }`}
+          >
+            {block.checked && (
+              <span className="text-[9px] leading-none text-[#0A0A0C]">✓</span>
+            )}
+          </span>
+          <p
+            className={`${baseProse} ${
+              block.checked ? 'text-[#71717A] line-through' : ''
+            }`}
+          >
+            {block.text}
+          </p>
+        </div>
+      );
+    case 'quote':
+      return (
+        <blockquote className={`${baseProse} border-l-2 border-[#1F1F23] pl-4 text-[#A1A1AA]`}>
+          {block.text}
+        </blockquote>
+      );
+    case 'code':
+      return (
+        <pre className="overflow-x-auto rounded-sm border-l-2 border-[#1F1F23] bg-white/[0.03] px-4 py-3 font-mono text-[12.5px] leading-[1.6] text-[#E5E5E7]">
+          {block.text}
+        </pre>
+      );
+    case 'divider':
+      return <hr className="my-2 border-0 border-t border-[#1F1F23]" />;
+    case 'paragraph':
+    default:
+      return <p className={baseProse}>{block.text}</p>;
+  }
 }
 
 function NoSelectionPlaceholder() {

@@ -29,6 +29,104 @@ function extractExcerpt(document: unknown, maxLen = 240): string {
   return out.replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
 
+// Structured per-block preview for the right pane of /notes. Walks only
+// the top level (BlockNote stores nested children inside each block) so
+// the preview matches what the user actually wrote, with paragraph
+// breaks, headings, bullets, and quotes intact.
+export type PreviewBlock =
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'heading'; text: string; level: 1 | 2 | 3 }
+  | { kind: 'bullet'; text: string }
+  | { kind: 'numbered'; text: string; index: number }
+  | { kind: 'check'; text: string; checked: boolean }
+  | { kind: 'quote'; text: string }
+  | { kind: 'code'; text: string }
+  | { kind: 'divider' };
+
+function inlineText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  let out = '';
+  for (const node of content) {
+    if (typeof node === 'string') {
+      out += node;
+      continue;
+    }
+    if (!node || typeof node !== 'object') continue;
+    const n = node as Record<string, unknown>;
+    // Mentions don't have a `text` field — fall back to label so the
+    // preview shows "@Anna Hoffmann" rather than dropping the mention.
+    if (typeof n.text === 'string') out += n.text;
+    else if (n.type === 'mention' && typeof (n as any).props?.label === 'string') {
+      out += '@' + (n as any).props.label;
+    } else if (Array.isArray(n.content)) {
+      out += inlineText(n.content);
+    }
+  }
+  return out;
+}
+
+export function extractPreviewBlocks(
+  document: unknown,
+  maxBlocks = 8
+): PreviewBlock[] {
+  if (!Array.isArray(document)) return [];
+  const out: PreviewBlock[] = [];
+  let numberedCounter = 0;
+
+  for (const raw of document) {
+    if (out.length >= maxBlocks) break;
+    if (!raw || typeof raw !== 'object') continue;
+    const block = raw as Record<string, unknown>;
+    const type = String(block.type ?? 'paragraph');
+    const text = inlineText(block.content).trim();
+    const props = (block.props ?? {}) as Record<string, unknown>;
+
+    // Skip wholly-empty content unless it's a structural block (like a
+    // divider or empty heading the user is still drafting).
+    if (!text && type !== 'horizontalRule' && type !== 'divider') continue;
+
+    switch (type) {
+      case 'heading': {
+        const level = Math.max(1, Math.min(3, Number(props.level ?? 2))) as 1 | 2 | 3;
+        out.push({ kind: 'heading', text, level });
+        numberedCounter = 0;
+        break;
+      }
+      case 'bulletListItem':
+        out.push({ kind: 'bullet', text });
+        numberedCounter = 0;
+        break;
+      case 'numberedListItem':
+        numberedCounter += 1;
+        out.push({ kind: 'numbered', text, index: numberedCounter });
+        break;
+      case 'checkListItem':
+        out.push({ kind: 'check', text, checked: props.checked === true });
+        numberedCounter = 0;
+        break;
+      case 'quote':
+      case 'blockquote':
+        out.push({ kind: 'quote', text });
+        numberedCounter = 0;
+        break;
+      case 'codeBlock':
+      case 'code':
+        out.push({ kind: 'code', text });
+        numberedCounter = 0;
+        break;
+      case 'horizontalRule':
+      case 'divider':
+        out.push({ kind: 'divider' });
+        numberedCounter = 0;
+        break;
+      default:
+        out.push({ kind: 'paragraph', text });
+        numberedCounter = 0;
+    }
+  }
+  return out;
+}
+
 function toNote(row: any): Note {
   return {
     id: row.id,

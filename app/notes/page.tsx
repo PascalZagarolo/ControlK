@@ -1,7 +1,12 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { listNotesForOverview } from '@/lib/db/queries/notes';
+import {
+  extractPreviewBlocks,
+  getNote,
+  listNotesForOverview,
+  type PreviewBlock,
+} from '@/lib/db/queries/notes';
 import { NotesOverview } from './notes-overview';
 import { NewNoteButton } from './new-note-button';
 
@@ -23,7 +28,24 @@ export default async function Page({
     return <EmptyWorkspace />;
   }
 
-  return <NotesOverview items={items} selectedId={selectedId} />;
+  // Resolve which note's full document to load for the preview pane.
+  // Falls back to the first row if the URL selection isn't valid (note
+  // archived since the link was generated, etc.).
+  const activeId =
+    items.find((n) => n.id === selectedId)?.id ?? items[0]?.id ?? null;
+  let previewBlocks: PreviewBlock[] = [];
+  if (activeId) {
+    const note = await getNote(ws.id, activeId);
+    if (note) previewBlocks = extractPreviewBlocks(note.document, 8);
+  }
+
+  return (
+    <NotesOverview
+      items={items}
+      selectedId={selectedId}
+      previewBlocks={previewBlocks}
+    />
+  );
 }
 
 // Zero-notes state. One sentence, one button — no tutorial, no templates
