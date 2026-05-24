@@ -95,7 +95,7 @@ const Mention = createReactInlineContentSpec(
             e.preventDefault();
             window.location.href = KIND_HREF(kind, id);
           }}
-          className="inline-flex items-center gap-1 rounded-md bg-[#5eb6ff]/[0.12] px-1.5 py-0.5 text-[13px] text-[#5eb6ff] no-underline hover:bg-[#5eb6ff]/[0.20]"
+          className="inline-flex items-center gap-1 rounded-md bg-[#E8B86D]/[0.12] px-1.5 py-0.5 text-[13px] text-[#E8B86D] no-underline hover:bg-[#E8B86D]/[0.20]"
           contentEditable={false}
           data-mention-kind={kind}
           data-mention-id={id}
@@ -453,17 +453,16 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
   return (
     <div className="note-editor-shell">
       <BlockNoteView editor={editor} editable={!readOnly} theme="dark" slashMenu={false}>
+        {/* Slash menu intentionally removed — markdown shortcuts (e.g. `## `,
+            `> `, `- [ ]`) handle every block transformation natively in
+            BlockNote, so we don't surface a competing command palette. The
+            only suggestion controller we keep is "@" for cross-entity
+            mentions (customers/contracts/vehicles/channels). */}
         {!readOnly && (
-          <>
-            <SuggestionMenuController
-              triggerCharacter="/"
-              getItems={async (query) => getSlashItems(query)}
-            />
-            <SuggestionMenuController
-              triggerCharacter="@"
-              getItems={async (query) => filterSuggestionItems(await getMentionItems(query), query)}
-            />
-          </>
+          <SuggestionMenuController
+            triggerCharacter="@"
+            getItems={async (query) => filterSuggestionItems(await getMentionItems(query), query)}
+          />
         )}
       </BlockNoteView>
       <style jsx global>{`
@@ -565,13 +564,21 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
         }
 
         /* Custom placeholder — "Schreib drauf los." on the first empty
-         * paragraph, no Mantine default. */
-        .note-editor-shell .bn-editor [data-content-type='paragraph']:first-child:empty::before,
-        .note-editor-shell .bn-editor [data-content-type='paragraph'].is-empty:first-child::before {
-          content: 'Schreib drauf los.';
-          color: #52525b;
+         * paragraph. BlockNote renders ProseMirror underneath; the empty
+         * leaf gets an is-empty class and (when it is the first block)
+         * also is-editor-empty. We override the default English string
+         * via CSS content rather than via BlockNotes dictionary so we
+         * dont have to pin a specific BlockNote API version. */
+        .note-editor-shell .bn-editor .is-editor-empty:first-child::before,
+        .note-editor-shell .bn-editor .ProseMirror p.is-empty:first-child::before,
+        .note-editor-shell .bn-editor [data-content-type='paragraph'] .bn-inline-content:empty::before {
+          content: 'Schreib drauf los.' !important;
+          color: #52525b !important;
           font-style: italic;
+          font-size: 15px;
           pointer-events: none;
+          float: left;
+          height: 0;
         }
 
         /* Slash menu + mention popover */
