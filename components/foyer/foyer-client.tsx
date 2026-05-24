@@ -92,15 +92,6 @@ const PLACEHOLDERS = [
   'Was steht heute an?',
 ];
 
-const FALLBACK_JETZT: FoyerSuggestion[] = [
-  {
-    kind: 'Notiz',
-    icon: '✎',
-    title: 'Wochenstart vorbereiten',
-    context: 'Ruhige Phase. Vielleicht etwas Struktur für die nächsten Tage?',
-    href: '/notes',
-  },
-];
 
 // ───────────────────────────────────────────────────────────────
 // Time / mood
@@ -300,9 +291,6 @@ export function FoyerClient(props: FoyerData) {
 
   const dimRest = searchFocused;
 
-  const jetztItems =
-    props.jetztSuggestions.length > 0 ? props.jetztSuggestions : FALLBACK_JETZT;
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#0A0A0C] text-[#E5E5E7]">
       <style>{`body[data-foyer="true"] > header { display: none !important; }`}</style>
@@ -386,12 +374,6 @@ export function FoyerClient(props: FoyerData) {
               />
             </div>
 
-            <div
-              className="mt-16 flex w-full justify-center transition-opacity duration-300 ease-out"
-              style={{ opacity: dimRest ? 0.6 : 1 }}
-            >
-              <JetztSection suggestions={jetztItems} onNavigate={enterDoorway} />
-            </div>
           </div>
         </section>
       </div>
@@ -557,119 +539,6 @@ function Suggestions({
         </span>
       ))}
     </p>
-  );
-}
-
-function JetztSection({
-  suggestions,
-  onNavigate,
-}: {
-  suggestions: FoyerSuggestion[];
-  onNavigate: (href: string) => void;
-}) {
-  const [idx, setIdx] = useState(0);
-  const [snoozed, setSnoozed] = useState(false);
-  // Guard: if suggestions changes shape (cleared between renders), reset idx
-  const safeIdx = idx % Math.max(1, suggestions.length);
-  const current = suggestions[safeIdx];
-
-  const cycle = () => {
-    setIdx((i) => (i + 1) % suggestions.length);
-  };
-
-  if (snoozed) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.24, ease: 'easeOut' }}
-        className="mx-auto w-full max-w-[560px]"
-      >
-        <p className="px-2 font-mono text-[11px] uppercase tracking-[0.4px] text-[#52525B]">
-          Jetzt
-        </p>
-        <div className="mt-6 rounded-[6px] border border-[#1F1F23] bg-white/[0.01] px-6 py-5 text-[13px] italic text-[#7c7c83]">
-          Später vorgemerkt. Schau in einer Stunde wieder rein.{' '}
-          <button
-            type="button"
-            onClick={() => setSnoozed(false)}
-            className="not-italic text-[#A1A1AA] transition-colors duration-150 hover:text-[#FAFAFA]"
-          >
-            Doch jetzt
-          </button>
-        </div>
-      </motion.div>
-    );
-  }
-
-  if (!current) return null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.24, delay: 0.42, ease: 'easeOut' }}
-      className="mx-auto w-full max-w-[560px]"
-    >
-      <p className="px-2 font-mono text-[11px] uppercase tracking-[0.4px] text-[#52525B]">
-        Jetzt
-      </p>
-
-      <div className="group mt-6 rounded-[6px] border border-[#1F1F23] bg-white/[0.02] p-6 transition-colors duration-150 ease-out hover:bg-white/[0.04]">
-        <div style={{ minHeight: '92px' }}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={safeIdx}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="flex flex-col"
-            >
-              <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.4px] text-[#52525B]">
-                <span className="text-[12px] text-[#A1A1AA]">{current.icon}</span>
-                {current.kind}
-              </p>
-              <p className="mt-2 text-[18px] font-medium leading-snug text-[#FAFAFA]">
-                {current.title}
-              </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-[#A1A1AA]">
-                {current.context}
-              </p>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-        <div className="mt-4 h-px bg-[#1F1F23]" />
-
-        <div className="mt-4 flex items-center justify-end gap-6">
-          {suggestions.length > 1 && (
-            <button
-              type="button"
-              onClick={cycle}
-              className="text-[13px] text-[#52525B] transition-colors duration-150 ease-out hover:text-[#A1A1AA]"
-            >
-              Anderes vorschlagen
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setSnoozed(true)}
-            className="text-[13px] text-[#52525B] transition-colors duration-150 ease-out hover:text-[#A1A1AA]"
-          >
-            Später
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate(current.href)}
-            className="inline-flex items-center gap-1.5 text-[13px] text-[#E8B86D] transition-colors duration-150 ease-out hover:text-[#F2C77E]"
-          >
-            Öffnen
-            <ArrowUpRight className="shrink-0" />
-          </button>
-        </div>
-      </div>
-    </motion.div>
   );
 }
 

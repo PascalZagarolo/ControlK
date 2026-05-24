@@ -120,6 +120,10 @@ const STACK_STAGGER_S = 0.04;
 // that animates simultaneously to keep initial paint cheap when scrolled
 // stacks are long.
 const STAGGER_LIMIT = 5;
+// Visible-area height: 4½ cards. One card slot ≈ 84px content + 12px gap
+// (mb-3 on each card). 4 × 96 + half of the 5th = ~420px. The mask-image
+// at the bottom fades the half-card so it reads as "there's more below."
+const STACK_VISIBLE_HEIGHT_PX = 420;
 
 // ───────────────────────────────────────────────────────────────
 // Helpers
@@ -254,15 +258,16 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
         className="pointer-events-none fixed left-8 top-[120px] z-30 hidden w-[320px] transition-opacity duration-300 ease-out xl:block"
         style={{
           opacity: dim ? 0.45 : 1,
-          maxHeight: 'calc(100vh - 152px)',
+          // Show 4½ cards. Anything beyond is reachable by scroll, but the
+          // bottom mask fades the half-card so the affordance reads as
+          // "more below" without needing a visible scrollbar.
+          maxHeight: `${STACK_VISIBLE_HEIGHT_PX}px`,
           overflowY: 'auto',
           scrollbarWidth: 'none',
-          // Subtle mask: the lower edge fades into the canvas so the stack
-          // doesn't end with a hard cut while scrolled mid-list.
           maskImage:
-            'linear-gradient(180deg, black 0, black calc(100% - 32px), transparent 100%)',
+            'linear-gradient(180deg, black 0, black calc(100% - 56px), transparent 100%)',
           WebkitMaskImage:
-            'linear-gradient(180deg, black 0, black calc(100% - 32px), transparent 100%)',
+            'linear-gradient(180deg, black 0, black calc(100% - 56px), transparent 100%)',
         }}
       >
         <AnimatePresence initial={false}>
