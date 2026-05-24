@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { FoyerReplica } from './_components/FoyerReplica';
-import { WaitlistForm } from './_components/WaitlistForm';
 import { Reveal } from './_components/Reveal';
 
 const CANVAS = '#0A0A0C';
@@ -65,19 +64,27 @@ export default function LandingPage() {
               Ctrl K
             </span>
           </div>
-          <a
-            href="#waitlist"
-            style={{
-              color: SECONDARY,
-              fontSize: 14,
-              textDecoration: 'none',
-              transition: 'color 140ms ease-out',
-              letterSpacing: '-0.005em',
-            }}
-            className="landing-nav-cta"
-          >
-            Get early access
-          </a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+            <Link
+              href="/sign-in"
+              style={{
+                color: SECONDARY,
+                fontSize: 14,
+                textDecoration: 'none',
+                transition: 'color 140ms ease-out',
+                letterSpacing: '-0.005em',
+              }}
+              className="landing-nav-cta"
+            >
+              Anmelden
+            </Link>
+            <Link href="/sign-up" className="landing-nav-primary">
+              <span>Loslegen</span>
+              <span aria-hidden className="landing-nav-primary-arrow">
+                →
+              </span>
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -157,13 +164,34 @@ export default function LandingPage() {
           </Reveal>
 
           <Reveal delay={0.16}>
-            <div style={{ textAlign: 'center', marginTop: 28 }}>
-              <a href="#waitlist" className="landing-cta">
-                <span>Get early access</span>
+            <div
+              style={{
+                marginTop: 28,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <Link href="/sign-up" className="landing-cta">
+                <span>Kostenlos starten</span>
                 <span className="landing-cta-arrow" aria-hidden>
                   →
                 </span>
-              </a>
+              </Link>
+              <Link
+                href="/sign-in"
+                style={{
+                  color: MUTED,
+                  fontSize: 13,
+                  textDecoration: 'none',
+                  letterSpacing: '-0.005em',
+                  transition: 'color 140ms ease-out',
+                }}
+                className="landing-hero-secondary"
+              >
+                Schon Konto? Anmelden
+              </Link>
             </div>
           </Reveal>
         </div>
@@ -498,8 +526,8 @@ export default function LandingPage() {
               {[
                 {
                   label: 'Jetzt',
-                  when: 'Q2 2026',
-                  body: 'Fundament. Foyer, Todos, Notizen. Single-User. Interne Beta.',
+                  when: 'Live',
+                  body: 'Foyer, Todos, Notizen, Kontakte. Single-User. Was du täglich brauchst.',
                   color: PRIMARY,
                   isNow: true,
                 },
@@ -588,41 +616,95 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Section 5 — Waitlist ────────────────────────────────────── */}
+      {/* ── Section 5 — Loslegen CTA ──────────────────────────────── */}
       <section
-        id="waitlist"
+        id="loslegen"
         style={{
           padding: '160px 28px 120px',
           scrollMarginTop: 80,
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
+        {/* Soft amber bloom behind the CTA — mirrors the hero bloom. */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 80,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 640,
+            height: 240,
+            background:
+              'radial-gradient(50% 50% at 50% 50%, rgba(232,184,109,0.07) 0%, rgba(232,184,109,0) 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+
         <Reveal>
-          <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
+          <div
+            style={{
+              maxWidth: 560,
+              margin: '0 auto',
+              textAlign: 'center',
+              position: 'relative',
+            }}
+          >
             <h2
               style={{
-                fontSize: 32,
+                fontSize: 'clamp(28px, 4vw, 36px)',
                 fontWeight: 500,
                 letterSpacing: '-0.025em',
                 margin: 0,
-                marginBottom: 14,
+                marginBottom: 18,
                 color: PRIMARY,
                 lineHeight: 1.15,
               }}
             >
-              Get early access.
+              Bereit für einen ruhigeren Workspace?
             </h2>
             <p
               style={{
                 fontSize: 15,
-                lineHeight: 1.6,
+                lineHeight: 1.7,
                 color: SECONDARY,
                 margin: 0,
-                marginBottom: 36,
+                marginBottom: 44,
+                letterSpacing: '-0.005em',
               }}
             >
-              Die Waitlist für die erste Kohorte ist offen.
+              Konto erstellen, ersten Tag im Foyer starten. Zwei Minuten.
+              Kein Newsletter, kein Spam.
             </p>
-            <WaitlistForm />
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 16,
+              }}
+            >
+              <Link href="/sign-up" className="landing-cta">
+                <span>Kostenlos starten</span>
+                <span className="landing-cta-arrow" aria-hidden>
+                  →
+                </span>
+              </Link>
+              <Link
+                href="/sign-in"
+                style={{
+                  color: MUTED,
+                  fontSize: 13,
+                  textDecoration: 'none',
+                  letterSpacing: '-0.005em',
+                  transition: 'color 140ms ease-out',
+                }}
+                className="landing-hero-secondary"
+              >
+                Schon Konto? Anmelden
+              </Link>
+            </div>
           </div>
         </Reveal>
       </section>
@@ -709,6 +791,33 @@ export default function LandingPage() {
         }
         .landing-cta:hover .landing-cta-arrow { transform: translateX(4px); }
         .landing-nav-cta:hover { color: ${PRIMARY}; }
+        .landing-nav-primary {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: ${ACCENT};
+          background: rgba(232, 184, 109, 0.08);
+          border: 1px solid rgba(232, 184, 109, 0.22);
+          padding: 7px 14px;
+          border-radius: 999px;
+          font-size: 13px;
+          letter-spacing: -0.005em;
+          text-decoration: none;
+          transition: background 140ms ease-out, border-color 140ms ease-out;
+        }
+        .landing-nav-primary:hover {
+          background: rgba(232, 184, 109, 0.14);
+          border-color: rgba(232, 184, 109, 0.4);
+        }
+        .landing-nav-primary-arrow {
+          display: inline-block;
+          will-change: transform;
+          transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .landing-nav-primary:hover .landing-nav-primary-arrow {
+          transform: translateX(3px);
+        }
+        .landing-hero-secondary:hover { color: ${SECONDARY}; }
         .landing-footer-link {
           color: ${MUTED};
           text-decoration: none;
