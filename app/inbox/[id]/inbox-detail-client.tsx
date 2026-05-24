@@ -150,15 +150,30 @@ export function InboxDetailClient({
         <h1 className="text-[24px] font-medium leading-[1.2] tracking-[-0.015em] text-[#FAFAFA]">
           {subject}
         </h1>
-        <div className="flex items-baseline gap-2 text-[13px] text-ink-200">
+        <div className="flex flex-wrap items-baseline gap-2 text-[13px] text-ink-200">
           <span className="font-medium text-ink-50">{cleanFromLabel(sender)}</span>
           {item.senderEmail && (
-            <span className="text-[12px] text-ink-300">
+            <Link
+              href={`/people/${encodeURIComponent(item.senderEmail)}`}
+              className="text-[12px] text-ink-300 underline decoration-white/15 underline-offset-2 transition-colors hover:text-[#E8B86D] hover:decoration-[#E8B86D]/40"
+              title="Profil dieser Person ansehen"
+            >
               &lt;{item.senderEmail}&gt;
-            </span>
+            </Link>
           )}
           <span aria-hidden className="text-ink-300">·</span>
           <span className="text-[12px] text-ink-300">{formatDateTime(dateIso)}</span>
+          {item.senderEmail && (
+            <>
+              <span aria-hidden className="text-ink-300">·</span>
+              <Link
+                href={`/people/${encodeURIComponent(item.senderEmail)}`}
+                className="text-[12px] text-[#E8B86D] transition-colors hover:text-[#F0C079]"
+              >
+                Profil →
+              </Link>
+            </>
+          )}
         </div>
       </header>
 

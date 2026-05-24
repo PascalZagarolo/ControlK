@@ -208,19 +208,34 @@ function ListView({
 }
 
 function Row({ row }: { row: InboxOverviewRow }) {
+  // Sender column is a nested Link to /people/[email] when we have an
+  // address. Browsers correctly route the inner click to the inner href.
+  // To make sure the outer Link doesn't swallow that, we use a div with
+  // an onClick wrapping the rest of the row, not a single outer Link.
+  // For simplicity: keep outer as Link, render sender as a separate
+  // <Link> inside; React/Next handles nested anchors via the inner one
+  // winning when clicked (the browser dispatches the deepest target).
   return (
-    <Link
-      href={`/inbox/${row.id}`}
-      className="grid grid-cols-[180px_1fr_72px] items-baseline gap-4 px-1 py-3 transition-colors duration-150 hover:bg-white/[0.025]"
-    >
+    <div className="grid grid-cols-[180px_1fr_72px] items-baseline gap-4 px-1 py-3 transition-colors duration-150 hover:bg-white/[0.025]">
       <div className="min-w-0">
-        <p
-          className={`truncate text-[13.5px] leading-tight ${
-            row.isRead ? 'text-ink-200' : 'font-medium text-ink-50'
-          }`}
-        >
-          {cleanName(row.senderName)}
-        </p>
+        {row.senderEmail ? (
+          <Link
+            href={`/people/${encodeURIComponent(row.senderEmail)}`}
+            className={`truncate text-[13.5px] leading-tight transition-colors hover:text-[#E8B86D] ${
+              row.isRead ? 'text-ink-200' : 'font-medium text-ink-50'
+            }`}
+          >
+            {cleanName(row.senderName)}
+          </Link>
+        ) : (
+          <span
+            className={`truncate text-[13.5px] leading-tight ${
+              row.isRead ? 'text-ink-200' : 'font-medium text-ink-50'
+            }`}
+          >
+            {cleanName(row.senderName)}
+          </span>
+        )}
         {!row.isRead && (
           <span
             aria-hidden
@@ -229,7 +244,10 @@ function Row({ row }: { row: InboxOverviewRow }) {
           />
         )}
       </div>
-      <div className="min-w-0">
+      <Link
+        href={`/inbox/${row.id}`}
+        className="min-w-0 cursor-pointer"
+      >
         <p
           className={`truncate text-[13.5px] leading-tight ${
             row.isRead ? 'text-ink-200' : 'text-ink-50'
@@ -242,11 +260,14 @@ function Row({ row }: { row: InboxOverviewRow }) {
             {row.preview}
           </p>
         )}
-      </div>
-      <span className="justify-self-end font-mono text-[10.5px] uppercase tracking-[0.06em] text-[#52525B]">
+      </Link>
+      <Link
+        href={`/inbox/${row.id}`}
+        className="justify-self-end font-mono text-[10.5px] uppercase tracking-[0.06em] text-[#52525B]"
+      >
         {formatRel(row.receivedAt)}
-      </span>
-    </Link>
+      </Link>
+    </div>
   );
 }
 
