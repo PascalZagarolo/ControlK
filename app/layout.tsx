@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { Analytics } from '@vercel/analytics/next';
 import { Header } from '@/components/header/header';
 import { ProfileDock } from '@/components/header/profile-dock';
 import { CmdK } from '@/components/cmdk/cmd-k';
@@ -50,7 +51,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (isLanding) {
     return (
       <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
-        <body>{children}</body>
+        <body>
+          {children}
+          {/* Cookieless — no consent banner required. Mounted in the root
+              layout so both the marketing surface and the authenticated
+              app feed the same project's Web Analytics. */}
+          <Analytics />
+        </body>
       </html>
     );
   }
@@ -71,6 +78,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <MobileFab />
           <HelpButton />
         </PusherProvider>
+        <Analytics />
       </body>
     </html>
   );
