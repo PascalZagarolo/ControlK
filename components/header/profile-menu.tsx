@@ -9,9 +9,22 @@ type ProfileProps = {
   initials: string;
   from: string;
   to: string;
+  /**
+   * Where the dropdown opens relative to the trigger.
+   * - 'bottom' (default): menu drops down + right-aligned. Used in the
+   *   top-center floating header dock.
+   * - 'top': menu opens upward + left-aligned. Used by the bottom-left
+   *   ProfileDock so the menu doesn't get clipped by the viewport.
+   */
+  placement?: 'top' | 'bottom';
+  /**
+   * Trigger size in px. Top-dock uses 28; bottom-left dock uses a larger
+   * anchored avatar (36) since it stands alone.
+   */
+  size?: number;
 };
 
-export function ProfileMenu(props: ProfileProps) {
+export function ProfileMenu({ placement = 'bottom', size = 28, ...props }: ProfileProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -31,6 +44,15 @@ export function ProfileMenu(props: ProfileProps) {
     };
   }, [open]);
 
+  // Placement controls trigger size hit-area + menu anchor. We compute
+  // the trigger and menu classes here so the JSX below stays plain.
+  const triggerPx = size;
+  const triggerSize = `${triggerPx}px`;
+  const menuClass =
+    placement === 'top'
+      ? 'absolute left-0 bottom-[calc(100%+10px)]'
+      : 'absolute right-0 top-[calc(100%+8px)]';
+
   return (
     <div ref={wrapRef} className="relative flex items-center">
       <button
@@ -39,15 +61,16 @@ export function ProfileMenu(props: ProfileProps) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Profil-Menü öffnen"
-        className="group flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-white/[0.08] transition-all duration-150 hover:ring-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        className="group flex items-center justify-center rounded-full ring-1 ring-white/[0.08] transition-all duration-150 hover:ring-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        style={{ width: triggerSize, height: triggerSize }}
       >
-        <Avatar profile={props} size={28} />
+        <Avatar profile={props} size={triggerPx} />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+8px)] z-[1000] min-w-[260px] rounded-[10px] border border-white/10 bg-[rgba(20,21,23,0.96)] p-1.5 text-[13px] shadow-panel backdrop-blur-md backdrop-saturate-150"
+          className={`${menuClass} z-[1000] min-w-[260px] rounded-[10px] border border-white/10 bg-[rgba(20,21,23,0.96)] p-1.5 text-[13px] shadow-panel backdrop-blur-md backdrop-saturate-150`}
         >
           <div className="flex items-center gap-2.5 px-2 py-2.5">
             <Avatar profile={props} size={36} />

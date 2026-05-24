@@ -3,7 +3,6 @@ import { getCurrentWorkspace, listUserWorkspaces } from '@/lib/db/current-worksp
 import { listNotifications } from '@/lib/db/queries/notifications';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import { NavTabs } from './nav-tabs';
-import { ProfileMenu } from './profile-menu';
 import { NotificationsBell } from './notifications-bell';
 
 export async function Header() {
@@ -53,13 +52,6 @@ export async function Header() {
       <NavTabs scope={activeScope} />
       <span aria-hidden className="mx-1 h-4 w-px bg-[#1F1F23]" />
       <NotificationsBell initial={notifications} />
-      <ProfileMenu
-        name={user.name}
-        email={user.email}
-        initials={user.initials}
-        from={user.avatarFrom}
-        to={user.avatarTo}
-      />
     </header>
   );
 }

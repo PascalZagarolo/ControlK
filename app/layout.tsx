@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/header/header';
+import { ProfileDock } from '@/components/header/profile-dock';
 import { CmdK } from '@/components/cmdk/cmd-k';
 import { KeyboardListener } from '@/components/cmdk/keyboard-listener';
 import { QuickCreateMount } from '@/components/todos/quick-create-mount';
@@ -61,6 +62,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <PusherProvider config={pusherConfig} userId={user?.id}>
           <Header />
+          <ProfileDock />
           {children}
           <CmdK />
           <QuickCreateMount />
