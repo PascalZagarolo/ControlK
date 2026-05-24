@@ -1774,6 +1774,51 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   todoGroups: many(todoGroups),
 }));
 
+// ─── OAuth identities ────────────────────────────────────────────
+// One row per (provider, providerAccountId) pair. A single user may have
+// multiple oauth rows if they link several providers.
+export const oauthAccounts = pgTable(
+  'oauth_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
+    email: text('email'),
+    name: text('name'),
+    avatarUrl: text('avatar_url'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    providerIdx: uniqueIndex('oauth_accounts_provider_idx').on(t.provider, t.providerAccountId),
+    userIdx: index('oauth_accounts_user_idx').on(t.userId),
+  })
+);
+
+// ─── OAuth pending states ────────────────────────────────────────
+// Holds the PKCE verifier + nonce + redirect target between /start and
+// /callback. Rows are short-lived (10 minutes) and one-time-use — the
+// callback deletes the row regardless of outcome.
+export const oauthStates = pgTable(
+  'oauth_states',
+  {
+    state: varchar('state', { length: 64 }).primaryKey(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    codeVerifier: varchar('code_verifier', { length: 128 }).notNull(),
+    nonce: varchar('nonce', { length: 64 }).notNull(),
+    redirectTo: text('redirect_to').notNull().default('/'),
+    origin: text('origin').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    expiresIdx: index('oauth_states_expires_idx').on(t.expiresAt),
+  })
+);
+
 // ─── Marketing waitlist (ctrlk.de landing) ───────────────────────
 // Pre-launch waitlist signups. Not linked to workspaces/users yet —
 // people sign up before they have either.

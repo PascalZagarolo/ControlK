@@ -6,6 +6,7 @@ type LimitName =
   | 'forgot-password'
   | 'magic-link'
   | 'totp-verify'
+  | 'oauth-google'
   | 'booking';
 
 const CONFIG: Record<LimitName, { tokens: number; windowSec: number }> = {
@@ -14,6 +15,10 @@ const CONFIG: Record<LimitName, { tokens: number; windowSec: number }> = {
   'forgot-password': { tokens: 3, windowSec: 60 * 60 },
   'magic-link': { tokens: 5, windowSec: 60 * 60 },
   'totp-verify': { tokens: 10, windowSec: 60 * 60 },
+  // OAuth start is cheap (DB insert + redirect). Keep a generous bucket
+  // since legitimate users may re-click in seconds. Real abuse signal is
+  // callback-failure rate, not start rate.
+  'oauth-google': { tokens: 20, windowSec: 60 },
   booking: { tokens: 5, windowSec: 60 * 60 },
 };
 

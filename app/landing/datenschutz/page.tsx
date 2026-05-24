@@ -118,7 +118,42 @@ export default function DatenschutzPage() {
         Mit Neon bestehen die im Marketplace hinterlegten AVV und SCC.
       </p>
 
-      <h3>3.5 Reichweitenmessung (Analytics)</h3>
+      <h3>3.5 Login mit Google (OAuth)</h3>
+      <p>
+        Wenn du dich für „Mit Google anmelden" entscheidest, leiten wir
+        dich auf eine Seite der <strong>Google Ireland Limited</strong>,
+        Gordon House, Barrow Street, Dublin 4, Irland weiter. Dort
+        authentifizierst du dich direkt bei Google. Nach erfolgreicher
+        Anmeldung erhalten wir von Google nur die folgenden Daten zu
+        deiner Person: stabile Google-Nutzer-ID (sogenannte „sub"),
+        deine E-Mail-Adresse, Bestätigungsstatus deiner E-Mail-Adresse,
+        deinen angezeigten Namen sowie deinen Profilbild-Link.
+      </p>
+      <p>
+        Diese Daten verwenden wir ausschließlich, um dein Konto zu
+        erstellen oder ein bestehendes Konto mit gleicher E-Mail mit
+        deiner Google-Identität zu verknüpfen. Wir greifen <strong>nicht</strong>{' '}
+        auf deine Gmail-Inhalte, Kontakte, Kalender oder andere
+        Google-Dienste zu — der Berechtigungsumfang ist auf{' '}
+        <code>openid email profile</code> beschränkt.
+      </p>
+      <p>
+        <strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. b DSGVO
+        (Vertragsanbahnung/-erfüllung) und Art. 6 Abs. 1 lit. f DSGVO
+        (berechtigtes Interesse an einer bequemen und sicheren
+        Anmeldung). Mit Google bestehen Standardvertragsklauseln (SCC)
+        gemäß Art. 46 DSGVO für die Übermittlung in die USA, sofern die
+        Verarbeitung dort erfolgt.
+      </p>
+      <p>
+        <strong>Speicherdauer:</strong> Die Verknüpfung zu deiner
+        Google-Identität bleibt bestehen, solange du dein Konto bei uns
+        nutzt. Du kannst die Verknüpfung jederzeit per Nachricht an{' '}
+        <a href="mailto:hello@ctrlk.de">hello@ctrlk.de</a> aufheben
+        lassen.
+      </p>
+
+      <h3>3.6 Reichweitenmessung (Analytics)</h3>
       <p>
         Wir nutzen <strong>Vercel Analytics</strong>. Vercel Analytics
         funktioniert <strong>cookieless</strong> und verzichtet auf
@@ -148,6 +183,10 @@ export default function DatenschutzPage() {
         <li><strong>Vercel Inc.</strong> — Hosting</li>
         <li><strong>Neon Inc.</strong> — Datenbank</li>
         <li><strong>Resend Inc.</strong> — E-Mail-Versand</li>
+        <li>
+          <strong>Google Ireland Limited</strong> — optional, nur wenn du
+          dich für „Mit Google anmelden" entscheidest
+        </li>
       </ul>
       <p>
         Eine Weitergabe an andere Dritte (Werbenetzwerke, Datenhändler,

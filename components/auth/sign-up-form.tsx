@@ -12,6 +12,7 @@ import {
   TextInput,
 } from './auth-shell';
 import { PasswordStrength } from './password-strength';
+import { GoogleButton, GoogleErrorBanner } from './google-button';
 
 export function SignUpForm() {
   const router = useRouter();
@@ -36,6 +37,17 @@ export function SignUpForm() {
       className="flex flex-col gap-4"
     >
       {error && <ErrorBanner>{error}</ErrorBanner>}
+      <GoogleErrorBanner />
+
+      <GoogleButton label="Mit Google registrieren" />
+
+      <div className="flex items-center gap-3 py-1">
+        <div className="h-px flex-1 bg-white/[0.06]" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
+          oder mit E-Mail
+        </span>
+        <div className="h-px flex-1 bg-white/[0.06]" />
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <FieldLabel>Name</FieldLabel>
