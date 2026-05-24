@@ -45,7 +45,7 @@ export function FoyerReplica() {
             }}
           />
           <span style={{ color: '#A1A1AA', fontSize: 12, fontWeight: 500, letterSpacing: '-0.01em' }}>
-            Pascals Workspace
+            Mein Workspace
           </span>
         </div>
         <div style={{ display: 'flex', gap: 14 }}>
@@ -105,7 +105,7 @@ export function FoyerReplica() {
             fontWeight: 500,
           }}
         >
-          P
+          M
         </div>
       </div>
 
@@ -203,7 +203,7 @@ export function FoyerReplica() {
               textAlign: 'center',
             }}
           >
-            Guten Tag, Pascal.
+            Guten Tag.
           </div>
           <div
             style={{
@@ -215,7 +215,7 @@ export function FoyerReplica() {
               marginBottom: 22,
             }}
           >
-            3 Todos heute. 2 Termine. Anna wartet seit gestern auf eine Antwort.
+            3 Todos heute. 2 Termine. Ein Kontakt wartet seit gestern auf eine Antwort.
           </div>
 
           {/* Briefing card */}

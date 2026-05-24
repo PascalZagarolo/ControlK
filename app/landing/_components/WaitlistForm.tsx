@@ -53,14 +53,12 @@ export function WaitlistForm() {
             fontSize: 14,
             lineHeight: 1.7,
             color: '#A1A1AA',
-            marginBottom: 10,
           }}
         >
           {state.alreadyOnList
-            ? 'Keine doppelte Mail nötig — ich melde mich persönlich, sobald es etwas zu zeigen gibt.'
-            : 'Danke fürs Vertrauen. Ich melde mich persönlich, sobald es etwas zu zeigen gibt.'}
+            ? 'Keine doppelte Mail nötig — du bekommst eine Nachricht, sobald Early Access bereitsteht.'
+            : 'Du bekommst eine Nachricht, sobald Early Access bereitsteht. Keine Newsletter, kein Tracking.'}
         </p>
-        <p style={{ fontSize: 13, color: '#52525B' }}>— Pascal</p>
       </div>
     );
   }
@@ -140,8 +138,8 @@ export function WaitlistForm() {
       </div>
 
       <p style={{ color: '#52525B', fontSize: 13, lineHeight: 1.6, textAlign: 'left' }}>
-        Ich schreibe nur, wenn es etwas Echtes zu teilen gibt — Early Access, Milestones, ein Heads-up
-        vor Launch.
+        Nur echte Updates — Early Access, Milestones, ein Heads-up vor Launch. Kein Newsletter, kein
+        Tracking.
       </p>
     </form>
   );

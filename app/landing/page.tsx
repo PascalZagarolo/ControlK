@@ -192,15 +192,10 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* ── Section 2 — Manifesto ───────────────────────────────────── */}
-      <section style={{ padding: '120px 28px 0' }}>
-        <Reveal>
-          <div
-            style={{
-              maxWidth: 640,
-              margin: '0 auto',
-            }}
-          >
+      {/* ── Section 2 — Features ────────────────────────────────────── */}
+      <section style={{ padding: '160px 28px 0' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
+          <Reveal>
             <p
               style={{
                 color: MUTED,
@@ -208,130 +203,125 @@ export default function LandingPage() {
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
-                marginBottom: 28,
+                marginBottom: 14,
+                textAlign: 'center',
               }}
             >
-              Eine Notiz vom Bauer
+              Was im Workspace steckt
             </p>
-
-            <div
+            <h2
               style={{
-                fontSize: 18,
-                lineHeight: 1.7,
-                letterSpacing: '-0.005em',
-                color: SECONDARY,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 24,
+                fontSize: 'clamp(28px, 4vw, 36px)',
+                fontWeight: 500,
+                letterSpacing: '-0.025em',
+                color: PRIMARY,
+                margin: 0,
+                marginBottom: 96,
+                lineHeight: 1.15,
+                textAlign: 'center',
               }}
             >
-              <p>
-                Ich bin Pascal. Ich baue Ctrl K, weil ich jeden Morgen sechs Tabs öffne, um zu sehen
-                was heute wichtig ist — Gmail, Slack, Notion, Kalender, Notizen, Kunden-Tool. Keiner
-                dieser Tabs spricht mit den anderen. Keiner weiß, was wirklich zählt.
-              </p>
-              <p>
-                Ich habe jedes Tool ausprobiert, das versprochen hat das zu lösen. Notion ist ein
-                Werkzeugkasten ohne Meinung. Slack ist eine Lärm-Maschine. Sunsama ist ruhig, aber
-                isoliert. Linear ist schnell, aber nur für Engineers.
-              </p>
-              <p>
-                Also baue ich das Tool, das ich selbst nutzen will. Ein Workspace. Ruhig. Mit Meinung.
-                Gebaut um den Weg, wie ich tatsächlich meinen Tag starte: mit Kaffee, einem Blick auf
-                das was zählt, einer Entscheidung was ich heute tue.
-              </p>
-              <p>
-                Ctrl K ist in aktiver Entwicklung. Ich baue es in der Öffentlichkeit. Wenn das nach{' '}
-                <span className="landing-underline">dem Tool klingt, auf das du auch wartest</span> —{' '}
-                <a href="#waitlist" className="landing-cta-inline">
-                  trag dich ein
-                </a>
-                .
-              </p>
-            </div>
+              Fünf Bausteine, statt sechs offener Tabs.
+            </h2>
+          </Reveal>
 
-            <p style={{ marginTop: 32, color: MUTED, fontSize: 14 }}>
-              — Pascal Zagarolo, baue öffentlich aus Deutschland
-            </p>
-          </div>
-        </Reveal>
-      </section>
-
-      {/* ── Section 3 — Three principles ────────────────────────────── */}
-      <section style={{ padding: '160px 28px 0' }}>
-        <div
-          style={{
-            maxWidth: 1080,
-            margin: '0 auto',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: 56,
-          }}
-        >
-          {[
-            {
-              n: '01',
-              title: 'Ruhig per Default',
-              body:
-                'Ein Workspace soll deinen kognitiven Load reduzieren, nicht erhöhen. Ctrl K öffnet sich zu einem ruhigen Foyer — eine Begrüßung, ein Briefing, ein Vorschlag. Kein Notification-Storm, keine Badges, kein Dringlichkeits-Theater.',
-            },
-            {
-              n: '02',
-              title: 'Eine Inbox, jede Quelle',
-              body:
-                'Email, Slack, Channels, Mentions, Kalender-Einladungen — alles landet in einer universellen Inbox, die zusammengehörendes in einzelne Threads bündelt. Du wechselst nicht mehr Apps. Du verpasst nichts mehr.',
-            },
-            {
-              n: '03',
-              title: 'Mit Meinung, nicht leer',
-              body:
-                'Ctrl K reicht dir keine leere Seite und fragt dich, dein eigenes Produktivitätssystem zu bauen. Es bringt Struktur mit — Workspaces, Projekte, Gruppen, ein tägliches Briefing — die am ersten Tag funktioniert und sich aus dem Weg geht.',
-            },
-          ].map((p, i) => (
-            <Reveal key={p.n} delay={i * 0.08}>
-              <div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {[
+              {
+                n: '01',
+                kicker: 'Command palette',
+                title: 'Cmd+K — überall.',
+                body:
+                  'Eine Tastenkombination öffnet dir alles. Springe in jede Notiz, jeden Kontakt, jedes Todo. Lege neue Items an, ohne Maus. Frage den Workspace etwas — er antwortet aus deinem Kontext, nicht aus dem Internet.',
+              },
+              {
+                n: '02',
+                kicker: 'Foyer',
+                title: 'Ein ruhiger Start statt eines Dashboards.',
+                body:
+                  'Beim Öffnen: eine Begrüßung, ein Briefing für heute, ein konkreter Vorschlag was als nächstes ansteht. Kein Notification-Storm, keine Badges, keine unfertigen Widgets. Du startest deinen Tag, anstatt ihn zu sortieren.',
+              },
+              {
+                n: '03',
+                kicker: 'Universal Inbox',
+                title: 'Email, Channels, Mentions — eine Liste.',
+                body:
+                  'Alles, was auf deine Aufmerksamkeit zielt, landet im selben Stack — gruppiert nach Thread, nicht nach App. Du antwortest direkt aus der Inbox und musst nicht mehr zwischen sechs Oberflächen springen.',
+              },
+              {
+                n: '04',
+                kicker: 'Verknüpfte Notizen',
+                title: 'Notizen, die mit allem reden.',
+                body:
+                  'Schreibe eine Notiz, erwähne einen Kontakt, ein Todo, ein Projekt. Die Notiz wird Teil dieses Kontexts — und taucht beim nächsten Anruf, beim nächsten Meeting, beim nächsten Brief automatisch wieder auf. Suchen wird zur Ausnahme.',
+              },
+              {
+                n: '05',
+                kicker: 'Daily Briefing',
+                title: 'Ein Briefing am Morgen, in 90 Sekunden.',
+                body:
+                  'Ein narrativer Überblick: was heute ansteht, was überfällig ist, welche Kontakte lange still sind, welche Aufgaben blockiert. Lesbar oder vorgelesen. Aus deinen eigenen Daten — nicht aus generischen KI-Spielereien.',
+              },
+            ].map((f, i, arr) => (
+              <Reveal key={f.n} delay={Math.min(i * 0.04, 0.16)}>
                 <div
                   style={{
-                    color: MUTED,
-                    fontSize: 11,
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
-                    marginBottom: 14,
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 200px) minmax(0, 1fr)',
+                    gap: 48,
+                    padding: '40px 0',
+                    borderTop: i === 0 ? 'none' : `1px solid ${BORDER}`,
                   }}
+                  className="landing-feature-row"
                 >
-                  Prinzip {p.n}
+                  <div>
+                    <div
+                      style={{
+                        color: ACCENT,
+                        fontSize: 11,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--font-jetbrains-mono), ui-monospace, monospace',
+                        marginBottom: 8,
+                      }}
+                    >
+                      {f.n} · {f.kicker}
+                    </div>
+                  </div>
+                  <div>
+                    <h3
+                      style={{
+                        fontSize: 22,
+                        fontWeight: 500,
+                        letterSpacing: '-0.02em',
+                        color: PRIMARY,
+                        margin: 0,
+                        marginBottom: 14,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {f.title}
+                    </h3>
+                    <p
+                      style={{
+                        fontSize: 15,
+                        lineHeight: 1.7,
+                        color: SECONDARY,
+                        margin: 0,
+                        maxWidth: 560,
+                      }}
+                    >
+                      {f.body}
+                    </p>
+                  </div>
                 </div>
-                <h3
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 500,
-                    letterSpacing: '-0.02em',
-                    color: PRIMARY,
-                    margin: 0,
-                    marginBottom: 12,
-                    lineHeight: 1.25,
-                  }}
-                >
-                  {p.title}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 14,
-                    lineHeight: 1.7,
-                    color: SECONDARY,
-                    margin: 0,
-                  }}
-                >
-                  {p.body}
-                </p>
-              </div>
-            </Reveal>
-          ))}
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── Section 4 — Roadmap (single calm paragraph) ─────────────── */}
+      {/* ── Section 3 — Roadmap (single calm paragraph) ─────────────── */}
       <section style={{ padding: '160px 28px 0' }}>
         <Reveal>
           <div
@@ -372,7 +362,7 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* ── Section 5 — Waitlist ────────────────────────────────────── */}
+      {/* ── Section 4 — Waitlist ────────────────────────────────────── */}
       <section
         id="waitlist"
         style={{
@@ -501,6 +491,13 @@ export default function LandingPage() {
           transition: color 140ms ease-out;
         }
         .landing-footer-link:hover { color: ${PRIMARY}; }
+        @media (max-width: 720px) {
+          .landing-feature-row {
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+            padding: 28px 0 !important;
+          }
+        }
       `}</style>
     </main>
   );
