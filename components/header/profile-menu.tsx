@@ -94,15 +94,20 @@ export function ProfileMenu(props: ProfileProps) {
 }
 
 function Avatar({ profile, size }: { profile: ProfileProps; size: number }) {
+  // Header avatar uses the system amber accent — matches the workspace
+  // indicator dot and the active scope chip. Per-user gradient (from/to)
+  // is intentionally ignored here for visual consistency; it still drives
+  // avatars in other surfaces (assignee chips, etc.).
+  void profile.from;
+  void profile.to;
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium leading-none text-white"
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium leading-none text-[#FAFAFA]"
       style={{
         width: size,
         height: size,
         fontSize: Math.round(size * 0.38),
-        background: `linear-gradient(180deg, ${profile.from} 0%, ${profile.to} 100%)`,
-        boxShadow: '0 1px 0 0 rgba(0,0,0,.2), inset 0 1px 0 0 rgba(255,255,255,.14)',
+        background: '#E8B86D',
       }}
     >
       {profile.initials}

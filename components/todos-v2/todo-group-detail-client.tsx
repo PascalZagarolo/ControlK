@@ -94,78 +94,77 @@ export function TodoGroupDetailClient({
           <GroupMenu group={group} />
         </header>
 
-        <div className="mt-8">
+        {/* Continuous list: the input is the top row, the items are the
+            rows below. They share divide-y separators so input and items
+            feel like part of one column, not two sections. */}
+        <div className="mt-8 flex flex-col divide-y divide-[#1F1F23]">
           <QuickInput
             groupId={group.id}
             projectId={group.projectId}
             onCreated={() => router.refresh()}
           />
+
+          {showOpenHeader && openTodos.length > 0 && (
+            <SectionLabel className="px-1 pt-4 pb-2">
+              Offen ({openTodos.length})
+            </SectionLabel>
+          )}
+
+          {openTodos.length > 0 && (
+            <AnimatePresence initial={false}>
+              {openTodos.map((todo) => (
+                <TodoRow
+                  key={todo.id}
+                  todo={todo}
+                  expanded={expandedId === todo.id}
+                  onToggleExpand={() =>
+                    setExpandedId((id) => (id === todo.id ? null : todo.id))
+                  }
+                  onChanged={() => router.refresh()}
+                />
+              ))}
+            </AnimatePresence>
+          )}
         </div>
 
-        {openTodos.length === 0 && doneTodos.length === 0 ? (
-          <p className="mt-10 text-center text-[13px] italic text-[#52525B]">
+        {openTodos.length === 0 && doneTodos.length === 0 && (
+          <p className="mt-6 text-center text-[13px] italic text-[#52525B]">
             Noch nichts. Schreib einfach drauf los.
           </p>
-        ) : (
-          <>
-            {showOpenHeader && openTodos.length > 0 && (
-              <SectionLabel className="mt-8">
-                Offen ({openTodos.length})
-              </SectionLabel>
-            )}
+        )}
 
-            {openTodos.length > 0 && (
-              <ul className={`flex flex-col divide-y divide-[#1F1F23] ${showOpenHeader ? 'mt-3' : 'mt-6'}`}>
-                <AnimatePresence initial={false}>
-                  {openTodos.map((todo) => (
+        {doneTodos.length > 0 && (
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setDoneOpen((v) => !v)}
+              className="flex items-center gap-2 text-[12px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
+            >
+              <span aria-hidden>{doneOpen ? '▾' : '▸'}</span>
+              Erledigt ({doneTodos.length})
+            </button>
+            <AnimatePresence initial={false}>
+              {doneOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.24, ease: 'easeOut' }}
+                  className="mt-3 flex flex-col divide-y divide-[#1F1F23] overflow-hidden"
+                >
+                  {doneTodos.map((todo) => (
                     <TodoRow
                       key={todo.id}
-                      todo={todo}
-                      expanded={expandedId === todo.id}
-                      onToggleExpand={() =>
-                        setExpandedId((id) => (id === todo.id ? null : todo.id))
-                      }
+                      todo={{ ...todo, description: undefined }}
+                      expanded={false}
+                      onToggleExpand={() => {}}
                       onChanged={() => router.refresh()}
                     />
                   ))}
-                </AnimatePresence>
-              </ul>
-            )}
-
-            {doneTodos.length > 0 && (
-              <div className="mt-8">
-                <button
-                  type="button"
-                  onClick={() => setDoneOpen((v) => !v)}
-                  className="flex items-center gap-2 text-[12px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
-                >
-                  <span aria-hidden>{doneOpen ? '▾' : '▸'}</span>
-                  Erledigt ({doneTodos.length})
-                </button>
-                <AnimatePresence initial={false}>
-                  {doneOpen && (
-                    <motion.ul
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.24, ease: 'easeOut' }}
-                      className="mt-3 flex flex-col divide-y divide-[#1F1F23] overflow-hidden"
-                    >
-                      {doneTodos.map((todo) => (
-                        <TodoRow
-                          key={todo.id}
-                          todo={{ ...todo, description: undefined }}
-                          expanded={false}
-                          onToggleExpand={() => {}}
-                          onChanged={() => router.refresh()}
-                        />
-                      ))}
-                    </motion.ul>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-          </>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         )}
       </div>
     </main>
@@ -365,13 +364,16 @@ function QuickInput({
     });
   };
 
+  // Input is rendered as a list-row (no own box), so it shares the
+  // divide-y separator with the items below it. Background lifts only
+  // very subtly on focus — the row appearance carries the boundary, not
+  // a box border.
   return (
     <div>
       <div
-        className="flex h-11 items-center gap-2.5 rounded-md border px-3 transition-colors duration-150"
+        className="flex h-11 items-center gap-2.5 px-1 transition-colors duration-150"
         style={{
-          background: 'rgba(255, 255, 255, 0.025)',
-          borderColor: focused ? '#2A2A30' : '#1F1F23',
+          background: focused ? 'rgba(255, 255, 255, 0.025)' : 'rgba(255, 255, 255, 0.015)',
         }}
       >
         <PlusIcon className="shrink-0 text-[#52525B]" />
@@ -473,7 +475,7 @@ function TodoRow({
   };
 
   return (
-    <motion.li
+    <motion.div
       layout
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
@@ -547,7 +549,7 @@ function TodoRow({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.li>
+    </motion.div>
   );
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 /**
@@ -13,7 +13,30 @@ import Link from 'next/link';
  * the mailto becomes a support-channel of Channels.
  */
 export function HelpButton() {
+  // Production: hidden entirely. Dev: hidden by default, toggle via
+  // ⌘+Shift+H (H = Help). Keeps the visual surface clean while the
+  // affordance is still reachable when the developer needs it.
   const [open, setOpen] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setRevealed((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Render nothing in production. In dev, render only after reveal-shortcut.
+  if (process.env.NODE_ENV === 'production' || !revealed) {
+    return null;
+  }
+
   return (
     <>
       <button
