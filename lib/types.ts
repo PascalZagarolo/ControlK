@@ -937,6 +937,20 @@ export type NoteTreeItem = {
   childCount: number;
 };
 
+// Row shape for the flat /notes overview list. Server-extracted excerpt
+// keeps the document JSON out of the client bundle.
+export type NoteOverviewItem = {
+  id: string;
+  title: string;
+  icon?: string;
+  parentNoteId: string | null;
+  parentTitle?: string;
+  scope: NoteScope;
+  updatedAt: string;
+  excerpt: string; // plain-text, up to ~240 chars
+  isEmpty: boolean; // true if document contains no text
+};
+
 export type Note = {
   id: string;
   workspaceId: string;

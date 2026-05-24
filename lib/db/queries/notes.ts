@@ -2,7 +2,32 @@ import 'server-only';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
-import type { Note, NoteTreeItem } from '@/lib/types';
+import type { Note, NoteOverviewItem, NoteTreeItem } from '@/lib/types';
+
+// Walks a BlockNote document and concatenates inline text. Stops once we
+// have enough characters to fill the list excerpt — we never need the
+// whole document for a row preview.
+function extractExcerpt(document: unknown, maxLen = 240): string {
+  let out = '';
+  const visit = (nodes: unknown): void => {
+    if (out.length >= maxLen) return;
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      if (out.length >= maxLen) return;
+      if (typeof node === 'string') {
+        out += node + ' ';
+        continue;
+      }
+      if (!node || typeof node !== 'object') continue;
+      const n = node as Record<string, unknown>;
+      if (typeof n.text === 'string') out += n.text + ' ';
+      if (Array.isArray(n.content)) visit(n.content);
+      if (Array.isArray(n.children)) visit(n.children);
+    }
+  };
+  visit(document);
+  return out.replace(/\s+/g, ' ').trim().slice(0, maxLen);
+}
 
 function toNote(row: any): Note {
   return {
@@ -59,6 +84,48 @@ export async function listNotesTree(workspaceId: string): Promise<NoteTreeItem[]
     scope: (r.scope as any) ?? 'workspace',
     childCount: childCounts.get(r.id) ?? 0,
   }));
+}
+
+// Flat list for the /notes overview. Sorted by most-recently-edited.
+// Templates and archived notes are filtered out at the query level.
+export async function listNotesForOverview(workspaceId: string): Promise<NoteOverviewItem[]> {
+  const db = getDb();
+  const rows = await db.query.notes.findMany({
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      isNull(s.notes.archivedAt),
+      eq(s.notes.isTemplate, false)
+    ),
+    orderBy: [desc(s.notes.updatedAt)],
+    columns: {
+      id: true,
+      title: true,
+      icon: true,
+      parentNoteId: true,
+      scope: true,
+      updatedAt: true,
+      document: true,
+    },
+  });
+
+  // Resolve parent titles in one pass — saves an N+1 round trip on click.
+  const titleById = new Map<string, string>();
+  for (const r of rows) titleById.set(r.id, r.title);
+
+  return rows.map<NoteOverviewItem>((r) => {
+    const excerpt = extractExcerpt(r.document);
+    return {
+      id: r.id,
+      title: r.title,
+      icon: r.icon ?? undefined,
+      parentNoteId: r.parentNoteId ?? null,
+      parentTitle: r.parentNoteId ? titleById.get(r.parentNoteId) : undefined,
+      scope: (r.scope as NoteOverviewItem['scope']) ?? 'workspace',
+      updatedAt: new Date(r.updatedAt).toISOString(),
+      excerpt,
+      isEmpty: excerpt.length === 0,
+    };
+  });
 }
 
 export async function getNote(workspaceId: string, id: string): Promise<Note | null> {
