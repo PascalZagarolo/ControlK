@@ -113,10 +113,13 @@ const SIMULATED_ARRIVALS: Omit<NotifCard, 'id' | 'href' | 'minAgo'>[] = [
   },
 ];
 
-const MAX_VISIBLE = 5;
 const GLOW_DURATION_MS = 600;
 const STACK_REVEAL_DELAY_S = 0.28;
 const STACK_STAGGER_S = 0.04;
+// Only the first N cards get a per-index reveal stagger — anything below
+// that animates simultaneously to keep initial paint cheap when scrolled
+// stacks are long.
+const STAGGER_LIMIT = 5;
 
 // ───────────────────────────────────────────────────────────────
 // Helpers
@@ -130,11 +133,9 @@ function fmtMinAgo(min: number): string {
   return `${Math.floor(h / 24)}T`;
 }
 
-function sourceTypeLabel(s: NotifSource): string {
-  if (s === 'email') return 'Email';
-  if (s === 'channel') return 'Channel';
-  return 'Mention';
-}
+// sourceTypeLabel removed — the icon already conveys the source type.
+// The label now shows just the specific account/channel/module ("Gmail",
+// "#sales", "Notizen"). Less redundant, faster to read.
 
 // ───────────────────────────────────────────────────────────────
 // Inline Lucide-style icons
@@ -191,14 +192,14 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
   // After initial reveal, drop the stagger delay so dynamically-added
   // cards animate immediately (no 280ms wait for the new arrival).
   useEffect(() => {
-    const wait = STACK_REVEAL_DELAY_S * 1000 + items.length * STACK_STAGGER_S * 1000 + 220;
+    const wait =
+      STACK_REVEAL_DELAY_S * 1000 +
+      Math.min(items.length, STAGGER_LIMIT) * STACK_STAGGER_S * 1000 +
+      220;
     const id = window.setTimeout(() => setHasInitialized(true), wait);
     return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const visible = items.slice(0, MAX_VISIBLE);
-  const overflow = items.length - visible.length;
 
   const dismiss = (id: string) => {
     setItems((prev) => prev.filter((c) => c.id !== id));
@@ -213,6 +214,24 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
     window.setTimeout(() => setGlowId(null), GLOW_DURATION_MS);
   };
 
+  // Hidden dev affordance: ⌘+Shift+M (M = Mitteilung) triggers a simulated
+  // incoming notification. No visible button — the production foyer doesn't
+  // need dev chrome. Demo-time use: hit the shortcut to see the arrival
+  // motion + glow.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || !e.shiftKey) return;
+      if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        simulateNew();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleClick = (e: React.MouseEvent, card: NotifCard) => {
     // ⌘/Ctrl-click dismisses without navigating. Right-click also dismisses.
     if (e.metaKey || e.ctrlKey) {
@@ -225,17 +244,35 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
 
   return (
     <>
+      {/* Hide the webkit scrollbar on the stack — the cards are the affordance,
+          no chrome needed. Firefox uses scrollbar-width:none on the aside. */}
+      <style>{`aside[data-notif-stack]::-webkit-scrollbar { width: 0; height: 0; display: none; }`}</style>
+
       <aside
         aria-label="Neue Mitteilungen"
+        data-notif-stack
         className="pointer-events-none fixed left-8 top-[120px] z-30 hidden w-[320px] transition-opacity duration-300 ease-out xl:block"
-        style={{ opacity: dim ? 0.45 : 1 }}
+        style={{
+          opacity: dim ? 0.45 : 1,
+          maxHeight: 'calc(100vh - 152px)',
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
+          // Subtle mask: the lower edge fades into the canvas so the stack
+          // doesn't end with a hard cut while scrolled mid-list.
+          maskImage:
+            'linear-gradient(180deg, black 0, black calc(100% - 32px), transparent 100%)',
+          WebkitMaskImage:
+            'linear-gradient(180deg, black 0, black calc(100% - 32px), transparent 100%)',
+        }}
       >
         <AnimatePresence initial={false}>
-          {visible.map((card, i) => {
+          {items.map((card, i) => {
             const isGlowing = card.id === glowId;
             const delay = hasInitialized
               ? 0
-              : STACK_REVEAL_DELAY_S + i * STACK_STAGGER_S;
+              : i < STAGGER_LIMIT
+                ? STACK_REVEAL_DELAY_S + i * STACK_STAGGER_S
+                : STACK_REVEAL_DELAY_S + STAGGER_LIMIT * STACK_STAGGER_S;
             return (
               <motion.button
                 key={card.id}
@@ -286,7 +323,7 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
                     className="h-3 w-3 shrink-0 text-[#52525B]"
                   />
                   <span className="truncate font-mono text-[10px] uppercase tracking-[0.4px] text-[#52525B]">
-                    {sourceTypeLabel(card.source)} · {card.sourceLabel}
+                    {card.sourceLabel}
                   </span>
                   <span className="ml-auto shrink-0 font-mono text-[10px] text-[#52525B]">
                     {fmtMinAgo(card.minAgo)}
@@ -302,37 +339,8 @@ export function NotificationStack({ dim = false }: { dim?: boolean }) {
             );
           })}
         </AnimatePresence>
-
-        {overflow > 0 && (
-          <motion.button
-            type="button"
-            onClick={() => router.push('/inbox')}
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 0.3 }}
-            transition={{
-              duration: 0.2,
-              delay: hasInitialized
-                ? 0
-                : STACK_REVEAL_DELAY_S + visible.length * STACK_STAGGER_S,
-            }}
-            className="pointer-events-auto block w-full cursor-pointer rounded-[10px] border border-[#1F1F23] py-4 text-center text-[12px] text-[#52525B] backdrop-blur-[12px] transition-opacity duration-150 hover:opacity-60"
-            style={{ background: 'rgba(255, 255, 255, 0.015)' }}
-          >
-            + {overflow} {overflow === 1 ? 'weiteres' : 'weitere'}
-          </motion.button>
-        )}
       </aside>
 
-      {/* Dev-only: simulate an incoming notification. Hidden on small viewports
-          where the stack itself is hidden. */}
-      <button
-        type="button"
-        onClick={simulateNew}
-        title="Dev: simulate incoming notification"
-        className="fixed bottom-4 left-8 z-40 hidden rounded-md border border-[#1F1F23] bg-[#0E0E11] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.3px] text-[#52525B] transition-colors duration-150 hover:border-[#2A2A30] hover:text-[#A1A1AA] xl:block"
-      >
-        ↓ neue Mitteilung
-      </button>
     </>
   );
 }

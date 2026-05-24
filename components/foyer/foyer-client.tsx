@@ -337,7 +337,11 @@ export function FoyerClient(props: FoyerData) {
       >
         <TopNav modules={MODULES} workspaceName={`${props.userName}'s Workspace`} onClick={enterDoorway} dim={dimRest} />
 
-        <section className="flex flex-1 items-center justify-center px-6 pb-[14vh] pt-[16vh]">
+        {/* One unified column. Jetzt joins the hero — no separate section.
+            Rhythm: greeting → 16 → subtitle → 56 → briefing → 48 → search →
+            24 → suggestions → 64 → jetzt. Sized so the whole column fits
+            comfortably on a 1440px-tall screen. */}
+        <section className="flex justify-center px-6 pt-[8vh] pb-[8vh]">
           <div className="flex w-full max-w-[680px] flex-col items-center">
             <header className="flex flex-col items-center gap-4 text-center">
               <h1
@@ -354,7 +358,7 @@ export function FoyerClient(props: FoyerData) {
               </p>
             </header>
 
-            <div className="mt-16 flex w-full justify-center">
+            <div className="mt-14 flex w-full justify-center">
               <DailyBriefing
                 events={props.events}
                 dueToday={props.dueToday}
@@ -362,10 +366,11 @@ export function FoyerClient(props: FoyerData) {
                 dueTomorrow={props.dueTomorrow}
                 mood={ctx.mood}
                 onNavigate={enterDoorway}
+                inboxHasItems={props.unread > 0 || props.mentions > 0 || !!props.latestMessage}
               />
             </div>
 
-            <div className="mt-16 flex w-full justify-center">
+            <div className="mt-12 flex w-full justify-center">
               <SearchBar
                 focused={searchFocused}
                 setFocused={setSearchFocused}
@@ -373,21 +378,21 @@ export function FoyerClient(props: FoyerData) {
               />
             </div>
 
-            <div className="mt-8 flex w-full justify-center">
+            <div className="mt-6 flex w-full justify-center">
               <Suggestions
                 items={ctx.suggestions}
                 onClick={enterDoorway}
                 dim={dimRest}
               />
             </div>
-          </div>
-        </section>
 
-        <section
-          className="relative z-10 px-6 pb-[10vh] transition-opacity duration-300 ease-out"
-          style={{ opacity: dimRest ? 0.6 : 1 }}
-        >
-          <JetztSection suggestions={jetztItems} onNavigate={enterDoorway} />
+            <div
+              className="mt-16 flex w-full justify-center transition-opacity duration-300 ease-out"
+              style={{ opacity: dimRest ? 0.6 : 1 }}
+            >
+              <JetztSection suggestions={jetztItems} onNavigate={enterDoorway} />
+            </div>
+          </div>
         </section>
       </div>
 
@@ -699,6 +704,7 @@ function DailyBriefing({
   dueTomorrow,
   mood,
   onNavigate,
+  inboxHasItems,
 }: {
   events: FoyerEvent[];
   dueToday: number;
@@ -706,6 +712,9 @@ function DailyBriefing({
   dueTomorrow: number;
   mood: Mood;
   onNavigate: (href: string) => void;
+  /** True when the notification stack on the left has any unread items —
+   *  changes the wording of the all-empty briefing state. */
+  inboxHasItems: boolean;
 }) {
   const isEvening = mood === 'evening' || mood === 'night';
 
@@ -742,7 +751,20 @@ function DailyBriefing({
 
   const allEmpty = termineEmpty && todosEmpty;
   if (allEmpty) {
-    return (
+    // Two flavors of empty:
+    //  - inbox also empty → italic, gentle: a true rest moment.
+    //  - inbox has items   → matter-of-fact: the day itself is clear, but
+    //                        work is incoming from the left.
+    return inboxHasItems ? (
+      <motion.p
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.22, ease: 'easeOut' }}
+        className="text-center text-[13px] text-[#A1A1AA]"
+      >
+        Keine Termine, keine offenen Todos. Inbox links.
+      </motion.p>
+    ) : (
       <motion.p
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
