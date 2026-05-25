@@ -22,6 +22,14 @@ export type ChannelMember = {
   online?: boolean;
 };
 
+export type ChannelMemberDetail = {
+  userId: string;
+  name: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member' | 'guest';
+  joinedAt: string;
+};
+
 export type ChannelKind =
   | 'general'
   | 'customer'
@@ -104,6 +112,14 @@ export type Channel = {
   lastMessageAt?: string;
   lastMessagePreview?: string;
   archived?: boolean;
+  /** Category/group folder id (Discord-style). `null` = ungrouped. */
+  groupId?: string | null;
+};
+
+export type ChannelGroup = {
+  id: string;
+  name: string;
+  position: number;
 };
 
 export type ChannelSnippet = {
@@ -134,6 +150,19 @@ export type ChannelEntityHit = {
   href: string;
 };
 
+export type MessageReplyTarget = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorInitials: string;
+  authorFrom: string;
+  authorTo: string;
+  /** Truncated single-line preview of the original body, or null when the
+   *  original is tombstoned. */
+  bodyPreview: string | null;
+  deleted: boolean;
+};
+
 export type Message = {
   id: string;
   /** Author user id — needed by the client to gate the edit/delete menu. */
@@ -149,6 +178,9 @@ export type Message = {
   editedAt?: string;
   reactions?: { emoji: string; count: number }[];
   threadReplies?: Message[];
+  /** Discord-style inline reply context: when present, the message renders
+   *  a small quote of the target above its body. Distinct from threadReplies. */
+  replyTo?: MessageReplyTarget;
 };
 
 // ============ Customers ============
@@ -698,6 +730,10 @@ export type WorkspaceInvite = {
   createdAt: string;
   revokedAt?: string;
   createdByName?: string;
+  /** Wall-clock of the last (re)send. Initialized to createdAt on insert. */
+  lastSentAt?: string;
+  /** Number of resends beyond the initial create-send. Capped at 3. */
+  resentCount: number;
 };
 
 export type WorkspaceActivityKind =

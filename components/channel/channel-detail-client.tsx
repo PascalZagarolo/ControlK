@@ -1,20 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChannelHeadline } from '@/components/channel/channel-headline';
 import { MessageItem } from '@/components/channel/message-item';
 import { DateSeparator } from '@/components/channel/date-separator';
 import { Composer } from '@/components/channel/composer';
-import { ContextPanel } from '@/components/channel/context-panel';
-import { LeftPanel } from '@/components/channel/left-panel';
 import { ThreadPanel } from '@/components/channel/thread-panel';
-import { ChannelSwitcher } from '@/components/channel/channel-switcher';
 import { PinnedStrip } from '@/components/channel/pinned-strip';
-import { SnippetsModal } from '@/components/channel/snippets-modal';
-import { ChannelSearchModal } from '@/components/channel/search-modal';
-import { ShareChannelModal } from '@/components/channel/share-channel-modal';
-import { TypingIndicator } from '@/components/channel/typing-indicator';
-import { PresenceList } from '@/components/channel/presence-list';
+import { MembersSidebar } from '@/components/channel/members-sidebar';
 import { bucketLabel, dayBucket } from '@/lib/format-time';
 import { markChannelRead } from '@/lib/actions/channels';
 import { useChannelSubscription } from '@/lib/realtime/pusher-client';
@@ -22,7 +15,7 @@ import { useRouter } from 'next/navigation';
 import type {
   Channel,
   ChannelEntityHit,
-  ChannelSnippet,
+  ChannelMemberDetail,
   Message,
 } from '@/lib/types';
 
@@ -30,40 +23,26 @@ export function ChannelDetailClient({
   channel,
   channelId,
   messages,
-  channels,
+  members,
+  currentUserId,
+  isOwner,
   entityHitsByMsg,
   customerContactEmails,
-  snippets,
-  currentUserId,
-  currentUserName,
 }: {
   channel: Channel;
   channelId: string | null;
   messages: Message[];
-  channels: { slug: string; name: string; unread?: number }[];
+  members: ChannelMemberDetail[];
+  currentUserId: string;
+  isOwner: boolean;
   entityHitsByMsg?: Record<string, ChannelEntityHit[]>;
   customerContactEmails?: Record<string, { customerId: string; customerName: string }>;
-  snippets?: ChannelSnippet[];
-  currentUserId?: string;
-  currentUserName?: string;
 }) {
   const router = useRouter();
-  const [contextOpen, setContextOpen] = useState(true);
-  // LeftPanel (Deal-Radar / QuickActions / Presence rail) defaults off
-  // now that the global ChannelsSidebar owns the left 280px. Keeping
-  // the state + component around for a future "context rail" toggle,
-  // but it's no longer mounted on initial render so it doesn't fight
-  // with the sidebar for screen space.
-  const [leftOpen, setLeftOpen] = useState(false);
   const [openThread, setOpenThread] = useState<Message | null>(null);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [snippetsOpen, setSnippetsOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Pusher: refresh on new message in this channel. Subscribed via
-  // private channel — the /api/pusher/auth route gates membership
-  // before authorising the subscription.
   useChannelSubscription(channelId ? `private-channel-${channelId}` : null, {
     'message.new': () => router.refresh(),
     'message.edited': () => router.refresh(),
@@ -74,169 +53,101 @@ export function ChannelDetailClient({
 
   const groups = useMemo(() => groupByDay(messages), [messages]);
 
-  const showContext = contextOpen && !openThread;
-  const padLeft = leftOpen ? 'lg:pl-[336px]' : '';
-  const padRight = showContext || openThread ? 'lg:pr-[388px]' : '';
-
-  // Mark as read on mount
   useEffect(() => {
     if (channelId) {
       void markChannelRead(channelId);
     }
   }, [channelId]);
 
-  // ⌘K Search
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, []);
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
 
   return (
-    <div className="relative min-h-screen bg-ink-900">
-      <div
-        className={`mx-auto w-full transition-[padding] duration-300 ease-soft ${padLeft} ${padRight}`}
-      >
-        <div className="mx-auto w-full max-w-[760px] px-6 pb-40 pt-28">
-          <ChannelHeadline
-            channel={channel}
-            channelId={channelId}
-            contextOpen={contextOpen}
-            onToggleContext={() => setContextOpen((o) => !o)}
-            onOpenSwitcher={() => setSwitcherOpen(true)}
-          />
-
-          {/* Action-Strip */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSearchOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11.5px] text-ink-200 hover:border-white/[0.14] hover:bg-white/[0.04]"
-            >
-              🔍 Suche
-              <span className="font-mono text-[9px] text-ink-300">⌘K</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSnippetsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11.5px] text-ink-200 hover:border-white/[0.14] hover:bg-white/[0.04]"
-            >
-              💬 Snippets {snippets && snippets.length > 0 && (
-                <span className="font-mono text-[9px] text-ink-300">{snippets.length}</span>
-              )}
-            </button>
-            {channelId && (
-              <button
-                type="button"
-                onClick={() => setShareOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11.5px] text-ink-200 hover:border-white/[0.14] hover:bg-white/[0.04]"
-              >
-                🔗 Teilen
-              </button>
-            )}
-            <div className="ml-auto">
-              <PresenceList channelId={channelId} />
-            </div>
+    <div className="flex h-full min-h-0 bg-ink-900">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-[#1F1F23] px-6 pt-5">
+          <div className="mx-auto w-full max-w-[760px]">
+            <ChannelHeadline
+              channel={channel}
+              channelId={channelId}
+              members={members}
+              currentUserId={currentUserId}
+              isOwner={isOwner}
+            />
           </div>
+        </div>
 
-          {/* Pinned Strip */}
-          {channelId && (
-            <div className="mt-4 rounded-[12px] border border-white/[0.06] bg-white/[0.02] p-3">
+        {channelId && channel.pinned.length > 0 && (
+          <div className="shrink-0 border-b border-[#1F1F23] bg-[#0C0C0F] px-6 py-2">
+            <div className="mx-auto w-full max-w-[760px]">
               <PinnedStrip pinned={channel.pinned} channelId={channelId} />
             </div>
-          )}
+          </div>
+        )}
 
-          {messages.length === 0 ? (
-            <div className="mt-16 text-center text-[14px] text-ink-300">
-              Noch keine Nachrichten in diesem Channel.
-            </div>
-          ) : (
-            <div className="mt-8 flex flex-col gap-1.5">
-              {groups.map((group) => (
-                <div key={group.bucket} className="flex flex-col">
-                  <DateSeparator label={bucketLabel(group.bucket)} />
-                  <div className="mt-2 flex flex-col gap-5">
-                    {group.items.map((m, i) => {
-                      const prev = group.items[i - 1];
-                      const compact =
-                        !!prev &&
-                        prev.authorName === m.authorName &&
-                        timeWithin(prev.timestamp, m.timestamp, 5 * 60_000);
-                      const hits = entityHitsByMsg?.[m.id] ?? [];
-                      // Customer-contact detection: lookup by author name maps not available
-                      // → use author display name as proxy via lookups by initials+name?
-                      // Better: match author's email (passed in customerContactEmails by user-id mapping in server-page)
-                      const contactMatch = (m as any).authorEmail
-                        ? customerContactEmails?.[(m as any).authorEmail.toLowerCase()]
-                        : undefined;
-                      return (
-                        <MessageItem
-                          key={m.id}
-                          message={m}
-                          compact={compact}
-                          onOpenThread={(msg) => setOpenThread(msg)}
-                          entityHits={hits}
-                          isCustomerContact={!!contactMatch}
-                          customerName={contactMatch?.customerName}
-                        />
-                      );
-                    })}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-[760px]">
+            {messages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-1 py-24 text-center">
+                <p className="text-[13.5px] italic text-ink-300">
+                  Noch keine Nachrichten in #{channel.name}.
+                </p>
+                <p className="text-[13.5px] italic text-ink-300/70">Schreib die erste.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {groups.map((group) => (
+                  <div key={group.bucket} className="flex flex-col">
+                    <DateSeparator label={bucketLabel(group.bucket)} />
+                    <div className="mt-2 flex flex-col gap-5">
+                      {group.items.map((m, i) => {
+                        const prev = group.items[i - 1];
+                        const compact =
+                          !!prev &&
+                          prev.authorName === m.authorName &&
+                          timeWithin(prev.timestamp, m.timestamp, 5 * 60_000);
+                        const hits = entityHitsByMsg?.[m.id] ?? [];
+                        const contactMatch = (m as any).authorEmail
+                          ? customerContactEmails?.[(m as any).authorEmail.toLowerCase()]
+                          : undefined;
+                        return (
+                          <MessageItem
+                            key={m.id}
+                            message={m}
+                            compact={compact}
+                            onOpenThread={(msg) => setOpenThread(msg)}
+                            onReply={(msg) => setReplyTo(msg)}
+                            entityHits={hits}
+                            isCustomerContact={!!contactMatch}
+                            customerName={contactMatch?.customerName}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-[#1F1F23] bg-ink-900 px-6 pb-4 pt-3">
+          <div className="mx-auto w-full max-w-[760px]">
+            <Composer
+              channelName={channel.name}
+              channelId={channelId ?? undefined}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+            />
+          </div>
         </div>
       </div>
 
-      {leftOpen && <LeftPanel channel={channel} onClose={() => setLeftOpen(false)} />}
-      {showContext && <ContextPanel channel={channel} onClose={() => setContextOpen(false)} />}
+      <MembersSidebar members={members} currentUserId={currentUserId} isOwner={isOwner} />
+
       {openThread && <ThreadPanel parent={openThread} onClose={() => setOpenThread(null)} />}
-
-      <ChannelSwitcher
-        open={switcherOpen}
-        onClose={() => setSwitcherOpen(false)}
-        activeSlug={channel.slug}
-        channels={channels}
-      />
-
-      {/* Typing indicator above composer */}
-      {channelId && currentUserId && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[88px] z-40 flex justify-center">
-          <div className="pointer-events-auto w-full max-w-[760px] px-6">
-            <TypingIndicator channelId={channelId} currentUserId={currentUserId} />
-          </div>
-        </div>
-      )}
-
-      <Composer
-        channelName={channel.name}
-        channelId={channelId ?? undefined}
-        snippets={snippets ?? []}
-        customerNameForVars={channel.linkedCustomer?.name}
-        currentUserId={currentUserId}
-        currentUserName={currentUserName}
-      />
-
-      <SnippetsModal
-        open={snippetsOpen}
-        onClose={() => setSnippetsOpen(false)}
-        snippets={snippets ?? []}
-      />
-      <ChannelSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
-      {channelId && (
-        <ShareChannelModal
-          open={shareOpen}
-          onClose={() => setShareOpen(false)}
-          channelId={channelId}
-          channelName={channel.name}
-        />
-      )}
     </div>
   );
 }

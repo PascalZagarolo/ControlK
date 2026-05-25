@@ -2,29 +2,23 @@
 
 import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { X } from 'lucide-react';
 import { useComposerStore } from '@/lib/stores/composer-store';
 import { sendMessage } from '@/lib/actions/messages';
-import { createTodoFromSlash } from '@/lib/actions/todos';
-import { VoiceCaptureButton } from '@/components/todos/voice-capture-button';
-import { useClientEvent } from '@/lib/realtime/pusher-client';
-import type { ChannelSnippet } from '@/lib/types';
+import type { Message } from '@/lib/types';
 
 export function Composer({
   channelName,
   channelId,
   storageKey,
-  snippets = [],
-  customerNameForVars,
-  currentUserId,
-  currentUserName,
+  replyTo,
+  onCancelReply,
 }: {
   channelName: string;
   channelId?: string;
   storageKey?: string;
-  snippets?: ChannelSnippet[];
-  customerNameForVars?: string;
-  currentUserId?: string;
-  currentUserName?: string;
+  replyTo?: Message | null;
+  onCancelReply?: () => void;
 }) {
   const key = storageKey ?? `channel:${channelName}`;
   const draft = useComposerStore((s) => s.drafts[key] ?? '');
@@ -32,87 +26,45 @@ export function Composer({
   const clearDraft = useComposerStore((s) => s.clearDraft);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [pending, start] = useTransition();
-  const [feedback, setFeedback] = useState<{ kind: 'todo' | 'error' | 'pinned'; text: string } | null>(null);
-  const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const substituteVars = (text: string): string => {
-    if (!customerNameForVars) return text;
-    return text.replace(/\{kunde\}/g, customerNameForVars);
-  };
+  // Auto-focus textarea when entering reply mode
+  useEffect(() => {
+    if (replyTo) textareaRef.current?.focus();
+  }, [replyTo]);
 
   const submit = () => {
     const val = draft.trim();
-    if (!val || pending) return;
-
-    // /todo slash
-    const slashTodo = val.match(/^\/todo\s+(.+)/is);
-    if (slashTodo && channelId) {
-      const body = slashTodo[1];
-      start(async () => {
-        const res = await createTodoFromSlash(channelId, body);
-        if (res.ok) {
-          clearDraft(key);
-          if (textareaRef.current) textareaRef.current.style.height = 'auto';
-          setFeedback({ kind: 'todo', text: '✓ Todo erstellt' });
-          router.refresh();
-          setTimeout(() => setFeedback(null), 2500);
-        } else {
-          setFeedback({ kind: 'error', text: res.error });
-        }
-      });
-      return;
-    }
-
-    // /snippet name
-    const slashSnippet = val.match(/^\/snippet\s+(\S+)\s*(.*)$/is);
-    if (slashSnippet) {
-      const snip = snippets.find(
-        (s) => s.slug === slashSnippet[1].toLowerCase() || s.title.toLowerCase() === slashSnippet[1].toLowerCase()
-      );
-      if (snip) {
-        setDraft(key, substituteVars(snip.body));
-        return;
-      }
-      setFeedback({ kind: 'error', text: `Snippet /${slashSnippet[1]} nicht gefunden` });
-      return;
-    }
-
-    // Regular message
-    if (!channelId) {
-      clearDraft(key);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
-      return;
-    }
+    if (!val || pending || !channelId) return;
     start(async () => {
-      const res = await sendMessage({ channelId, body: val });
+      const res = await sendMessage({
+        channelId,
+        body: val,
+        replyToId: replyTo?.id,
+      });
       if (res.ok) {
         clearDraft(key);
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        setError(null);
+        onCancelReply?.();
         router.refresh();
       } else {
-        setFeedback({ kind: 'error', text: res.error });
+        setError(res.error);
       }
     });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Escape' && replyTo) {
+      e.preventDefault();
+      onCancelReply?.();
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       submit();
     }
-  };
-
-  // Typing indicator via Pusher client-events on a presence channel
-  const presenceTypingChannel = channelId ? `presence-channel-${channelId}-typing` : null;
-  const emitTyping = useClientEvent(presenceTypingChannel, 'client-typing');
-  const lastTypingEmitRef = useRef(0);
-  const broadcastTyping = () => {
-    if (!presenceTypingChannel || !currentUserId) return;
-    const now = Date.now();
-    if (now - lastTypingEmitRef.current < 2000) return; // throttle 2s
-    lastTypingEmitRef.current = now;
-    emitTyping({ userId: currentUserId, name: currentUserName ?? 'Jemand' });
   };
 
   const onInput = () => {
@@ -120,7 +72,6 @@ export function Composer({
     if (!ta) return;
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 220)}px`;
-    if (ta.value.trim()) broadcastTyping();
   };
 
   useEffect(() => {
@@ -128,97 +79,76 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
-  const isSlash = draft.trim().startsWith('/');
-  const slashKind = draft.trim().startsWith('/todo')
-    ? 'todo'
-    : draft.trim().startsWith('/snippet')
-      ? 'snippet'
-      : null;
+  const channelLabel = channelName.startsWith('#') ? channelName : `#${channelName}`;
+  const placeholder = replyTo
+    ? `Antwort an ${replyTo.authorName} …`
+    : `Schreibe in ${channelLabel} …`;
 
   return (
-    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-5">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-        className={`pointer-events-auto w-full max-w-[760px] rounded-[18px] border bg-[rgba(20,21,23,0.85)] shadow-panel backdrop-blur-xl backdrop-saturate-150 transition-colors ${
-          isSlash ? 'border-[#c084fc]/40' : 'border-white/[0.08]'
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="flex flex-col"
+    >
+      {replyTo && (
+        <div className="flex items-center justify-between rounded-t-[10px] border border-b-0 border-white/[0.08] bg-white/[0.025] px-3 py-1.5">
+          <span className="min-w-0 truncate text-[12px] leading-tight text-ink-300">
+            <span className="text-ink-300/70">Antwort an </span>
+            <span className="font-medium text-ink-100">{replyTo.authorName}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            aria-label="Antwort abbrechen"
+            className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-300 transition-colors hover:bg-white/[0.06] hover:text-ink-50"
+          >
+            <X size={12} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+      <div
+        className={`border border-white/[0.08] bg-[#0E0E11] focus-within:border-white/[0.16] ${
+          replyTo ? 'rounded-b-[10px]' : 'rounded-[10px]'
         }`}
       >
-        {slashKind === 'todo' && (
-          <div className="border-b border-white/[0.06] px-4 py-1.5 font-mono text-[10px] uppercase tracking-[0.4px] text-[#c084fc]">
-            /todo — wird als Aufgabe gespeichert, nicht als Nachricht
+        {error && (
+          <div className="border-b border-white/[0.06] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.4px] text-[#ff8a8a]">
+            {error}
           </div>
         )}
-        {slashKind === 'snippet' && (
-          <div className="border-b border-white/[0.06] px-4 py-1.5 font-mono text-[10px] uppercase tracking-[0.4px] text-[#5eb6ff]">
-            /snippet — Saved-Reply einfügen ({snippets.length} verfügbar)
-          </div>
-        )}
-        {feedback && (
-          <div
-            className={`border-b border-white/[0.06] px-4 py-1.5 font-mono text-[10px] uppercase tracking-[0.4px] ${
-              feedback.kind === 'error' ? 'text-[#ff8a8a]' : 'text-[#5ee08a]'
-            }`}
-          >
-            {feedback.text}
-          </div>
-        )}
-
-        {/* Snippet quick-picker — dropdown when typing /snippet */}
-        {slashKind === 'snippet' && snippets.length > 0 && (
-          <div className="max-h-[200px] overflow-y-auto border-b border-white/[0.06] p-1">
-            {snippets.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  setDraft(key, substituteVars(s.body));
-                  textareaRef.current?.focus();
-                }}
-                className="flex w-full items-start gap-2 rounded-[6px] px-2 py-1.5 text-left hover:bg-white/[0.04]"
-              >
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.3px] text-[#5eb6ff]">
-                  /{s.slug}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-medium text-ink-50">{s.title}</span>
-                  <span className="mt-0.5 line-clamp-1 block text-[11px] text-ink-300">
-                    {s.body}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-end gap-2 p-2.5 pl-4">
+        <div className="flex items-end gap-2 px-3 py-2">
           <textarea
             ref={textareaRef}
             value={draft}
             onChange={(e) => setDraft(key, e.target.value)}
             onInput={onInput}
             onKeyDown={onKeyDown}
-            placeholder={`Nachricht an ${channelName.startsWith('#') ? channelName : `#${channelName}`} … /todo, /snippet`}
+            placeholder={placeholder}
             rows={1}
-            className="flex-1 resize-none bg-transparent py-1.5 text-[14.5px] leading-[1.55] text-ink-50 outline-none placeholder:text-ink-300"
+            className="flex-1 resize-none bg-transparent py-1 text-[14px] leading-[1.55] text-ink-50 outline-none placeholder:text-ink-300"
           />
-          <div className="flex shrink-0 items-center gap-2">
-            <VoiceCaptureButton
-              onTranscript={(t) => setDraft(key, draft ? draft + ' ' + t : t)}
-            />
-            <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">⌘↵</span>
-            <button
-              type="submit"
-              disabled={!draft.trim() || pending}
-              className="rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-medium leading-none text-black transition-opacity duration-150 disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              {pending ? '…' : slashKind === 'todo' ? 'Todo' : 'Senden'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={!draft.trim() || pending || !channelId}
+            aria-label="Senden"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-300 transition-colors duration-150 hover:bg-white/[0.06] hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-300"
+          >
+            {pending ? (
+              <span className="font-mono text-[11px]">…</span>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+            )}
+          </button>
         </div>
-      </form>
-    </div>
+      </div>
+      <p className="mt-1.5 px-1 text-[10.5px] leading-none text-ink-300/70">
+        Markdown · Enter senden · Shift+Enter neue Zeile{replyTo ? ' · Esc verwirft Antwort' : ''}
+      </p>
+    </form>
   );
 }

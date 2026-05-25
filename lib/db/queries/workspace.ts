@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, count, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import type {
@@ -145,25 +145,43 @@ export async function listInvites(workspaceId: string): Promise<WorkspaceInvite[
     createdAt: r.createdAt.toISOString(),
     revokedAt: r.revokedAt?.toISOString(),
     createdByName: r.createdBy?.name,
+    lastSentAt: r.lastSentAt?.toISOString() ?? r.createdAt.toISOString(),
+    resentCount: r.resentCount ?? 0,
   }));
 }
 
-export async function previewInvite(token: string) {
+export type InvitePreview =
+  | {
+      status: 'ok';
+      workspace: ReturnType<typeof toWorkspaceLite>;
+      role: WorkspaceRole;
+      invitedByName?: string;
+      expiresAt?: string;
+      email?: string;
+    }
+  | { status: 'not_found' }
+  | { status: 'revoked' }
+  | { status: 'expired' }
+  | { status: 'used_up' }
+  | { status: 'workspace_archived' };
+
+export async function previewInvite(token: string): Promise<InvitePreview> {
   const db = getDb();
+  // Lookup unconditionally so the caller can distinguish revoked /
+  // expired / used-up / not-found instead of all of them collapsing to
+  // null. The /invite/[token] page renders dedicated UI per status.
   const inv = await db.query.workspaceInvites.findFirst({
-    where: and(
-      eq(s.workspaceInvites.token, token),
-      isNull(s.workspaceInvites.revokedAt),
-      or(isNull(s.workspaceInvites.expiresAt), gt(s.workspaceInvites.expiresAt, new Date()))!
-    ),
+    where: eq(s.workspaceInvites.token, token),
     with: {
       workspace: { with: { owner: true } },
       createdBy: true,
     },
   });
-  if (!inv) return null;
-  if ((inv as any).workspace.archivedAt) return null;
-  if (inv.maxUses > 0 && inv.usedCount >= inv.maxUses) return null;
+  if (!inv) return { status: 'not_found' };
+  if (inv.revokedAt) return { status: 'revoked' };
+  if ((inv as any).workspace?.archivedAt) return { status: 'workspace_archived' };
+  if (inv.expiresAt && inv.expiresAt < new Date()) return { status: 'expired' };
+  if (inv.maxUses > 0 && inv.usedCount >= inv.maxUses) return { status: 'used_up' };
 
   const [c] = await db
     .select({ n: count() })
@@ -172,6 +190,7 @@ export async function previewInvite(token: string) {
   const memberCount = Number(c?.n ?? 0);
 
   return {
+    status: 'ok',
     workspace: toWorkspaceLite((inv as any).workspace, undefined, memberCount),
     role: inv.role as WorkspaceRole,
     invitedByName: (inv as any).createdBy?.name,

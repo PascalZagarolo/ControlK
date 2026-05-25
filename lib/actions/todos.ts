@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { and, eq, gt, ilike, isNull, max, or } from 'drizzle-orm';
+import { and, eq, isNull, max } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
@@ -500,72 +500,6 @@ export async function createTodoFromSlash(
     sourceMessageId: sourceMessageId ?? null,
     visibility: 'team',
   });
-}
-
-/**
- * Convert all unread mentions of the current user in a channel into todos.
- * "Mention" = the channel message body contains `@me-name` (first/full name, case-insensitive)
- * AND the message is newer than the current user's lastReadAt on that channel.
- */
-export async function convertMentionsToTodos(
-  channelId: string
-): Promise<Result<{ created: number }>> {
-  const user = await requireUser();
-  const ws = await requireCurrentWorkspace();
-  const db = getDb();
-
-  // Confirm channel belongs to this workspace
-  const channel = await db.query.channels.findFirst({
-    where: and(eq(s.channels.id, channelId), eq(s.channels.workspaceId, ws.id)),
-  });
-  if (!channel) return { ok: false, error: 'Channel nicht gefunden.' };
-
-  const member = await db.query.channelMembers.findFirst({
-    where: and(eq(s.channelMembers.channelId, channelId), eq(s.channelMembers.userId, user.id)),
-  });
-  const since = member?.lastReadAt ?? new Date(Date.now() - 30 * 86_400_000);
-  const firstName = (user.name.split(' ')[0] || user.name).toLowerCase();
-
-  const matches = await db.query.messages.findMany({
-    where: and(
-      eq(s.messages.channelId, channelId),
-      gt(s.messages.createdAt, since),
-      or(
-        ilike(s.messages.body, `%@${firstName}%`),
-        ilike(s.messages.body, `%@${user.name.toLowerCase()}%`)
-      )!
-    ),
-    orderBy: s.messages.createdAt,
-    limit: 50,
-  });
-  if (matches.length === 0) return { ok: true, created: 0 };
-
-  let created = 0;
-  for (const m of matches) {
-    const body = m.body.trim();
-    const title = body.length > 200 ? body.slice(0, 197) + '…' : body;
-    const res = await createTodo({
-      title,
-      channelId,
-      sourceMessageId: m.id,
-      assigneeId: user.id,
-      visibility: 'team',
-    });
-    if (res.ok) created += 1;
-  }
-
-  // Mark channel as read up to now
-  await db
-    .insert(s.channelMembers)
-    .values({ channelId, userId: user.id, lastReadAt: new Date() })
-    .onConflictDoUpdate({
-      target: [s.channelMembers.channelId, s.channelMembers.userId],
-      set: { lastReadAt: new Date() },
-    });
-
-  paths();
-  revalidatePath(`/channels/${channel.slug}`);
-  return { ok: true, created };
 }
 
 function parseSlashTodo(text: string): {

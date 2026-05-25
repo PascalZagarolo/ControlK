@@ -6,10 +6,10 @@ import {
   getChannelFullBySlug,
   getChannelIdBySlug,
   getCustomerContactEmails,
-  listChannels,
+  listChannelMembersDetailed,
   listChannelMessages,
-  listChannelSnippets,
 } from '@/lib/db/queries/channels';
+import { getMyRole } from '@/lib/db/queries/workspace';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { inArray } from 'drizzle-orm';
@@ -26,14 +26,13 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   if (!channel) notFound();
   const channelId = await getChannelIdBySlug(ws.id, slug);
 
-  const [messages, allChannels, snippets, customerEmails] = await Promise.all([
+  const [messages, customerEmails, members, myRole] = await Promise.all([
     channelId ? listChannelMessages(channelId) : Promise.resolve([]),
-    listChannels(ws.id),
-    listChannelSnippets(ws.id),
     getCustomerContactEmails(ws.id),
+    channelId ? listChannelMembersDetailed(ws.id, channelId) : Promise.resolve([]),
+    getMyRole(ws.id, user.id),
   ]);
 
-  // Resolve message author emails for customer-contact highlight
   const authorIds = Array.from(new Set(messages.map((m: any) => m.authorId).filter(Boolean)));
   const db = getDb();
   const authorEmailMap = new Map<string, string>();
@@ -45,13 +44,11 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
     for (const u of users) authorEmailMap.set(u.id, u.email);
   }
 
-  // Attach authorEmail onto each message for client-side contact-match
   const messagesWithEmail = messages.map((m: any) => ({
     ...m,
     authorEmail: authorEmailMap.get((m as any).authorId) ?? undefined,
   }));
 
-  // Detect entity-hits per message (limit to last 50 for perf)
   const recent = messagesWithEmail.slice(-50);
   const entityHitsByMsg: Record<string, ChannelEntityHit[]> = {};
   for (const m of recent) {
@@ -67,12 +64,11 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
       channel={channel}
       channelId={channelId}
       messages={messagesWithEmail}
-      channels={allChannels.map((c) => ({ slug: c.slug, name: c.name, unread: c.unread }))}
+      members={members}
+      currentUserId={user.id}
+      isOwner={myRole === 'owner'}
       entityHitsByMsg={entityHitsByMsg}
       customerContactEmails={customerContactEmails}
-      snippets={snippets}
-      currentUserId={user.id}
-      currentUserName={user.name}
     />
   );
 }

@@ -1,91 +1,99 @@
 'use client';
 
-import { Avatar } from './avatar';
-import { BulkCaptureButton } from './bulk-capture-button';
-import type { Channel } from '@/lib/types';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { updateChannelMeta } from '@/lib/actions/channels';
+import { MemberStack } from './member-stack';
+import type { Channel, ChannelMemberDetail } from '@/lib/types';
 
 export function ChannelHeadline({
   channel,
   channelId,
-  onToggleContext,
-  contextOpen,
-  onOpenSwitcher,
+  members,
+  currentUserId,
+  isOwner,
 }: {
   channel: Channel;
-  channelId?: string | null;
-  onToggleContext: () => void;
-  contextOpen: boolean;
-  onOpenSwitcher: () => void;
+  channelId: string | null;
+  members: ChannelMemberDetail[];
+  currentUserId: string;
+  isOwner: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex items-center gap-3 border-b border-[#1F1F23] pb-3">
+      <h1 className="flex items-center gap-1 text-[17px] font-medium leading-none tracking-[-0.1px] text-ink-50">
+        <span className="text-ink-300">#</span>
+        <span>{channel.name}</span>
+      </h1>
+      {channel.topic && (
+        <p className="min-w-0 flex-1 truncate text-[12.5px] italic leading-none text-ink-300">
+          {channel.topic}
+        </p>
+      )}
+      {!channel.topic && <span className="min-w-0 flex-1" />}
+      {members.length > 0 && (
+        <MemberStack
+          members={members}
+          currentUserId={currentUserId}
+          isOwner={isOwner}
+        />
+      )}
+      {channelId && <HeaderMenu channelId={channelId} channelName={channel.name} />}
+    </div>
+  );
+}
+
+function HeaderMenu({ channelId, channelName }: { channelId: string; channelName: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const onArchive = () => {
+    if (!confirm(`#${channelName} archivieren?`)) return;
+    start(async () => {
+      await updateChannelMeta({ channelId, archived: true });
+      setOpen(false);
+      router.push('/channels');
+      router.refresh();
+    });
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
       <button
         type="button"
-        onClick={onOpenSwitcher}
-        className="inline-flex w-fit items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.4px] text-ink-300 transition-colors hover:text-ink-50"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Channel-Aktionen"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-ink-300 transition-colors hover:bg-white/[0.05] hover:text-ink-50"
       >
-        <span>Channel</span>
-        <span className="opacity-70">↔</span>
-        <span className="opacity-70">Wechseln</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="5" cy="12" r="1" />
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+        </svg>
       </button>
-      <h1 className="text-[36px] font-medium leading-[1.05] tracking-[-0.6px] text-ink-50 md:text-[44px]">
-        #{channel.name}
-      </h1>
-      <p className="max-w-[560px] text-[14.5px] leading-[1.55] text-ink-200">{channel.topic}</p>
-
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2.5">
-          <div className="flex -space-x-2">
-            {channel.membersPreview.slice(0, 4).map((m, i) => (
-              <span key={i} className="rounded-full ring-2 ring-ink-900">
-                <Avatar initials={m.initials} from={m.from} to={m.to} size={22} />
-              </span>
-            ))}
-          </div>
-          <span className="font-mono text-[11px] uppercase tracking-[0.3px] text-ink-300">
-            {channel.members} Mitglieder
-          </span>
-          {channel.unread > 0 && (
-            <>
-              <span className="text-ink-300/40">·</span>
-              <span className="font-mono text-[11px] uppercase tracking-[0.3px] text-ink-200">
-                {channel.unread} ungelesen
-              </span>
-            </>
-          )}
-        </div>
-
-        {channelId && (
-          <span className="ml-auto">
-            <BulkCaptureButton channelId={channelId} />
-          </span>
-        )}
-
-        <button
-          type="button"
-          onClick={onToggleContext}
-          className={`${channelId ? '' : 'ml-auto '}inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium leading-none transition-colors duration-150 ${
-            contextOpen
-              ? 'border-white/15 bg-white/[0.08] text-ink-50'
-              : 'border-white/[0.06] bg-white/[0.02] text-ink-200 hover:border-white/10 hover:bg-white/[0.04] hover:text-ink-50'
-          }`}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+      {open && (
+        <div className="absolute right-0 top-9 z-30 w-44 overflow-hidden rounded-md border border-[#1F1F23] bg-[#0E0E11] shadow-panel">
+          <button
+            type="button"
+            onClick={onArchive}
+            disabled={pending}
+            className="flex w-full items-center px-3 py-2 text-left text-[12.5px] text-ink-100 transition-colors hover:bg-white/[0.04] disabled:opacity-40"
           >
-            <rect x="3" y="3" width="18" height="18" rx="3" />
-            <path d="M15 3v18" />
-          </svg>
-          Kontext {contextOpen ? 'ausblenden' : 'einblenden'}
-        </button>
-      </div>
+            {pending ? 'Archiviere …' : 'Archivieren'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

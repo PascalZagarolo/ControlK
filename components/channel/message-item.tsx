@@ -73,6 +73,7 @@ export function MessageItem({
   message,
   compact,
   onOpenThread,
+  onReply,
   entityHits = [],
   isCustomerContact,
   customerName,
@@ -80,6 +81,7 @@ export function MessageItem({
   message: Message;
   compact?: boolean;
   onOpenThread?: (m: Message) => void;
+  onReply?: (m: Message) => void;
   entityHits?: ChannelEntityHit[];
   isCustomerContact?: boolean;
   customerName?: string;
@@ -101,8 +103,17 @@ export function MessageItem({
     });
   };
 
+  const scrollToReplyTarget = () => {
+    if (!message.replyTo) return;
+    const el = document.getElementById(`message-${message.replyTo.id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('reply-flash');
+    window.setTimeout(() => el.classList.remove('reply-flash'), 1400);
+  };
+
   return (
-    <div className="group/message relative flex gap-3.5">
+    <div id={`message-${message.id}`} className="group/message relative flex gap-3.5">
       <div className="pt-0.5">
         {compact ? (
           <div className="w-9" aria-hidden />
@@ -125,6 +136,30 @@ export function MessageItem({
         )}
       </div>
       <div className="min-w-0 flex-1">
+        {message.replyTo && (
+          <button
+            type="button"
+            onClick={scrollToReplyTarget}
+            className="group/replyto mb-1 flex max-w-full items-center gap-1.5 text-left"
+            title="Zur Original-Nachricht"
+          >
+            <span aria-hidden className="text-[11px] leading-none text-ink-300/70 group-hover/replyto:text-ink-300">
+              ↰
+            </span>
+            <span className="min-w-0 truncate text-[12px] leading-tight">
+              <span className="font-medium text-ink-200 group-hover/replyto:text-ink-50">
+                {message.replyTo.authorName}
+              </span>
+              <span className="ml-1.5 text-ink-300 group-hover/replyto:text-ink-200">
+                {message.replyTo.deleted ? (
+                  <span className="italic">Nachricht gelöscht</span>
+                ) : (
+                  message.replyTo.bodyPreview
+                )}
+              </span>
+            </span>
+          </button>
+        )}
         {!compact && (
           <div className="flex items-baseline gap-2">
             <span className="text-[14px] font-medium leading-none text-ink-50">
@@ -215,6 +250,20 @@ export function MessageItem({
             {emoji}
           </button>
         ))}
+        {onReply && (
+          <button
+            type="button"
+            onClick={() => onReply(message)}
+            title="Antworten"
+            aria-label="Antworten"
+            className="flex h-6 w-6 items-center justify-center rounded-full text-ink-300 hover:bg-white/[0.05] hover:text-ink-50"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <polyline points="9 17 4 12 9 7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+          </button>
+        )}
         {onOpenThread && (
           <button
             type="button"

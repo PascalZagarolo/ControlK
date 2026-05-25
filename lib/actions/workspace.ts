@@ -7,6 +7,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { setActiveWorkspaceCookie } from '@/lib/auth/workspace-cookie';
+import { appUrl, sendMail, workspaceInviteTemplate } from '@/lib/email/send';
 import {
   seedWorkspace,
   getTemplate,
@@ -267,6 +268,9 @@ export async function updateWorkspace(input: {
 }
 
 // ─── Invites ─────────────────────────────────────────────────
+const INVITE_DEFAULT_EXPIRES_DAYS = 14;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function createInvite(input: {
   workspaceId: string;
   role?: WorkspaceRole;
@@ -284,30 +288,167 @@ export async function createInvite(input: {
   if (role === 'owner')
     return { ok: false, error: 'Owner-Rolle kann nicht per Invite vergeben werden.' };
 
-  const token = randomBytes(24).toString('hex');
-  const expiresAt =
-    input.expiresInDays && input.expiresInDays > 0
-      ? new Date(Date.now() + input.expiresInDays * 86_400_000)
-      : null;
+  const normEmail = input.email?.trim().toLowerCase() || null;
 
-  await db.insert(s.workspaceInvites).values({
-    workspaceId: input.workspaceId,
-    token,
-    role,
-    expiresAt,
-    maxUses: input.maxUses ?? 0,
-    email: input.email?.trim().toLowerCase() || null,
-    createdById: user.id,
-  });
+  // Validate + collision checks only meaningful when targeting a specific
+  // email (open invites with `email = null` can be sent to anyone).
+  if (normEmail) {
+    if (!EMAIL_RE.test(normEmail)) {
+      return { ok: false, error: 'Bitte eine gültige E-Mail-Adresse eingeben.' };
+    }
+    const existingUser = await db.query.users.findFirst({
+      where: eq(s.users.email, normEmail),
+      columns: { id: true },
+    });
+    if (existingUser) {
+      const existingMember = await db.query.workspaceMembers.findFirst({
+        where: and(
+          eq(s.workspaceMembers.workspaceId, input.workspaceId),
+          eq(s.workspaceMembers.userId, existingUser.id)
+        ),
+      });
+      if (existingMember) {
+        return { ok: false, error: 'Dieser Nutzer ist bereits Mitglied.' };
+      }
+    }
+    const pending = await db.query.workspaceInvites.findFirst({
+      where: and(
+        eq(s.workspaceInvites.workspaceId, input.workspaceId),
+        eq(s.workspaceInvites.email, normEmail),
+        isNull(s.workspaceInvites.revokedAt)
+      ),
+    });
+    if (pending) {
+      const fullyUsed = pending.maxUses > 0 && pending.usedCount >= pending.maxUses;
+      const expired = pending.expiresAt && pending.expiresAt < new Date();
+      if (!fullyUsed && !expired) {
+        return { ok: false, error: 'Für diese Adresse gibt es bereits eine offene Einladung.' };
+      }
+    }
+  }
+
+  const token = randomBytes(24).toString('hex');
+  const expiresInDays = input.expiresInDays === undefined
+    ? INVITE_DEFAULT_EXPIRES_DAYS
+    : input.expiresInDays;
+  const expiresAt =
+    expiresInDays && expiresInDays > 0
+      ? new Date(Date.now() + expiresInDays * 86_400_000)
+      : null;
+  const now = new Date();
+
+  const [inserted] = await db
+    .insert(s.workspaceInvites)
+    .values({
+      workspaceId: input.workspaceId,
+      token,
+      role,
+      expiresAt,
+      maxUses: input.maxUses ?? 0,
+      email: normEmail,
+      createdById: user.id,
+      lastSentAt: now,
+      resentCount: 0,
+    })
+    .returning({ id: s.workspaceInvites.id });
+
+  // Send the email if this is a targeted invite. Workspace name + inviter
+  // resolved here so the template gets clean inputs. If the send fails,
+  // roll back the row — a half-created invite with no email out is worse
+  // than a hard error the user can retry.
+  if (normEmail) {
+    const ws = await db.query.workspaces.findFirst({
+      where: eq(s.workspaces.id, input.workspaceId),
+      columns: { name: true },
+    });
+    const tmpl = workspaceInviteTemplate({
+      inviterName: user.name,
+      inviterEmail: user.email,
+      workspaceName: ws?.name ?? 'Workspace',
+      acceptLink: `${appUrl()}/invite/${token}`,
+    });
+    const res = await sendMail({
+      to: normEmail,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+    });
+    if (!res.ok) {
+      await db.delete(s.workspaceInvites).where(eq(s.workspaceInvites.id, inserted.id));
+      return { ok: false, error: `Einladung konnte nicht gesendet werden: ${res.error}` };
+    }
+  }
 
   await logActivity(input.workspaceId, user.id, 'invite_created', {
     role,
     expiresAt: expiresAt?.toISOString(),
-    email: input.email ?? null,
+    email: normEmail,
     maxUses: input.maxUses ?? 0,
   });
   revalidatePath('/workspace/settings');
   return { ok: true, token };
+}
+
+const RESEND_MAX_TIMES = 3;
+const RESEND_COOLDOWN_MS = 5 * 60 * 1000;
+
+export async function resendInvite(inviteId: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const inv = await db.query.workspaceInvites.findFirst({
+    where: eq(s.workspaceInvites.id, inviteId),
+    with: { workspace: { columns: { name: true } } },
+  });
+  if (!inv) return { ok: false, error: 'Einladung nicht gefunden.' };
+
+  const check = await requireRole(inv.workspaceId, user.id, 'admin');
+  if (!check.ok) return check;
+  if (!canInvite(check.role)) return { ok: false, error: 'Keine Berechtigung.' };
+
+  if (!inv.email) {
+    return { ok: false, error: 'Keine Email hinterlegt — bitte Link manuell teilen.' };
+  }
+  if (inv.revokedAt) return { ok: false, error: 'Einladung wurde zurückgezogen.' };
+  if (inv.expiresAt && inv.expiresAt < new Date()) {
+    return { ok: false, error: 'Einladung ist abgelaufen.' };
+  }
+  if (inv.maxUses > 0 && inv.usedCount >= inv.maxUses) {
+    return { ok: false, error: 'Einladung wurde bereits eingelöst.' };
+  }
+  if (inv.resentCount >= RESEND_MAX_TIMES) {
+    return { ok: false, error: 'Maximale Anzahl Resends erreicht (3).' };
+  }
+  if (inv.lastSentAt && Date.now() - inv.lastSentAt.getTime() < RESEND_COOLDOWN_MS) {
+    return { ok: false, error: 'Bitte warte 5 Minuten zwischen Resends.' };
+  }
+
+  const tmpl = workspaceInviteTemplate({
+    inviterName: user.name,
+    inviterEmail: user.email,
+    workspaceName: (inv as any).workspace?.name ?? 'Workspace',
+    acceptLink: `${appUrl()}/invite/${inv.token}`,
+  });
+  const res = await sendMail({
+    to: inv.email,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+  });
+  if (!res.ok) {
+    return { ok: false, error: `Versand fehlgeschlagen: ${res.error}` };
+  }
+
+  await db
+    .update(s.workspaceInvites)
+    .set({ lastSentAt: new Date(), resentCount: inv.resentCount + 1 })
+    .where(eq(s.workspaceInvites.id, inviteId));
+
+  // Note: resends aren't separately tracked in workspace_activity — the
+  // enum doesn't have an 'invite_resent' value and adding one needs a
+  // dedicated non-transactional migration. lastSentAt/resentCount on the
+  // invite row already capture the relevant audit signal.
+  revalidatePath('/workspace/settings');
+  return { ok: true };
 }
 
 export async function revokeInvite(inviteId: string): Promise<Result> {

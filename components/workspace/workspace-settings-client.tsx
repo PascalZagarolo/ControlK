@@ -28,11 +28,14 @@ import {
   deleteWorkspace,
   leaveWorkspace,
   removeMember,
+  resendInvite,
+  revokeInvite,
   transferOwnership,
   unarchiveWorkspace,
   updateMemberRole,
   updateWorkspace,
 } from '@/lib/actions/workspace';
+import { formatRelativeTime } from '@/lib/time';
 import {
   canEditWorkspace,
   canInvite,
@@ -420,37 +423,15 @@ function InvitesTab({
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <p className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
-          Aktive Invites · {active.length}
+          Ausstehende Einladungen · {active.length}
         </p>
         {active.length === 0 && (
           <p className="rounded-[8px] border border-dashed border-white/[0.08] bg-white/[0.01] py-4 text-center text-[11.5px] text-ink-300">
-            Keine aktiven Invites.
+            Keine offenen Einladungen.
           </p>
         )}
         {active.map((inv) => (
-          <div
-            key={inv.id}
-            className="flex items-center gap-2 rounded-[10px] border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-          >
-            <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-200">
-              {inv.role}
-            </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-200">
-              {inv.token.slice(0, 12)}…
-            </span>
-            {inv.email && (
-              <span className="truncate font-mono text-[10px] text-ink-300">{inv.email}</span>
-            )}
-            <span className="font-mono text-[10px] text-ink-300">
-              {inv.usedCount}
-              {inv.maxUses > 0 ? `/${inv.maxUses}` : ''} used
-            </span>
-            {inv.expiresAt && (
-              <span className="font-mono text-[10px] text-ink-300">
-                bis {new Date(inv.expiresAt).toLocaleDateString('de-DE')}
-              </span>
-            )}
-          </div>
+          <InviteRow key={inv.id} invite={inv} />
         ))}
       </div>
       {revoked.length > 0 && (
@@ -466,8 +447,8 @@ function InvitesTab({
               <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
                 {inv.role}
               </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-300 line-through">
-                {inv.token.slice(0, 12)}…
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-300 line-through">
+                {inv.email ?? `${inv.token.slice(0, 12)}…`}
               </span>
               <span className="font-mono text-[9.5px] uppercase tracking-[0.3px] text-[#ff8a8a]">
                 widerrufen
@@ -475,6 +456,132 @@ function InvitesTab({
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function InviteRow({ invite }: { invite: WorkspaceInvite }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const url =
+    typeof window === 'undefined'
+      ? `/invite/${invite.token}`
+      : `${window.location.origin}/invite/${invite.token}`;
+
+  const onResend = () => {
+    setError(null);
+    setFeedback(null);
+    start(async () => {
+      const res = await resendInvite(invite.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setFeedback('Erneut gesendet');
+      setTimeout(() => setFeedback(null), 2500);
+      router.refresh();
+    });
+  };
+
+  const onRevoke = () => {
+    setError(null);
+    setFeedback(null);
+    if (!confirm(`Einladung zurückziehen?`)) return;
+    start(async () => {
+      const res = await revokeInvite(invite.id);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setFeedback('Link kopiert');
+      setTimeout(() => setFeedback(null), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const sentAt = invite.lastSentAt ?? invite.createdAt;
+  const targeted = !!invite.email;
+  const resentMax = invite.resentCount >= 3;
+
+  return (
+    <div className="flex flex-col gap-1 rounded-[10px] border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-200">
+          {invite.role}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-100">
+          {invite.email ?? <span className="font-mono text-ink-300">{invite.token.slice(0, 12)}…</span>}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-ink-300">
+          Gesendet {formatRelativeTime(sentAt)}
+        </span>
+      </div>
+      <div className="flex items-center gap-3 text-[11.5px]">
+        <span className="font-mono text-[10px] text-ink-300">
+          {invite.usedCount}
+          {invite.maxUses > 0 ? `/${invite.maxUses}` : ''} eingelöst
+        </span>
+        {invite.expiresAt && (
+          <span className="font-mono text-[10px] text-ink-300">
+            bis {new Date(invite.expiresAt).toLocaleDateString('de-DE')}
+          </span>
+        )}
+        {invite.resentCount > 0 && (
+          <span className="font-mono text-[10px] text-ink-300">
+            ↻ {invite.resentCount}/3
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-3">
+          {targeted ? (
+            <button
+              type="button"
+              onClick={onResend}
+              disabled={pending || resentMax}
+              className="text-ink-300 transition-colors hover:text-[#E8B86D] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-300"
+              title={resentMax ? 'Max. 3 Resends erreicht' : 'Erneut senden'}
+            >
+              {pending ? '…' : 'Erneut senden'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="text-ink-300 transition-colors hover:text-ink-50"
+            >
+              Link kopieren
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRevoke}
+            disabled={pending}
+            className="text-ink-300 transition-colors hover:text-[#ff8a8a] disabled:opacity-40"
+          >
+            Zurückziehen
+          </button>
+        </span>
+      </div>
+      {feedback && (
+        <p className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#5ee08a]">
+          ✓ {feedback}
+        </p>
+      )}
+      {error && (
+        <p className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#ff8a8a]">
+          {error}
+        </p>
       )}
     </div>
   );

@@ -1,7 +1,11 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { listChannels, smartChannelCounts } from '@/lib/db/queries/channels';
+import {
+  listChannelGroups,
+  listChannels,
+  smartChannelCounts,
+} from '@/lib/db/queries/channels';
 import {
   ChannelsSidebar,
   type SidebarChannel,
@@ -30,9 +34,10 @@ export default async function ChannelsLayout({
   const ws = await requireCurrentWorkspace();
   if (ws.scope === 'private') redirect('/');
 
-  const [channels, counts] = await Promise.all([
+  const [channels, counts, groups] = await Promise.all([
     listChannels(ws.id),
     smartChannelCounts(ws.id, user.id),
+    listChannelGroups(ws.id),
   ]);
 
   const sidebarChannels: SidebarChannel[] = channels.map((c) => ({
@@ -46,12 +51,13 @@ export default async function ChannelsLayout({
     // on the foyer-stack which is the more important signal right now.
     mentionCount: 0,
     archived: c.archived,
+    groupId: c.groupId ?? null,
   }));
 
   return (
-    <div className="flex min-h-screen pt-[64px]">
-      <ChannelsSidebar channels={sidebarChannels} />
-      <div className="flex-1 overflow-x-hidden">{children}</div>
+    <div className="flex h-screen pt-[64px]">
+      <ChannelsSidebar channels={sidebarChannels} groups={groups} />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
     </div>
   );
 }

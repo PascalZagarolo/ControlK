@@ -6,9 +6,11 @@ import { formatCents } from '../format';
 import type {
   Channel,
   ChannelEntityHit,
+  ChannelGroup,
   ChannelHealth,
   ChannelLinkedCustomer,
   ChannelLinkedDeal,
+  ChannelMemberDetail,
   ChannelPinnedItem,
   ChannelSnippet,
   Message,
@@ -198,11 +200,45 @@ export async function listChannelMessages(channelId: string): Promise<Message[]>
     );
   }
 
-  return tops.map((t) => ({
-    ...toMessage(t),
-    reactions: reactionsByMsg.get(t.id),
-    threadReplies: byParent.get(t.id) ?? [],
-  }));
+  // Resolve reply-to targets in a single batched lookup. Targets may be
+  // tombstoned — we still surface them (deleted=true) so the reply isn't
+  // silently orphaned in the UI.
+  const replyTargetIds = Array.from(
+    new Set(tops.map((t) => t.replyToId).filter((id): id is string => !!id))
+  );
+  const replyTargets = replyTargetIds.length
+    ? await db.query.messages.findMany({
+        where: inArray(s.messages.id, replyTargetIds),
+        with: { author: true },
+      })
+    : [];
+  const replyById = new Map(replyTargets.map((m: any) => [m.id, m]));
+
+  return tops.map((t: any) => {
+    const target = t.replyToId ? replyById.get(t.replyToId) : undefined;
+    return {
+      ...toMessage(t),
+      reactions: reactionsByMsg.get(t.id),
+      threadReplies: byParent.get(t.id) ?? [],
+      replyTo: target ? toReplyTarget(target) : undefined,
+    };
+  });
+}
+
+function toReplyTarget(row: any) {
+  const deleted = !!row.deletedAt;
+  const raw = (row.body ?? '').replace(/\s+/g, ' ').trim();
+  const preview = deleted ? null : raw.length > 140 ? raw.slice(0, 140) + '…' : raw;
+  return {
+    id: row.id,
+    authorId: row.authorId,
+    authorName: row.author?.name ?? 'Unbekannt',
+    authorInitials: row.author?.initials ?? '?',
+    authorFrom: row.author?.avatarFrom ?? '#5eb6ff',
+    authorTo: row.author?.avatarTo ?? '#0369a1',
+    bodyPreview: preview,
+    deleted,
+  };
 }
 
 export async function getChannelIdBySlug(
@@ -518,6 +554,48 @@ export async function searchMessages(
   }));
 }
 
+export async function listChannelGroups(workspaceId: string): Promise<ChannelGroup[]> {
+  const db = getDb();
+  const rows = await db.query.channelGroups.findMany({
+    where: eq(s.channelGroups.workspaceId, workspaceId),
+    orderBy: [asc(s.channelGroups.position), asc(s.channelGroups.createdAt)],
+  });
+  return rows.map((r: any) => ({ id: r.id, name: r.name, position: r.position }));
+}
+
+export async function listChannelMembersDetailed(
+  workspaceId: string,
+  channelId: string
+): Promise<ChannelMemberDetail[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      userId: s.channelMembers.userId,
+      name: s.users.name,
+      email: s.users.email,
+      role: s.workspaceMembers.role,
+      joinedAt: s.channelMembers.joinedAt,
+    })
+    .from(s.channelMembers)
+    .innerJoin(s.users, eq(s.channelMembers.userId, s.users.id))
+    .innerJoin(
+      s.workspaceMembers,
+      and(
+        eq(s.workspaceMembers.userId, s.channelMembers.userId),
+        eq(s.workspaceMembers.workspaceId, workspaceId)
+      )
+    )
+    .where(eq(s.channelMembers.channelId, channelId))
+    .orderBy(asc(s.channelMembers.joinedAt));
+  return rows.map((r: any) => ({
+    userId: r.userId,
+    name: r.name,
+    email: r.email,
+    role: r.role,
+    joinedAt: r.joinedAt.toISOString(),
+  }));
+}
+
 // ─── Helpers ────────────────────────────────────────────────
 function toChannel(row: any, lastMessageAt?: Date): Channel {
   const memberRows = row.members ?? [];
@@ -543,6 +621,7 @@ function toChannel(row: any, lastMessageAt?: Date): Channel {
     connectedChannels: [],
     lastMessageAt: lastMessageAt?.toISOString(),
     archived: !!row.archivedAt,
+    groupId: row.groupId ?? null,
   };
 }
 

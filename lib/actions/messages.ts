@@ -12,6 +12,7 @@ export async function sendMessage(input: {
   channelId: string;
   body: string;
   parentId?: string;
+  replyToId?: string;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!hasDb()) return { ok: false, error: 'Database not configured.' };
   const user = await requireUser();
@@ -19,12 +20,26 @@ export async function sendMessage(input: {
   if (!body) return { ok: false, error: 'Empty message.' };
 
   const db = getDb();
+
+  // Guard: replyToId must point to a message in the same channel. We
+  // silently drop the pointer if it doesn't — the send still goes through
+  // as a regular message so a stale UI state can't block the user.
+  let replyToId: string | undefined = input.replyToId;
+  if (replyToId) {
+    const target = await db.query.messages.findFirst({
+      where: and(eq(s.messages.id, replyToId), eq(s.messages.channelId, input.channelId)),
+      columns: { id: true },
+    });
+    if (!target) replyToId = undefined;
+  }
+
   const [row] = await db
     .insert(s.messages)
     .values({
       channelId: input.channelId,
       authorId: user.id,
       parentId: input.parentId,
+      replyToId,
       body,
     })
     .returning();
@@ -34,6 +49,7 @@ export async function sendMessage(input: {
     authorId: user.id,
     body,
     parentId: input.parentId ?? null,
+    replyToId: replyToId ?? null,
     createdAt: row.createdAt.toISOString(),
   });
 

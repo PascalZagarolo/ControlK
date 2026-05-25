@@ -68,6 +68,105 @@ export async function createChannelAndRedirect(formData: FormData) {
   return res;
 }
 
+// ─── Channel groups ─────────────────────────────────────────
+export async function createChannelGroup(input: {
+  name: string;
+  channelId?: string;
+}): Promise<Result<{ id: string }>> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: 'Name erforderlich.' };
+  if (name.length > 40) return { ok: false, error: 'Name zu lang (max 40).' };
+
+  const db = getDb();
+  const maxPos = await db
+    .select({ p: max(s.channelGroups.position) })
+    .from(s.channelGroups)
+    .where(eq(s.channelGroups.workspaceId, ws.id));
+  const nextPos = (maxPos[0]?.p ?? -1) + 1;
+
+  const [row] = await db
+    .insert(s.channelGroups)
+    .values({ workspaceId: ws.id, name, position: nextPos })
+    .returning({ id: s.channelGroups.id });
+
+  if (input.channelId) {
+    await db
+      .update(s.channels)
+      .set({ groupId: row.id })
+      .where(and(eq(s.channels.id, input.channelId), eq(s.channels.workspaceId, ws.id)));
+  }
+
+  pathsFor();
+  return { ok: true, id: row.id };
+}
+
+export async function assignChannelToGroup(input: {
+  channelId: string;
+  groupId: string | null;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+
+  const channel = await db.query.channels.findFirst({
+    where: and(eq(s.channels.id, input.channelId), eq(s.channels.workspaceId, ws.id)),
+  });
+  if (!channel) return { ok: false, error: 'Channel nicht gefunden.' };
+
+  if (input.groupId) {
+    const group = await db.query.channelGroups.findFirst({
+      where: and(eq(s.channelGroups.id, input.groupId), eq(s.channelGroups.workspaceId, ws.id)),
+    });
+    if (!group) return { ok: false, error: 'Gruppe nicht gefunden.' };
+  }
+
+  await db
+    .update(s.channels)
+    .set({ groupId: input.groupId })
+    .where(eq(s.channels.id, input.channelId));
+
+  pathsFor(channel.slug);
+  return { ok: true };
+}
+
+export async function renameChannelGroup(input: {
+  groupId: string;
+  name: string;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: 'Name erforderlich.' };
+  if (name.length > 40) return { ok: false, error: 'Name zu lang (max 40).' };
+
+  const db = getDb();
+  const res = await db
+    .update(s.channelGroups)
+    .set({ name })
+    .where(and(eq(s.channelGroups.id, input.groupId), eq(s.channelGroups.workspaceId, ws.id)))
+    .returning({ id: s.channelGroups.id });
+  if (res.length === 0) return { ok: false, error: 'Gruppe nicht gefunden.' };
+
+  pathsFor();
+  return { ok: true };
+}
+
+export async function deleteChannelGroup(groupId: string): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  // ON DELETE SET NULL on the FK takes care of orphaning channels.
+  const res = await db
+    .delete(s.channelGroups)
+    .where(and(eq(s.channelGroups.id, groupId), eq(s.channelGroups.workspaceId, ws.id)))
+    .returning({ id: s.channelGroups.id });
+  if (res.length === 0) return { ok: false, error: 'Gruppe nicht gefunden.' };
+  pathsFor();
+  return { ok: true };
+}
+
 // ─── Update channel meta ────────────────────────────────────
 export async function updateChannelMeta(input: {
   channelId: string;

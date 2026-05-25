@@ -246,6 +246,12 @@ export const workspaceInvites = pgTable(
       .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    // Resend tracking. lastSentAt is initialized to createdAt on insert
+    // and bumped on every resend; resentCount counts only the resends
+    // (initial send leaves it at 0). Together they back the rate-limit
+    // policy in lib/actions/workspace.ts.
+    lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
+    resentCount: integer('resent_count').notNull().default(0),
   },
   (t) => ({
     tokenIdx: uniqueIndex('workspace_invites_token_idx').on(t.token),
@@ -318,11 +324,30 @@ export const channels = pgTable(
     topic: text('topic'),
     kind: channelKindEnum('kind').notNull().default('general'),
     dealStage: dealStageEnum('deal_stage'),
+    // Optional category/group folder (Discord-style). NULL = ungrouped.
+    groupId: uuid('group_id'),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     slugWsIdx: uniqueIndex('channels_slug_workspace_idx').on(t.workspaceId, t.slug),
+    groupIdx: index('channels_group_idx').on(t.groupId),
+  })
+);
+
+export const channelGroups = pgTable(
+  'channel_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    workspaceIdx: index('channel_groups_workspace_idx').on(t.workspaceId, t.position),
   })
 );
 
@@ -434,6 +459,12 @@ export const messages = pgTable(
       .notNull()
       .references(() => users.id),
     parentId: uuid('parent_id'),
+    // Inline Discord-style reply pointer. Distinct from parentId (which
+    // is used for the separate thread panel). A reply stays in the main
+    // message stream and renders a small quote of the original above the
+    // body. FK in SQL is ON DELETE SET NULL so a hard-deleted original
+    // doesn't wipe the reply.
+    replyToId: uuid('reply_to_id'),
     body: text('body').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     // Edit + soft-delete tracking. editedAt set on first edit and updated
@@ -446,6 +477,7 @@ export const messages = pgTable(
   (t) => ({
     channelIdx: index('messages_channel_idx').on(t.channelId, t.createdAt),
     parentIdx: index('messages_parent_idx').on(t.parentId),
+    replyToIdx: index('messages_reply_to_idx').on(t.replyToId),
   })
 );
 
