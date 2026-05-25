@@ -29,3 +29,13 @@ export function firstInitial(name: string): string {
   if (!trimmed) return '?';
   return trimmed.charAt(0).toUpperCase();
 }
+
+// Discord-style discriminator: deterministic 4-digit suffix (#0001 .. #9999)
+// derived from the same FNV hash. Stable per user, no DB column needed.
+// Two users sharing a first name remain unambiguous because the hash
+// virtually never collides on 16-byte UUIDs.
+export function getDiscriminator(userId: string): string {
+  const h = hash(userId);
+  const n = (h % 9999) + 1;
+  return '#' + n.toString().padStart(4, '0');
+}

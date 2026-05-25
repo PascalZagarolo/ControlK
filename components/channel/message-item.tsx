@@ -3,9 +3,10 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Avatar } from './avatar';
+import { HashAvatar } from './hash-avatar';
 import { clockTime } from '@/lib/format-time';
 import { reactToMessage, removeReaction } from '@/lib/actions/channels';
+import { getDiscriminator } from '@/lib/avatar-colors';
 import type { ChannelEntityHit, Message } from '@/lib/types';
 
 const QUICK_REACTIONS = ['🔥', '✓', '📎', '👍', '❤️', '👀'];
@@ -119,10 +120,10 @@ export function MessageItem({
           <div className="w-9" aria-hidden />
         ) : (
           <div className="relative">
-            <Avatar
-              initials={message.authorInitials}
-              from={message.authorFrom}
-              to={message.authorTo}
+            <HashAvatar
+              userId={message.authorId}
+              name={message.authorName}
+              size={36}
             />
             {isCustomerContact && (
               <span
@@ -164,6 +165,12 @@ export function MessageItem({
           <div className="flex items-baseline gap-2">
             <span className="text-[14px] font-medium leading-none text-ink-50">
               {message.authorName}
+            </span>
+            <span
+              title={`${message.authorName} ${getDiscriminator(message.authorId)}`}
+              className="font-mono text-[11px] leading-none text-ink-300/40 transition-colors duration-150 group-hover/message:text-ink-300/85"
+            >
+              {getDiscriminator(message.authorId)}
             </span>
             {isCustomerContact && (
               <span className="inline-flex h-4 items-center gap-1 rounded-full bg-[#5ee08a]/[0.18] px-1.5 font-mono text-[9px] uppercase tracking-[0.3px] text-[#5ee08a]">

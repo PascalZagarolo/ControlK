@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { HashAvatar } from './hash-avatar';
+import { getDiscriminator } from '@/lib/avatar-colors';
 import type { ChannelMemberDetail } from '@/lib/types';
 
 const ROLE_ORDER: Record<ChannelMemberDetail['role'], number> = {
@@ -56,6 +57,12 @@ export function MembersSidebar({
                   } group-hover:text-[#FAFAFA]`}
                 >
                   {m.name}
+                  <span
+                    title={`${m.name} ${getDiscriminator(m.userId)}`}
+                    className="ml-1.5 font-mono text-[10px] text-[#3a3a3f] transition-colors group-hover:text-[#71717A]"
+                  >
+                    {getDiscriminator(m.userId)}
+                  </span>
                 </span>
                 {m.role === 'owner' && (
                   <span

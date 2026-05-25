@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { HashAvatar } from './hash-avatar';
+import { getDiscriminator } from '@/lib/avatar-colors';
 import type { ChannelMemberDetail } from '@/lib/types';
 
 const CANVAS = '#0A0A0C';
@@ -133,6 +134,9 @@ function MemberPopover({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] leading-tight text-[#FAFAFA]">
                   {m.name}
+                  <span className="ml-1.5 font-mono text-[11px] text-[#52525B]">
+                    {getDiscriminator(m.userId)}
+                  </span>
                 </span>
                 <span className="mt-0.5 block truncate text-[12px] leading-tight text-[#71717A]">
                   {m.email}

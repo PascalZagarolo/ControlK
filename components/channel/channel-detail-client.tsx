@@ -104,9 +104,14 @@ export function ChannelDetailClient({
                     <div className="mt-2 flex flex-col gap-5">
                       {group.items.map((m, i) => {
                         const prev = group.items[i - 1];
+                        // Group consecutive messages by the SAME user as
+                        // a compact stack. Compare authorId not authorName
+                        // — two distinct users can share a first name and
+                        // we still need to render each with their own
+                        // avatar + header row.
                         const compact =
                           !!prev &&
-                          prev.authorName === m.authorName &&
+                          prev.authorId === m.authorId &&
                           timeWithin(prev.timestamp, m.timestamp, 5 * 60_000);
                         const hits = entityHitsByMsg?.[m.id] ?? [];
                         const contactMatch = (m as any).authorEmail
