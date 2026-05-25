@@ -146,17 +146,23 @@ export type FoyerWorkspace = {
 // Constants — non-data UI defaults
 // ───────────────────────────────────────────────────────────────
 
-// Foyer top-nav modules. Mirrors the global NavTabs set (Inbox / Todos /
-// Notizen / Channels / Kalender) — uRent-specific entities (Kunden,
-// Flotte, Verträge) live in their own pages but stay off this strip so
-// the foyer reads as a focused workspace lobby, not a full module menu.
-const MODULES = [
+// Foyer top-nav modules. Mirrors the global NavTabs set — uRent-specific
+// entities (Kunden, Flotte, Verträge) live in their own pages but stay
+// off this strip so the foyer reads as a focused workspace lobby, not
+// a full module menu. Channels only surface in shared workspaces; the
+// `scopes` field is honoured by TopNav's filter below.
+type ModuleEntry = {
+  label: string;
+  href: string;
+  scopes?: ('business' | 'private')[];
+};
+const MODULES: readonly ModuleEntry[] = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
   { label: 'Notizen', href: '/notes' },
-  { label: 'Channels', href: '/channels' },
+  { label: 'Channels', href: '/channels', scopes: ['business'] },
   { label: 'Kalender', href: '/kalender' },
-] as const;
+];
 
 const PLACEHOLDERS = [
   'Suche Kunden …',
@@ -540,7 +546,7 @@ function TopNav({
   onClick,
   dim,
 }: {
-  modules: readonly { label: string; href: string }[];
+  modules: readonly { label: string; href: string; scopes?: ('business' | 'private')[] }[];
   /** Fallback name used only for the anonymous foyer (no user / no workspace). */
   workspaceName: string;
   /** When set, the inline span is replaced with the real WorkspaceSwitcher. */
@@ -549,6 +555,13 @@ function TopNav({
   onClick: (href: string) => void;
   dim: boolean;
 }) {
+  // Hide scope-gated modules (e.g. Channels) when the active workspace
+  // doesn't match. Personal workspaces hide /channels — the surface
+  // doesn't exist there and a dead link reads as noise.
+  const activeScope = activeWorkspace?.scope ?? 'business';
+  const visibleModules = modules.filter(
+    (m) => !m.scopes || m.scopes.includes(activeScope)
+  );
   return (
     <div
       className="relative z-20 flex justify-center pt-6 transition-opacity duration-300 ease-out"
@@ -570,7 +583,7 @@ function TopNav({
           </span>
         )}
         <span className="mx-1 h-4 w-px bg-[#1F1F23]" />
-        {modules.map((m) => (
+        {visibleModules.map((m) => (
           <button
             key={m.href}
             type="button"

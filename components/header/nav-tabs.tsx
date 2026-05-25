@@ -15,7 +15,10 @@ const TABS: Tab[] = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
   { label: 'Notizen', href: '/notes' },
-  { label: 'Channels', href: '/channels' },
+  // Channels are the workspace shared communication surface — they only
+  // make sense once there's more than one person. Personal workspaces
+  // (scope='private') hide the tab to keep the nav focused.
+  { label: 'Channels', href: '/channels', scopes: ['business'] },
   { label: 'Kalender', href: '/kalender' },
 ];
 

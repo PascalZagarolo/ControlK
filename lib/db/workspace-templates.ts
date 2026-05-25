@@ -1,5 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'crypto';
+import { eq } from 'drizzle-orm';
 import { getDb } from './client';
 import * as s from './schema';
 import {
@@ -56,6 +57,33 @@ async function seedTodoGroups(
       createdById: userId,
     }))
   );
+}
+
+/**
+ * Idempotent: ensures the workspace has at least one channel. Called
+ * after template-driven seeding so workspaces that were created with
+ * the empty template (or with no template at all) still land with a
+ * working "#general" channel — `/channels` would otherwise be a
+ * dead-end on first open.
+ *
+ * Counts existing channels rather than assuming the absence of #general
+ * specifically — some templates seed channels under different names
+ * (Vermietung uses "flotte", "sales", "service") and those count as
+ * sufficient defaults.
+ */
+export async function ensureDefaultChannelExists(
+  workspaceId: string,
+  userId: string
+): Promise<void> {
+  const db = getDb();
+  const existing = await db.query.channels.findFirst({
+    where: eq(s.channels.workspaceId, workspaceId),
+    columns: { id: true },
+  });
+  if (existing) return;
+  await seedChannels(workspaceId, userId, [
+    { name: 'general', topic: 'Allgemeine Diskussion', kind: 'general' },
+  ]);
 }
 
 async function seedChannels(

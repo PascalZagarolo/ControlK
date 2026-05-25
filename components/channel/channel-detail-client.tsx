@@ -49,7 +49,12 @@ export function ChannelDetailClient({
 }) {
   const router = useRouter();
   const [contextOpen, setContextOpen] = useState(true);
-  const [leftOpen, setLeftOpen] = useState(true);
+  // LeftPanel (Deal-Radar / QuickActions / Presence rail) defaults off
+  // now that the global ChannelsSidebar owns the left 280px. Keeping
+  // the state + component around for a future "context rail" toggle,
+  // but it's no longer mounted on initial render so it doesn't fight
+  // with the sidebar for screen space.
+  const [leftOpen, setLeftOpen] = useState(false);
   const [openThread, setOpenThread] = useState<Message | null>(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [snippetsOpen, setSnippetsOpen] = useState(false);

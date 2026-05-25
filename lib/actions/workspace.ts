@@ -7,7 +7,11 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { setActiveWorkspaceCookie } from '@/lib/auth/workspace-cookie';
-import { seedWorkspace, getTemplate } from '@/lib/db/workspace-templates';
+import {
+  seedWorkspace,
+  getTemplate,
+  ensureDefaultChannelExists,
+} from '@/lib/db/workspace-templates';
 import {
   canChangeRole,
   canDeleteWorkspace,
@@ -158,6 +162,20 @@ export async function createWorkspace(input: {
       await seedWorkspace(ws.id, user.id, input.template);
     } catch {
       // best-effort
+    }
+  }
+
+  // Business (shared) workspaces always land with at least one channel.
+  // Templates that seed their own channels (vermietung → flotte/sales/
+  // service, etc.) keep those; templates without channels (or no
+  // template, or 'leer') get a default #general so /channels is never
+  // a dead-end on first open. Personal workspaces skip this — channels
+  // don't surface there at all (see NavTabs scope gating).
+  if (scope === 'business') {
+    try {
+      await ensureDefaultChannelExists(ws.id, user.id);
+    } catch (e) {
+      console.warn('[createWorkspace] default-channel seed failed', e);
     }
   }
 
