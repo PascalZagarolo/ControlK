@@ -32,6 +32,11 @@ function safeRedirect(input: string | null): string {
 const ALLOWED_EXTRA_SCOPES = new Set<string>([
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
+  // Calendar scopes — readonly is the V1 sync surface; `events` lets
+  // us write back in Phase 2 (uRent → Google) without forcing a second
+  // consent screen later. Both granted in the same prompt.
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
 ]);
 
 function parseExtraScopes(input: string | null): string[] {

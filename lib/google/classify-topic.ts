@@ -4,6 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
+import { aiGenerate, AI_MODEL_FAST, aiGatewayConfigured } from '@/lib/ai/gateway';
 import type { ParsedGmailMessage } from './gmail';
 import { domainOf } from './classify-inbox';
 
@@ -84,10 +85,13 @@ export async function classifyNewDomains(input: {
     .map((d) => ({ domain: d, recentSubjects: samples.get(d) ?? [] }));
   if (todo.length === 0) return { classified: 0, skipped: 0 };
 
-  // 3. Resolve the AI key. No key configured → quiet skip; the
+  // 3. Resolve the AI key. Prefer Vercel AI Gateway via the new SDK
+  // wrapper; fall back to the legacy fetch path for user-BYOK or
+  // direct-OpenAI deployments. No key configured → quiet skip; the
   // deterministic A+B classification still works without AI.
-  const key = await getEffectiveAIKey(userId);
-  if (!key) return { classified: 0, skipped: todo.length };
+  const useGateway = aiGatewayConfigured();
+  const key = useGateway ? null : await getEffectiveAIKey(userId);
+  if (!useGateway && !key) return { classified: 0, skipped: todo.length };
 
   // 4. Classify each domain in parallel with concurrency 3 to keep
   // per-pass latency bounded.
@@ -95,7 +99,7 @@ export async function classifyNewDomains(input: {
   let skipped = 0;
   const results = await Promise.all(
     todo.map(async (entry) => {
-      const topic = await classifyOne(entry, key).catch(() => null);
+      const topic = await classifyOne(entry, key, useGateway).catch(() => null);
       return { entry, topic };
     })
   );
@@ -129,14 +133,34 @@ export async function classifyNewDomains(input: {
 
 async function classifyOne(
   entry: DomainSample,
-  key: Awaited<ReturnType<typeof getEffectiveAIKey>>
+  key: Awaited<ReturnType<typeof getEffectiveAIKey>> | null,
+  useGateway: boolean
 ): Promise<string | null> {
-  if (!key) return null;
   const subjectsBlock = entry.recentSubjects.length
     ? `\n\nLetzte Betreffe von dieser Domain:\n${entry.recentSubjects.map((s) => `- ${s}`).join('\n')}`
     : '';
   const userPrompt = `Domain: ${entry.domain}${subjectsBlock}\n\nThemen-Klassifikation:`;
 
+  if (useGateway) {
+    // Vercel AI Gateway via the `ai` SDK. Cheap+fast model; one-word
+    // answer needs almost no tokens.
+    try {
+      const raw = await aiGenerate({
+        model: process.env.TOPIC_AI_MODEL ?? AI_MODEL_FAST,
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt,
+        maxOutputTokens: 16,
+        temperature: 0.2,
+      });
+      return normalizeTopic(raw.trim());
+    } catch {
+      return null;
+    }
+  }
+
+  // Legacy fetch path — user-BYOK direct to OpenAI, or
+  // OPENAI_API_KEY env. Same prompt, same response shape.
+  if (!key) return null;
   const res = await fetch(`${key.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -149,8 +173,6 @@ async function classifyOne(
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
-      // Short ceiling — a one-word answer needs <= 8 tokens. Cap hard
-      // so a runaway model can't generate an essay.
       max_tokens: 16,
       temperature: 0.2,
     }),

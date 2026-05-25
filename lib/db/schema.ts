@@ -4,6 +4,7 @@ import {
   text,
   integer,
   timestamp,
+  time,
   uuid,
   jsonb,
   pgEnum,
@@ -11,6 +12,7 @@ import {
   index,
   uniqueIndex,
   numeric,
+  real,
   boolean,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
@@ -1898,6 +1900,392 @@ export const oauthAccounts = pgTable(
     userIdx: index('oauth_accounts_user_idx').on(t.userId),
   })
 );
+
+// ─── External Calendar (Google mirror) ─────────────────────────
+// Separate from `calendar_events` (workspace-scoped, rental business
+// events linked to customers/contracts/vehicles). External events are
+// per-USER so personal appointments don't leak across team members.
+// Merged with native events in the UI layer.
+export type ExternalCalendarAttendee = {
+  email: string;
+  name?: string;
+  responseStatus?: string;
+  isOrganizer?: boolean;
+};
+
+export const externalCalendarEvents = pgTable(
+  'external_calendar_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'set null',
+    }),
+
+    googleCalendarId: text('google_calendar_id').notNull(),
+    googleEventId: text('google_event_id').notNull(),
+    googleRecurringEventId: text('google_recurring_event_id'),
+
+    title: text('title').notNull(),
+    description: text('description'),
+    location: text('location'),
+
+    startAt: timestamp('start_at', { withTimezone: true }).notNull(),
+    endAt: timestamp('end_at', { withTimezone: true }).notNull(),
+    isAllDay: boolean('is_all_day').notNull().default(false),
+    timezone: text('timezone').notNull().default('Europe/Berlin'),
+
+    attendees: jsonb('attendees')
+      .$type<ExternalCalendarAttendee[]>()
+      .notNull()
+      .default([]),
+    organizerEmail: text('organizer_email'),
+    organizerName: text('organizer_name'),
+
+    recurrenceRule: text('recurrence_rule'),
+
+    // 'confirmed' | 'tentative' | 'cancelled'
+    status: text('status').notNull().default('confirmed'),
+
+    googleEtag: text('google_etag'),
+    googleUpdatedAt: timestamp('google_updated_at', { withTimezone: true }).notNull(),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userEventUniq: uniqueIndex('external_calendar_events_user_event_unique').on(
+      t.userId,
+      t.googleCalendarId,
+      t.googleEventId
+    ),
+    userStartIdx: index('external_calendar_events_user_start_idx').on(
+      t.userId,
+      t.startAt
+    ),
+    workspaceStartIdx: index('external_calendar_events_workspace_start_idx').on(
+      t.workspaceId,
+      t.startAt
+    ),
+    timeRangeIdx: index('external_calendar_events_time_range_idx').on(
+      t.startAt,
+      t.endAt
+    ),
+  })
+);
+
+export const calendarSyncState = pgTable(
+  'calendar_sync_state',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    googleCalendarId: text('google_calendar_id').notNull(),
+    googleCalendarName: text('google_calendar_name'),
+
+    syncToken: text('sync_token'),
+
+    webhookChannelId: text('webhook_channel_id'),
+    webhookResourceId: text('webhook_resource_id'),
+    webhookExpiresAt: timestamp('webhook_expires_at', { withTimezone: true }),
+
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userCalUniq: uniqueIndex('calendar_sync_state_user_cal_unique').on(
+      t.userId,
+      t.googleCalendarId
+    ),
+    webhookExpiryIdx: index('calendar_sync_state_webhook_expiry_idx').on(
+      t.webhookExpiresAt
+    ),
+  })
+);
+
+// ─── Inverse Calendar — Activity log + entity thresholds ───────
+export const activityKindEnum = pgEnum('activity_kind', [
+  'event_attended',
+  'event_organized',
+  'email_received',
+  'email_sent',
+  'channel_message_received',
+  'channel_message_sent',
+  'note_mention',
+  'todo_assigned',
+  'recap_written',
+  'manual_touch',
+]);
+
+export const activityEntityTypeEnum = pgEnum('activity_entity_type', [
+  'person',
+  'customer',
+  'project',
+  'channel',
+  'note',
+]);
+
+export const activityLog = pgTable(
+  'activity_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    activityKind: activityKindEnum('activity_kind').notNull(),
+    entityType: activityEntityTypeEnum('entity_type').notNull(),
+    // entity_id is text because it can be an email (person) or UUID
+    // (customer/channel/project/note). Stored as-given; the consumer
+    // knows how to interpret based on entity_type.
+    entityId: text('entity_id').notNull(),
+    entityDisplayName: text('entity_display_name').notNull(),
+    sourceType: text('source_type'),
+    sourceId: uuid('source_id'),
+    weight: integer('weight').notNull().default(1),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    entityIdx: index('activity_log_entity_idx').on(
+      t.workspaceId,
+      t.entityType,
+      t.entityId,
+      t.occurredAt
+    ),
+    occurredIdx: index('activity_log_occurred_idx').on(t.occurredAt),
+    userIdx: index('activity_log_user_idx').on(t.userId, t.occurredAt),
+  })
+);
+
+export const entityThresholds = pgTable(
+  'entity_thresholds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    entityType: activityEntityTypeEnum('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    entityDisplayName: text('entity_display_name').notNull(),
+
+    totalInteractions: integer('total_interactions').notNull().default(0),
+    firstInteractionAt: timestamp('first_interaction_at', { withTimezone: true }),
+    lastInteractionAt: timestamp('last_interaction_at', { withTimezone: true }),
+
+    // Median + IQR (robust against outlier gaps like vacations).
+    medianDaysBetween: real('median_days_between'),
+    iqrDaysBetween: real('iqr_days_between'),
+
+    alertThresholdDays: integer('alert_threshold_days').notNull().default(21),
+    userSetThreshold: integer('user_set_threshold'),
+    isMuted: boolean('is_muted').notNull().default(false),
+    mutedUntil: timestamp('muted_until', { withTimezone: true }),
+
+    isInStandstill: boolean('is_in_standstill').notNull().default(false),
+    standstillSince: timestamp('standstill_since', { withTimezone: true }),
+    lastAcknowledgedAt: timestamp('last_acknowledged_at', { withTimezone: true }),
+
+    importanceScore: real('importance_score').notNull().default(0),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userEntityUniq: uniqueIndex('entity_thresholds_user_entity_unique').on(
+      t.userId,
+      t.entityType,
+      t.entityId
+    ),
+    standstillIdx: index('entity_thresholds_standstill_idx').on(
+      t.userId,
+      t.isInStandstill
+    ),
+    importanceIdx: index('entity_thresholds_importance_idx').on(
+      t.userId,
+      t.importanceScore
+    ),
+  })
+);
+
+// Metadata layer for Google-mirror events. All three tables anchor on
+// external_calendar_events (per-user Google mirror) and are user-scoped
+// — your notes/tags/status on a meeting don't leak to other attendees
+// in the same workspace.
+export const externalEventStatusEnum = pgEnum('external_event_status', [
+  'prep_needed',
+  'prepared',
+  'follow_up_due',
+  'completed',
+]);
+
+export const externalEventImportanceEnum = pgEnum('external_event_importance', [
+  'low',
+  'normal',
+  'high',
+]);
+
+export const externalEventEntityTypeEnum = pgEnum('external_event_entity_type', [
+  'note',
+  'todo',
+  'customer',
+  'project',
+  'channel',
+]);
+
+export const externalEventLinkTypeEnum = pgEnum('external_event_link_type', [
+  'related_to',
+  'prepares_for',
+  'follows_up',
+  'discussed_in',
+]);
+
+export type ExternalEventAgendaItem = {
+  id: string;
+  text: string;
+  isDone: boolean;
+  position: number;
+};
+
+export const externalEventMetadata = pgTable(
+  'external_event_metadata',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    calendarEventId: uuid('calendar_event_id')
+      .notNull()
+      .references(() => externalCalendarEvents.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'set null',
+    }),
+
+    noteMarkdown: text('note_markdown'),
+    noteUpdatedAt: timestamp('note_updated_at', { withTimezone: true }),
+
+    agendaItems: jsonb('agenda_items')
+      .$type<ExternalEventAgendaItem[]>()
+      .notNull()
+      .default([]),
+
+    status: externalEventStatusEnum('status'),
+    importance: externalEventImportanceEnum('importance'),
+
+    recapMarkdown: text('recap_markdown'),
+    recapCreatedAt: timestamp('recap_created_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    eventUserUniq: uniqueIndex('external_event_metadata_event_user_unique').on(
+      t.calendarEventId,
+      t.userId
+    ),
+    userIdx: index('external_event_metadata_user_idx').on(t.userId),
+    workspaceIdx: index('external_event_metadata_workspace_idx').on(t.workspaceId),
+  })
+);
+
+export const externalEventEntityLinks = pgTable(
+  'external_event_entity_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    calendarEventId: uuid('calendar_event_id')
+      .notNull()
+      .references(() => externalCalendarEvents.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').references(() => workspaces.id, {
+      onDelete: 'set null',
+    }),
+
+    entityType: externalEventEntityTypeEnum('entity_type').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    linkType: externalEventLinkTypeEnum('link_type'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    createdByUserId: varchar('created_by_user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => ({
+    linkUniq: uniqueIndex('external_event_entity_links_unique').on(
+      t.calendarEventId,
+      t.entityType,
+      t.entityId,
+      t.userId
+    ),
+    reverseIdx: index('external_event_entity_links_reverse_idx').on(
+      t.entityType,
+      t.entityId
+    ),
+    userIdx: index('external_event_entity_links_user_idx').on(t.userId, t.entityType),
+  })
+);
+
+export const externalEventTags = pgTable(
+  'external_event_tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    calendarEventId: uuid('calendar_event_id')
+      .notNull()
+      .references(() => externalCalendarEvents.id, { onDelete: 'cascade' }),
+    tagId: uuid('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    eventTagUniq: uniqueIndex('external_event_tags_unique').on(
+      t.calendarEventId,
+      t.tagId,
+      t.userId
+    ),
+    tagIdx: index('external_event_tags_tag_idx').on(t.tagId),
+    userIdx: index('external_event_tags_user_idx').on(t.userId),
+  })
+);
+
+export const userCalendarPreferences = pgTable('user_calendar_preferences', {
+  userId: varchar('user_id', { length: 255 })
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+
+  // 'day' | 'week' | 'month' | 'agenda' | 'inverse'
+  defaultView: text('default_view').notNull().default('week'),
+  weekStartsOn: integer('week_starts_on').notNull().default(1),
+  showWeekends: boolean('show_weekends').notNull().default(true),
+  defaultEventDurationMin: integer('default_event_duration_min').notNull().default(30),
+  workingHoursStart: time('working_hours_start').notNull().default('09:00'),
+  workingHoursEnd: time('working_hours_end').notNull().default('18:00'),
+
+  // Bi-directional sync toggles
+  googleSyncEnabled: boolean('google_sync_enabled').notNull().default(true),
+  googleInboundEnabled: boolean('google_inbound_enabled').notNull().default(true),
+  googleOutboundEnabled: boolean('google_outbound_enabled').notNull().default(false),
+
+  inverseThresholdsEnabled: boolean('inverse_thresholds_enabled').notNull().default(true),
+
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 // ─── Universal Inbox ─────────────────────────────────────────────
 // External messages that landed somewhere the user cares about:

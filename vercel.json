@@ -13,6 +13,18 @@
     {
       "path": "/api/cron/sync-inboxes",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/renew-calendar-watches",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/compute-thresholds",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/detect-standstills",
+      "schedule": "0 6 * * *"
     }
   ]
 }

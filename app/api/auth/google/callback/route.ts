@@ -13,6 +13,7 @@ import { setSessionCookie } from '@/lib/auth/cookies';
 import { newUserId } from '@/lib/auth/tokens';
 import { encryptSecret } from '@/lib/auth/secret-encryption';
 import { randomUserAvatarColors } from '@/lib/avatar-colors';
+import { hasCalendarScope, initialSyncCalendar, setupCalendarWatch } from '@/lib/google/calendar';
 
 export const dynamic = 'force-dynamic';
 
@@ -243,6 +244,29 @@ export async function GET(req: NextRequest) {
       ]);
       userId = id;
     }
+  }
+
+  // Calendar bootstrap: if this consent included calendar scopes,
+  // kick off an initial sync + watch setup in the background. Don't
+  // await — the callback should return fast; failures (network, scope
+  // mismatch, no DB) only matter at the next sync attempt and the
+  // user can re-trigger manually. Best-effort.
+  if (hasCalendarScope(tokens.scope ?? null)) {
+    void (async () => {
+      try {
+        const ws = await db.query.workspaceMembers.findFirst({
+          where: eq(s.workspaceMembers.userId, userId),
+          columns: { workspaceId: true },
+        });
+        await initialSyncCalendar(userId, 'primary', ws?.workspaceId ?? null);
+        await setupCalendarWatch(userId, 'primary');
+      } catch (e) {
+        console.warn(
+          '[oauth/google/callback] calendar bootstrap failed:',
+          e instanceof Error ? e.message : e
+        );
+      }
+    })();
   }
 
   // Session. Note: we intentionally don't enforce local TOTP on the

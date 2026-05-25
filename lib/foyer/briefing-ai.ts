@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
+import { aiGenerate, AI_MODEL_FAST, aiGatewayConfigured } from '@/lib/ai/gateway';
 import { hashSignals, type BriefingSignals } from './briefing-signals';
 
 // Soft TTL — the narrative can re-generate even when signals are
@@ -56,14 +57,17 @@ export async function getOrGenerateBriefing(input: {
     };
   }
 
-  // AI path. If no key configured, we use the deterministic fallback
-  // so the slot still feels intentional.
-  const ai = await getEffectiveAIKey(userId).catch(() => null);
+  // AI path. Prefer Vercel AI Gateway when configured (via env var);
+  // fall back to user-BYOK / direct OpenAI through the legacy fetch.
+  // No path → deterministic fallback so the slot still feels intentional.
   let narrative = '';
   let isFallback = false;
 
-  if (ai) {
-    narrative = await callAI(ai, signals).catch(() => '');
+  if (aiGatewayConfigured()) {
+    narrative = await callAIViaGateway(signals).catch(() => '');
+  } else {
+    const ai = await getEffectiveAIKey(userId).catch(() => null);
+    if (ai) narrative = await callAI(ai, signals).catch(() => '');
   }
   if (!narrative) {
     narrative = deterministicFallback(signals);
@@ -111,6 +115,18 @@ Stil:
 - Wenn nichts dringend ist: sag das.
 - Niemals erfinden — wenn ein Signal fehlt, ignoriere es.
 - Schreibe an Pascal in der Du-Form.`;
+
+async function callAIViaGateway(signals: BriefingSignals): Promise<string> {
+  const userPrompt = buildUserPrompt(signals);
+  const raw = await aiGenerate({
+    model: process.env.BRIEFING_MODEL ?? AI_MODEL_FAST,
+    system: SYSTEM_PROMPT,
+    prompt: userPrompt,
+    maxOutputTokens: 180,
+    temperature: 0.5,
+  });
+  return cleanNarrative(raw.trim());
+}
 
 async function callAI(
   ai: NonNullable<Awaited<ReturnType<typeof getEffectiveAIKey>>>,

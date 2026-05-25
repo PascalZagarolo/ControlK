@@ -17,6 +17,7 @@ import {
   resolveCustomerSenders,
 } from './classify-inbox';
 import { classifyNewDomains } from './classify-topic';
+import { ingestInboxItemActivity } from '@/lib/inverse/ingest';
 
 // Hard cap on how many message details we fetch in one sync pass. Each
 // detail is ~5 Gmail quota units; the per-user limit is 250 units/sec.
@@ -286,7 +287,7 @@ async function upsertInboxItems(
       customerSet.has(m.senderEmail.toLowerCase());
     const category = classifyMessage(m, isCustomerSender);
 
-    const res = await db
+    const upserted = await db
       .insert(s.inboxItems)
       .values({
         workspaceId,
@@ -323,8 +324,24 @@ async function upsertInboxItems(
           category,
           updatedAt: new Date(),
         },
+      })
+      .returning({ id: s.inboxItems.id });
+    inserted += upserted.length;
+
+    // Inverse Calendar activity feed. Fire-and-forget; failures
+    // here must never block the inbox sync.
+    if (upserted[0]?.id) {
+      void ingestInboxItemActivity({
+        userId,
+        workspaceId,
+        itemId: upserted[0].id,
+        direction: m.direction,
+        senderEmail: m.senderEmail,
+        senderName: m.senderName,
+        recipientEmail: m.recipientEmail,
+        receivedAt: m.receivedAt,
       });
-    inserted += res.rowCount ?? 0;
+    }
   }
   return inserted;
 }

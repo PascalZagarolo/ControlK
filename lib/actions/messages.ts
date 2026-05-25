@@ -7,6 +7,10 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { triggerEvent } from '@/lib/realtime/pusher-server';
 import { wakeTodosForCustomerReply } from './todo-wakeup';
+import {
+  ingestChannelMentionActivity,
+  ingestChannelMessageActivity,
+} from '@/lib/inverse/ingest';
 
 export async function sendMessage(input: {
   channelId: string;
@@ -56,6 +60,19 @@ export async function sendMessage(input: {
   // Revalidate channel page (best effort — slug not known here, so we revalidate the layout)
   const channel = await db.query.channels.findFirst({ where: eq(s.channels.id, input.channelId) });
   if (channel) revalidatePath(`/channels/${channel.slug}`);
+
+  // Inverse Calendar — feed a channel_message_sent touch so the
+  // standstill engine sees user activity on this channel.
+  if (channel) {
+    void ingestChannelMessageActivity({
+      userId: user.id,
+      workspaceId: channel.workspaceId,
+      channelId: input.channelId,
+      channelName: channel.name,
+      messageId: row.id,
+      occurredAt: row.createdAt,
+    });
+  }
 
   // Mention extraction + notification fan-out. Best-effort: if any step
   // throws (workspace lookup failure, notifications insert), the message
@@ -168,6 +185,32 @@ async function notifyMentions(input: {
       actorId: input.authorId,
     }))
   );
+
+  // Inverse Calendar — author becomes the entity in each mentioned
+  // user's activity_log. Need the author's email for entity_id (we use
+  // email for person entities everywhere else).
+  try {
+    const author = await db.query.users.findFirst({
+      where: eq(s.users.id, input.authorId),
+      columns: { email: true },
+    });
+    if (author?.email) {
+      const now = new Date();
+      for (const mentionedId of mentionedIds) {
+        void ingestChannelMentionActivity({
+          mentionedUserId: mentionedId,
+          workspaceId: input.workspaceId,
+          authorUserId: input.authorId,
+          authorEmail: author.email,
+          authorName: input.authorName,
+          messageId: input.messageId,
+          occurredAt: now,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[sendMessage] inverse-activity mention ingest failed:', e);
+  }
 }
 
 /**

@@ -7,6 +7,11 @@ import { Header } from '@/components/header/header';
 import { ProfileDock } from '@/components/header/profile-dock';
 import { ToastHost } from '@/components/toast-host';
 import { VerifyBanner } from '@/components/auth/verify-banner';
+import { CalendarConnectBanner } from '@/components/auth/calendar-connect-banner';
+import { eq, and } from 'drizzle-orm';
+import { getDb } from '@/lib/db/client';
+import * as schema from '@/lib/db/schema';
+import { hasCalendarScope } from '@/lib/google/calendar';
 import { CmdK } from '@/components/cmdk/cmd-k';
 import { KeyboardListener } from '@/components/cmdk/keyboard-listener';
 import { QuickCreateMount } from '@/components/todos/quick-create-mount';
@@ -136,6 +141,27 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     !pathname.startsWith('/forgot-password') &&
     !pathname.startsWith('/reset-password') &&
     !pathname.startsWith('/magic-link');
+
+  // Calendar-connect banner: user has Google connected (refresh token
+  // present) but never granted calendar scopes. Skipped on auth/invite
+  // surfaces so it doesn't fight with focus-state UI.
+  let showCalendarBanner = false;
+  if (user && !pathname.startsWith('/sign-') && !pathname.startsWith('/invite/')) {
+    try {
+      const db = getDb();
+      const oauth = await db.query.oauthAccounts.findFirst({
+        where: and(
+          eq(schema.oauthAccounts.userId, user.id),
+          eq(schema.oauthAccounts.provider, 'google')
+        ),
+        columns: { refreshTokenEnc: true, scopes: true },
+      });
+      showCalendarBanner =
+        !!oauth?.refreshTokenEnc && !hasCalendarScope(oauth.scopes);
+    } catch {
+      // DB hiccup → skip banner, not load-bearing
+    }
+  }
   return (
     <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       {/* suppressHydrationWarning swallows the harmless attribute drift
@@ -147,6 +173,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Header />
           <ProfileDock />
           {showVerifyBanner && user && <VerifyBanner email={user.email} />}
+          {showCalendarBanner && <CalendarConnectBanner />}
           {children}
           <CmdK />
           <QuickCreateMount />
