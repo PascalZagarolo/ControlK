@@ -436,6 +436,12 @@ export const messages = pgTable(
     parentId: uuid('parent_id'),
     body: text('body').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Edit + soft-delete tracking. editedAt set on first edit and updated
+    // on every subsequent one. deletedAt is the tombstone — list queries
+    // filter on `deletedAt IS NULL`, but the row itself stays so threads
+    // and reactions don't lose their anchor.
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => ({
     channelIdx: index('messages_channel_idx').on(t.channelId, t.createdAt),

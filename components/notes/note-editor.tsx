@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   useCreateBlockNote,
@@ -21,10 +21,14 @@ import {
 } from '@blocknote/core';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
-import { saveNoteDocument } from '@/lib/actions/notes';
 import { useYjsDoc } from '@/lib/notes/use-yjs-doc';
 import { createTodoFromNote, createEventFromNote } from '@/lib/actions/notes-actions';
 import { useNoteSaveStore, countWordsInText } from '@/lib/notes/note-save-store';
+import {
+  ensureBooted as ensureSaveQueueBooted,
+  queueSave as enqueueNoteSave,
+  subscribe as subscribeSaveQueue,
+} from '@/lib/notes/save-queue';
 import { EmbedRenderer } from './embeds/embed-renderer';
 
 // Walk a BlockNote document and extract its inline text. Used to keep
@@ -194,9 +198,6 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
     },
   });
 
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [saving, setSaving] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSerializedRef = useRef<string>(JSON.stringify(initialBlocks ?? []));
   const hydratedRef = useRef(false);
 
@@ -207,6 +208,35 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
   const storeSetSaving = useNoteSaveStore((s) => s.setSaving);
   const storeSetSavedAt = useNoteSaveStore((s) => s.setSavedAt);
   const storeSetWordCount = useNoteSaveStore((s) => s.setWordCount);
+  const storeSetSyncStatus = useNoteSaveStore((s) => s.setSyncStatus);
+
+  // Boot the save-queue once (idempotent). Adds the online/offline
+  // listeners and flushes any pending edits left over from a previous
+  // tab/session.
+  useEffect(() => {
+    ensureSaveQueueBooted();
+  }, []);
+
+  // Mirror the queue's status into the shared store so the toolbar
+  // shows "Offline" / "Pending" / "Saving" / "Synced". We only stamp
+  // `savedAt` on a real saving→synced transition — not on the initial
+  // subscribe (which fires once with the current status) so existing
+  // notes don't show a fresh "saved seconds ago" timestamp on open.
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    return subscribeSaveQueue((status) => {
+      storeSetSyncStatus(status);
+      if (status === 'saving') {
+        storeSetSaving(true);
+      } else {
+        storeSetSaving(false);
+        if (status === 'synced' && prevStatusRef.current === 'saving') {
+          storeSetSavedAt(new Date());
+        }
+      }
+      prevStatusRef.current = status;
+    });
+  }, [storeSetSyncStatus, storeSetSaving, storeSetSavedAt]);
 
   // Seed the initial word count on mount so the toolbar isn't stuck on
   // "0 Wörter" for an existing non-empty note before the first edit.
@@ -237,6 +267,12 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
     if (isEmpty) {
       try {
         editor.replaceBlocks(editor.document, initialBlocks as any);
+        // BlockNote normalises the inserted blocks (adds ids etc), so
+        // editor.document's JSON now differs from the raw initialBlocks
+        // we serialised on mount. Re-anchor lastSerializedRef so the
+        // next onChange doesn't fire a spurious "save" with the same
+        // content under new IDs.
+        lastSerializedRef.current = JSON.stringify(editor.document);
       } catch (e) {
         console.error('[note-editor] failed to hydrate initial content', e);
       }
@@ -247,35 +283,23 @@ export function NoteEditor({ noteId, initialDocument, readOnly, workspaceScope =
   useEffect(() => {
     if (readOnly) return;
     const off = editor.onChange(() => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(async () => {
-        const blocks = editor.document;
-        const next = JSON.stringify(blocks);
-        if (next === lastSerializedRef.current) return;
-        lastSerializedRef.current = next;
-        setSaving(true);
-        storeSetSaving(true);
-        try {
-          await saveNoteDocument(noteId, blocks);
-          const now = new Date();
-          setSavedAt(now);
-          storeSetSavedAt(now);
-          storeSetWordCount(countWordsInText(extractDocumentText(blocks)));
-        } catch (e) {
-          // Offline / server unreachable — document is safe in IndexedDB,
-          // we'll retry on the next change. No alert to avoid being noisy.
-          console.warn('[note-editor] save failed (will retry on next edit)', e);
-        } finally {
-          setSaving(false);
-          storeSetSaving(false);
-        }
-      }, 800);
+      const blocks = editor.document;
+      const next = JSON.stringify(blocks);
+      if (next === lastSerializedRef.current) return;
+      lastSerializedRef.current = next;
+      // Word-count updates immediately on every change — it reads from
+      // the in-memory document, no server round-trip needed.
+      storeSetWordCount(countWordsInText(extractDocumentText(blocks)));
+      // queueSave persists the snapshot to localStorage right now and
+      // schedules a server flush after the debounce window. If we're
+      // offline, the snapshot stays queued and the next `online` event
+      // flushes it automatically.
+      enqueueNoteSave(noteId, blocks);
     });
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
       if (typeof off === 'function') off();
     };
-  }, [editor, noteId, readOnly]);
+  }, [editor, noteId, readOnly, storeSetWordCount]);
 
   /**
    * @-mention suggestion menu. Fetches workspace candidates from

@@ -33,7 +33,10 @@ async function logActivity(
 }
 
 async function notifyTodoChange(workspaceId: string, todoId: string, kind: string) {
-  await triggerEvent(`workspace-${workspaceId}-todos`, kind, { todoId });
+  // Private channel — auth route gates subscription on workspace
+  // membership. A public channel would leak todo activity (ids + kind)
+  // to anyone who knew the workspaceId.
+  await triggerEvent(`private-workspace-${workspaceId}-todos`, kind, { todoId });
 }
 
 function paths() {

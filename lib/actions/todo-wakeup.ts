@@ -46,7 +46,7 @@ export async function wakeTodosForCustomerReply(
   );
 
   for (const id of ids) {
-    await triggerEvent(`workspace-${workspaceId}-todos`, 'todo.snoozed', { todoId: id, woke: true });
+    await triggerEvent(`private-workspace-${workspaceId}-todos`, 'todo.snoozed', { todoId: id, woke: true });
   }
 
   return ids.length;

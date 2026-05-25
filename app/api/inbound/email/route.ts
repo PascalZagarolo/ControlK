@@ -154,7 +154,7 @@ export async function POST(req: Request) {
 
   // Best-effort live refresh for connected clients
   try {
-    await triggerEvent(`channel-${channel.id}`, 'message.new', {
+    await triggerEvent(`private-channel-${channel.id}`, 'message.new', {
       id: msg.id,
       source: 'email-inbound',
     });

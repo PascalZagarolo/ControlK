@@ -6,7 +6,7 @@ import { listCalendarEvents } from '@/lib/db/queries/calendar';
 import { listChannels } from '@/lib/db/queries/channels';
 import { listTodos } from '@/lib/db/queries/todos';
 import { listNotifications } from '@/lib/db/queries/notifications';
-import { listFoyerInboxCards } from '@/lib/db/queries/inbox';
+import { listFoyerInboxCards, type FoyerInboxCard } from '@/lib/db/queries/inbox';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import { collectBriefingSignals } from '@/lib/foyer/briefing-signals';
 import { getOrGenerateBriefing } from '@/lib/foyer/briefing-ai';
@@ -44,7 +44,10 @@ export async function buildFoyerData(input: {
       ),
       listChannels(input.workspaceId).catch(() => []),
       listTodos(input.workspaceId, input.userId).catch(() => []),
-      listNotifications(input.userId, 50).catch(() => []),
+      // Workspace-scoped notifications. Without the workspaceId filter
+      // the foyer would pull mentions from every shared workspace the
+      // user is in, breaking the "lobby of THIS workspace" semantics.
+      listNotifications(input.userId, 50, input.workspaceId).catch(() => []),
       fetchLatestUnreadMessage(input.workspaceId, input.userId).catch(() => null),
       fetchMostRecentNote(input.workspaceId).catch(() => null),
       listFoyerInboxCards(input.workspaceId, input.userId).catch(() => []),
@@ -122,6 +125,34 @@ export async function buildFoyerData(input: {
     }
   })();
 
+  // Merge channel-mention notifications into the inbox-cards stack.
+  // Mentions are time-sensitive ("@you in #akquise") so they belong in
+  // the same calm-but-present strip as unread Gmail. Read-mentions
+  // (notifications.readAt set) drop out; sort by recency so the
+  // freshest item lands at the top of the foyer column.
+  const mentionCards = notifications
+    .filter((n) => n.kind === 'mention' && !n.read)
+    .map((n): FoyerInboxCard => {
+      const slugMatch = n.sourceUrl.match(/\/channels\/([^/#?]+)/);
+      const slug = slugMatch?.[1] ?? '';
+      const minAgo = Math.max(
+        0,
+        Math.round((Date.now() - new Date(n.timestamp).getTime()) / 60_000)
+      );
+      return {
+        id: `mention-${n.id}`,
+        source: 'mention',
+        sourceLabel: slug ? `#${slug}` : 'Channel',
+        sender: n.title,
+        preview: (n.excerpt ?? '').trim() || 'Du wurdest erwähnt.',
+        minAgo,
+        href: n.sourceUrl,
+      };
+    });
+  const mergedInboxCards = [...mentionCards, ...inboxCards]
+    .sort((a, b) => a.minAgo - b.minAgo)
+    .slice(0, 8); // matches NotificationStack render cap + headroom
+
   return {
     userName: input.userName,
     events,
@@ -134,7 +165,7 @@ export async function buildFoyerData(input: {
     dueWeek,
     dueTomorrow,
     jetztSuggestions,
-    inboxCards,
+    inboxCards: mergedInboxCards,
     gmail,
     briefing,
   };

@@ -62,7 +62,9 @@ export function TodosClient(props: Props) {
   const [energyFilter, setEnergyFilter] = useState<TodoEnergy | null>(null);
 
   // Live updates via Pusher — refresh on any todo event in this workspace.
-  useChannelSubscription(`workspace-${props.workspaceId}-todos`, {
+  // Private channel: /api/pusher/auth gates membership before allowing
+  // subscription so non-members can't snoop on todo activity.
+  useChannelSubscription(`private-workspace-${props.workspaceId}-todos`, {
     'todo.created': () => router.refresh(),
     'todo.updated': () => router.refresh(),
     'todo.status': () => router.refresh(),

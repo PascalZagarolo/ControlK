@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import type { SyncStatus } from './save-queue';
 
 // Shared state for the active note's editing surface. Lives in zustand
 // so siblings (Toolbar, TitleInput, Editor, TagsBar) can subscribe
@@ -15,6 +16,10 @@ type NoteSaveState = {
   saving: boolean;
   savedAt: Date | null;
   wordCount: number;
+  // 'synced' = server has the latest, 'saving' = in flight,
+  // 'pending' = queued for the debounce flush, 'offline' = no network.
+  // Mirrors the save-queue's status into a subscribable surface.
+  syncStatus: SyncStatus;
 
   // Setters
   hydrate: (input: { noteId: string; title: string }) => void;
@@ -22,6 +27,7 @@ type NoteSaveState = {
   setSaving: (saving: boolean) => void;
   setSavedAt: (savedAt: Date | null) => void;
   setWordCount: (wordCount: number) => void;
+  setSyncStatus: (status: SyncStatus) => void;
 };
 
 export const useNoteSaveStore = create<NoteSaveState>((set) => ({
@@ -30,13 +36,22 @@ export const useNoteSaveStore = create<NoteSaveState>((set) => ({
   saving: false,
   savedAt: null,
   wordCount: 0,
+  syncStatus: 'synced',
 
   hydrate: ({ noteId, title }) =>
-    set({ noteId, title, saving: false, savedAt: null, wordCount: 0 }),
+    set({
+      noteId,
+      title,
+      saving: false,
+      savedAt: null,
+      wordCount: 0,
+      syncStatus: 'synced',
+    }),
   setTitle: (title) => set({ title }),
   setSaving: (saving) => set({ saving }),
   setSavedAt: (savedAt) => set({ savedAt }),
   setWordCount: (wordCount) => set({ wordCount }),
+  setSyncStatus: (syncStatus) => set({ syncStatus }),
 }));
 
 // Counts whitespace-separated words in plain text. Used by NoteEditor

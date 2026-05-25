@@ -56,11 +56,15 @@ export function ChannelDetailClient({
   const [searchOpen, setSearchOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  // Pusher: refresh on new message in this channel
-  useChannelSubscription(channelId ? `channel-${channelId}` : null, {
+  // Pusher: refresh on new message in this channel. Subscribed via
+  // private channel — the /api/pusher/auth route gates membership
+  // before authorising the subscription.
+  useChannelSubscription(channelId ? `private-channel-${channelId}` : null, {
     'message.new': () => router.refresh(),
+    'message.edited': () => router.refresh(),
     'message.deleted': () => router.refresh(),
     'reaction.added': () => router.refresh(),
+    'reaction.removed': () => router.refresh(),
   });
 
   const groups = useMemo(() => groupByDay(messages), [messages]);

@@ -154,8 +154,16 @@ export async function getChannelFullBySlug(
 
 export async function listChannelMessages(channelId: string): Promise<Message[]> {
   const db = getDb();
+  // Tombstoned messages (deletedAt set) are hidden from listings. The
+  // row stays in the DB so threads + reactions keep their anchor — when
+  // we add a "Diese Nachricht wurde gelöscht" placeholder UI we'll
+  // surface them again with the tombstone marker.
   const tops = await db.query.messages.findMany({
-    where: and(eq(s.messages.channelId, channelId), isNull(s.messages.parentId)),
+    where: and(
+      eq(s.messages.channelId, channelId),
+      isNull(s.messages.parentId),
+      isNull(s.messages.deletedAt)
+    ),
     orderBy: [asc(s.messages.createdAt)],
     with: { author: true, reactions: true },
   });
@@ -163,7 +171,10 @@ export async function listChannelMessages(channelId: string): Promise<Message[]>
   const topIds = tops.map((t) => t.id);
   const replies = topIds.length
     ? await db.query.messages.findMany({
-        where: inArray(s.messages.parentId, topIds),
+        where: and(
+          inArray(s.messages.parentId, topIds),
+          isNull(s.messages.deletedAt)
+        ),
         orderBy: [asc(s.messages.createdAt)],
         with: { author: true },
       })
@@ -537,11 +548,13 @@ function toChannel(row: any, lastMessageAt?: Date): Channel {
 function toMessage(row: any): Message {
   return {
     id: row.id,
+    authorId: row.authorId,
     authorName: row.author?.name ?? 'Unbekannt',
     authorInitials: row.author?.initials ?? '?',
     authorFrom: row.author?.avatarFrom ?? '#5eb6ff',
     authorTo: row.author?.avatarTo ?? '#0369a1',
     timestamp: row.createdAt.toISOString(),
     body: row.body,
+    editedAt: row.editedAt ? row.editedAt.toISOString() : undefined,
   };
 }

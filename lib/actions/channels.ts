@@ -8,6 +8,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
+import { triggerEvent } from '@/lib/realtime/pusher-server';
 import { createTodoFromSlash } from './todos';
 import type {
   ChannelDealStage,
@@ -195,6 +196,15 @@ export async function reactToMessage(input: {
     .values({ messageId: input.messageId, userId: user.id, emoji: input.emoji })
     .onConflictDoNothing();
 
+  // Broadcast so other connected members' channel views refresh their
+  // reaction pills without waiting for a manual reload. Channel-scoped
+  // private channel is gated by /api/pusher/auth membership check.
+  await triggerEvent(`private-channel-${msg.channelId}`, 'reaction.added', {
+    messageId: input.messageId,
+    emoji: input.emoji,
+    userId: user.id,
+  });
+
   let triggered: string | undefined;
 
   if (input.emoji === '🔥') {
@@ -250,6 +260,20 @@ export async function removeReaction(input: {
         eq(s.reactions.emoji, input.emoji)
       )
     );
+
+  // Need the channelId to address the broadcast. Cheap lookup — could be
+  // denormalised onto reactions later if this shows up in profiles.
+  const msg = await db.query.messages.findFirst({
+    where: eq(s.messages.id, input.messageId),
+    columns: { channelId: true },
+  });
+  if (msg) {
+    await triggerEvent(`private-channel-${msg.channelId}`, 'reaction.removed', {
+      messageId: input.messageId,
+      emoji: input.emoji,
+      userId: user.id,
+    });
+  }
   return { ok: true };
 }
 

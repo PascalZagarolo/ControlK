@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { NotificationStack, type NotifCard } from './notification-stack';
+import { WorkspaceSwitcher } from '@/components/header/workspace-switcher';
 
 // ───────────────────────────────────────────────────────────────
 // Types
@@ -94,20 +95,42 @@ export type FoyerData = {
     fromCache: boolean;
     isFallback: boolean;
   } | null;
+  /**
+   * Active workspace summary for the inline foyer TopNav switcher.
+   * Anonymous foyer leaves this null and renders a generic pill
+   * (the user has no workspaces yet to switch between).
+   */
+  activeWorkspace?: FoyerWorkspace | null;
+  /**
+   * All workspaces the current user is a member of — feeds the
+   * foyer's WorkspaceSwitcher dropdown. Empty array on anon foyer.
+   */
+  workspaces?: FoyerWorkspace[];
+};
+
+export type FoyerWorkspace = {
+  id: string;
+  slug: string;
+  name: string;
+  short: string;
+  from: string;
+  to: string;
+  scope?: 'business' | 'private';
 };
 
 // ───────────────────────────────────────────────────────────────
 // Constants — non-data UI defaults
 // ───────────────────────────────────────────────────────────────
 
+// Foyer top-nav modules. Mirrors the global NavTabs set (Inbox / Todos /
+// Notizen / Channels / Kalender) — uRent-specific entities (Kunden,
+// Flotte, Verträge) live in their own pages but stay off this strip so
+// the foyer reads as a focused workspace lobby, not a full module menu.
 const MODULES = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
   { label: 'Notizen', href: '/notes' },
   { label: 'Channels', href: '/channels' },
-  { label: 'Kunden', href: '/kunden' },
-  { label: 'Flotte', href: '/flotte' },
-  { label: 'Verträge', href: '/vertraege' },
   { label: 'Kalender', href: '/kalender' },
 ] as const;
 
@@ -354,7 +377,14 @@ export function FoyerClient(props: FoyerData) {
         className="relative z-10 flex min-h-screen flex-col transition-opacity duration-300 ease-out"
         style={{ opacity: dimRest ? 0.85 : 1 }}
       >
-        <TopNav modules={MODULES} workspaceName={`${props.userName}'s Workspace`} onClick={enterDoorway} dim={dimRest} />
+        <TopNav
+          modules={MODULES}
+          workspaceName={`${props.userName}'s Workspace`}
+          activeWorkspace={props.activeWorkspace ?? null}
+          workspaces={props.workspaces ?? []}
+          onClick={enterDoorway}
+          dim={dimRest}
+        />
 
         {/* One unified column. Jetzt joins the hero — no separate section.
             Rhythm: greeting → 16 → subtitle → 56 → briefing → 48 → search →
@@ -455,11 +485,17 @@ function AmbientLight({ color, opacity }: { color: string; opacity: number }) {
 function TopNav({
   modules,
   workspaceName,
+  activeWorkspace,
+  workspaces,
   onClick,
   dim,
 }: {
   modules: readonly { label: string; href: string }[];
+  /** Fallback name used only for the anonymous foyer (no user / no workspace). */
   workspaceName: string;
+  /** When set, the inline span is replaced with the real WorkspaceSwitcher. */
+  activeWorkspace: FoyerWorkspace | null;
+  workspaces: FoyerWorkspace[];
   onClick: (href: string) => void;
   dim: boolean;
 }) {
@@ -473,10 +509,16 @@ function TopNav({
         className="flex items-center gap-1 rounded-full border border-[#1F1F23] px-2 py-1.5 backdrop-blur-xl backdrop-saturate-150"
         style={{ background: 'rgba(17, 17, 20, 0.5)' }}
       >
-        <span className="mx-2 inline-flex items-center gap-2 text-[12px] text-[#9b9ba0]">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#E8B86D]" />
-          {workspaceName}
-        </span>
+        {activeWorkspace ? (
+          <WorkspaceSwitcher active={activeWorkspace} workspaces={workspaces} />
+        ) : (
+          // Anonymous / no-membership fallback: static pill, no dropdown
+          // (there'd be nothing to switch between).
+          <span className="mx-2 inline-flex items-center gap-2 text-[12px] text-[#9b9ba0]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#E8B86D]" />
+            {workspaceName}
+          </span>
+        )}
         <span className="mx-1 h-4 w-px bg-[#1F1F23]" />
         {modules.map((m) => (
           <button

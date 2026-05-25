@@ -138,7 +138,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     !pathname.startsWith('/magic-link');
   return (
     <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
-      <body>
+      {/* suppressHydrationWarning swallows the harmless attribute drift
+       *  some browser extensions inject on <body> (e.g. ColorZilla's
+       *  `cz-shortcut-listen`, ChatGPT-Lookup's data-*). React would
+       *  otherwise abort hydration and re-render the whole tree. */}
+      <body suppressHydrationWarning>
         <PusherProvider config={pusherConfig} userId={user?.id}>
           <Header />
           <ProfileDock />

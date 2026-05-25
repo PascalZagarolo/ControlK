@@ -12,9 +12,13 @@
  */
 
 import { currentUser } from '@/lib/auth/current-user';
-import { getCurrentWorkspace } from '@/lib/db/current-workspace';
+import { getCurrentWorkspace, listUserWorkspaces } from '@/lib/db/current-workspace';
 import { buildFoyerData } from '@/lib/foyer/build-foyer-data';
-import { FoyerClient, type FoyerData } from '@/components/foyer/foyer-client';
+import {
+  FoyerClient,
+  type FoyerData,
+  type FoyerWorkspace,
+} from '@/components/foyer/foyer-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +36,26 @@ const ANONYMOUS_FOYER: FoyerData = {
   jetztSuggestions: [],
 };
 
+function toFoyerWorkspace(w: {
+  id: string;
+  slug: string;
+  name: string;
+  short: string;
+  fromColor: string;
+  toColor: string;
+  scope: string;
+}): FoyerWorkspace {
+  return {
+    id: w.id,
+    slug: w.slug,
+    name: w.name,
+    short: w.short,
+    from: w.fromColor,
+    to: w.toColor,
+    scope: (w.scope === 'private' ? 'private' : 'business') as 'business' | 'private',
+  };
+}
+
 export default async function Page() {
   const user = await currentUser();
   if (!user) {
@@ -42,11 +66,22 @@ export default async function Page() {
     return <FoyerClient {...ANONYMOUS_FOYER} userName={user.name.split(' ')[0]} />;
   }
 
-  const data = await buildFoyerData({
-    workspaceId: ws.id,
-    userId: user.id,
-    userName: user.name.split(' ')[0] || user.name,
-  });
+  // Workspaces feed the inline foyer-switcher dropdown. Parallel to
+  // the foyer-data fetch so we don't add a serial hop.
+  const [data, workspaces] = await Promise.all([
+    buildFoyerData({
+      workspaceId: ws.id,
+      userId: user.id,
+      userName: user.name.split(' ')[0] || user.name,
+    }),
+    listUserWorkspaces(),
+  ]);
 
-  return <FoyerClient {...data} />;
+  return (
+    <FoyerClient
+      {...data}
+      activeWorkspace={toFoyerWorkspace(ws)}
+      workspaces={workspaces.map(toFoyerWorkspace)}
+    />
+  );
 }

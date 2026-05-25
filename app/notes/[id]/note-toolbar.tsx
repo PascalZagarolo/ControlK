@@ -29,6 +29,7 @@ export function NoteToolbar({
   const saving = useNoteSaveStore((s) => s.saving);
   const savedAt = useNoteSaveStore((s) => s.savedAt);
   const wordCount = useNoteSaveStore((s) => s.wordCount);
+  const syncStatus = useNoteSaveStore((s) => s.syncStatus);
 
   // Close the dropdown on outside click + escape.
   useEffect(() => {
@@ -66,11 +67,25 @@ export function NoteToolbar({
     });
   };
 
-  // Recently-saved indicator decays to invisible 800 ms after the last
-  // save finishes; while `saving` is true the dot pulses continuously.
+  // Indicator state machine, driven by the save-queue's syncStatus:
+  //   synced (idle)           → dot hidden
+  //   synced (just persisted) → amber dot, 800ms fade
+  //   saving                  → amber dot, continuous pulse
+  //   pending                 → amber dot, no pulse — debounce armed
+  //   offline                 → red dot + "Offline" label, no pulse
   const lastSaveMs = savedAt ? Date.now() - savedAt.getTime() : Infinity;
   const showSavedFlash = !saving && lastSaveMs < 800;
-  const indicatorVisible = saving || showSavedFlash;
+  const indicatorVisible =
+    saving || showSavedFlash || syncStatus === 'pending' || syncStatus === 'offline';
+  const dotColor = syncStatus === 'offline' ? '#ff8a8a' : '#E8B86D';
+  const dotTitle =
+    syncStatus === 'offline'
+      ? 'Offline — Änderungen sind lokal sicher und werden synchronisiert sobald du wieder online bist.'
+      : syncStatus === 'pending'
+        ? 'Wartet …'
+        : saving
+          ? 'Speichert …'
+          : 'Gespeichert';
 
   const displayTitle = liveTitle.trim() || 'Unbenannt';
 
@@ -97,13 +112,19 @@ export function NoteToolbar({
           {formatMeta({ updatedAt, savedAt, wordCount })}
         </span>
 
+        {syncStatus === 'offline' && (
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-[#ff8a8a]">
+            Offline
+          </span>
+        )}
+
         <span
           aria-hidden
           className={`h-1.5 w-1.5 rounded-full transition-opacity duration-700 ${
             indicatorVisible ? 'opacity-100' : 'opacity-0'
           } ${saving ? 'animate-[notePulse_1.2s_ease-in-out_infinite]' : ''}`}
-          style={{ background: '#E8B86D' }}
-          title={saving ? 'Speichert …' : 'Gespeichert'}
+          style={{ background: dotColor }}
+          title={dotTitle}
         />
 
         <div ref={menuRef} className="relative">

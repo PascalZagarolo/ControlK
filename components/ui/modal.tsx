@@ -55,11 +55,17 @@ export function Modal({
       aria-modal="true"
       className="fixed inset-0 z-[200] flex items-start justify-center pt-[10vh]"
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      {/* Stronger dim + light blur on the backdrop so the foyer's ambient
+       *  light (warm radial gradient) reads as background, not as panel
+       *  content bleed-through. */}
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
       <div
         ref={panelRef}
         style={{ maxWidth }}
-        className="relative w-[calc(100vw-32px)] overflow-hidden rounded-[14px] border border-white/[0.08] bg-[rgba(14,15,18,0.96)] shadow-panel backdrop-blur-xl"
+        // Solid panel: fully opaque dark surface, no backdrop-blur (it
+        // does nothing under an opaque fill). Crisper border so the
+        // dialog edge is unambiguous against the dimmed foyer behind.
+        className="relative w-[calc(100vw-32px)] overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0E0F12] shadow-[0_24px_64px_-12px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.03)_inset]"
       >
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
           <div>

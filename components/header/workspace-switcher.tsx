@@ -108,33 +108,33 @@ export function WorkspaceSwitcher({
 
   return (
     <div ref={wrapRef} className="relative flex items-center">
-      <a
-        href="/"
-        className="flex items-center gap-2 rounded-full px-2 py-1 text-[13px] font-normal leading-none text-[#FAFAFA] transition-colors hover:bg-white/[0.04]"
-        aria-label={`${active.name} home`}
-      >
-        <ActiveDot />
-        <span>{active.name}</span>
-        {active.scope && <ScopeChip scope={active.scope} />}
-      </a>
+      {/* Whole pill is the trigger — clicking the name opens the dropdown,
+       *  not a navigation. Home is reachable by clicking the "active"
+       *  row inside the dropdown (or via the workspace icon elsewhere
+       *  in the chrome). Previous split — name=link, only chevron=button
+       *  — was a discoverability dead-end. */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Workspace wechseln"
-        className="ml-0.5 flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-ink-50/60 transition-all duration-200 ease-soft hover:bg-white/[0.08] hover:text-ink-50"
+        aria-label={`Workspace wechseln (${active.name})`}
+        className="flex items-center gap-2 rounded-full px-2 py-1 text-[13px] font-normal leading-none text-[#FAFAFA] transition-colors hover:bg-white/[0.04]"
       >
+        <ActiveDot />
+        <span>{active.name}</span>
+        {active.scope && <ScopeChip scope={active.scope} />}
         <svg
-          width="14"
-          height="14"
+          aria-hidden
+          width="12"
+          height="12"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className={`transition-transform duration-200 ease-soft ${open ? 'rotate-180' : ''}`}
+          className={`ml-0.5 text-ink-50/60 transition-transform duration-200 ease-soft ${open ? 'rotate-180' : ''}`}
         >
           <path d="M6 9l6 6 6-6" />
         </svg>
@@ -146,7 +146,17 @@ export function WorkspaceSwitcher({
           className="absolute left-0 top-[calc(100%+8px)] z-[1000] min-w-[280px] rounded-[10px] border border-white/10 bg-[rgba(20,21,23,0.96)] p-1.5 text-[13px] shadow-panel backdrop-blur-md backdrop-saturate-150"
         >
           <SectionLabel>Aktiv</SectionLabel>
-          <Item leading={<Badge ws={active} size={20} />} trailing={<CheckIcon />} ariaCurrent>
+          <Item
+            leading={<Badge ws={active} size={20} />}
+            trailing={<CheckIcon />}
+            ariaCurrent
+            onClick={() => {
+              setOpen(false);
+              // Previous behavior of the pill was a hard link to `/`.
+              // Preserve that — clicking the active row navigates home.
+              router.push('/');
+            }}
+          >
             {active.name}
           </Item>
 

@@ -136,12 +136,17 @@ export type ChannelEntityHit = {
 
 export type Message = {
   id: string;
+  /** Author user id — needed by the client to gate the edit/delete menu. */
+  authorId: string;
   authorName: string;
   authorInitials: string;
   authorFrom: string;
   authorTo: string;
   timestamp: string;
   body: string;
+  /** Set when the message has been edited at least once. Triggers the
+   *  "(bearbeitet)" hint next to the timestamp. */
+  editedAt?: string;
   reactions?: { emoji: string; count: number }[];
   threadReplies?: Message[];
 };
