@@ -253,6 +253,13 @@
       "when": 1781150000000,
       "tag": "0035_workspace_invites_resend",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781200000000,
+      "tag": "0036_backfill_user_avatar_colors",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { createSession } from '@/lib/auth/sessions';
 import { setSessionCookie } from '@/lib/auth/cookies';
 import { newUserId } from '@/lib/auth/tokens';
 import { encryptSecret } from '@/lib/auth/secret-encryption';
+import { randomUserAvatarColors } from '@/lib/avatar-colors';
 
 export const dynamic = 'force-dynamic';
 
@@ -204,12 +205,15 @@ export async function GET(req: NextRequest) {
       const id = newUserId();
       const workspaceId = randomUUID();
       const wsSlug = await uniqueWorkspaceSlug(slugify(name));
+      const userAvatar = randomUserAvatarColors();
       await db.batch([
         db.insert(s.users).values({
           id,
           email: claims.email,
           name,
           initials: initialsFromName(name),
+          avatarFrom: userAvatar.from,
+          avatarTo: userAvatar.to,
           emailVerifiedAt: new Date(),
         }),
         db.insert(s.oauthAccounts).values({

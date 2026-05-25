@@ -8,6 +8,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { generateToken, hashToken, newUserId } from '@/lib/auth/tokens';
+import { randomUserAvatarColors } from '@/lib/avatar-colors';
 import {
   createSession,
   invalidateAllUserSessions,
@@ -80,6 +81,7 @@ export async function signUp(formData: FormData): Promise<Result> {
   // public-bookings against them (lib/actions/bookings.ts).
   const workspaceId = randomUUID();
   const wsSlug = await uniqueWorkspaceSlug(slugify(name));
+  const userAvatar = randomUserAvatarColors();
   await db.batch([
     db.insert(s.users).values({
       id,
@@ -87,6 +89,8 @@ export async function signUp(formData: FormData): Promise<Result> {
       name,
       initials: initialsFromName(name),
       passwordHash,
+      avatarFrom: userAvatar.from,
+      avatarTo: userAvatar.to,
       // emailVerifiedAt stays null — the verification mail goes out at
       // the bottom of this function and the user has to click the link.
       // Until then a banner in the root layout reminds them.
@@ -411,11 +415,14 @@ export async function consumeMagicLink(token: string): Promise<Result> {
   if (!user) {
     const id = newUserId();
     const name = row.email.split('@')[0];
+    const userAvatar = randomUserAvatarColors();
     await db.insert(s.users).values({
       id,
       email: row.email,
       name,
       initials: initialsFromName(name),
+      avatarFrom: userAvatar.from,
+      avatarTo: userAvatar.to,
       emailVerifiedAt: new Date(), // magic link clicked from inbox = verified
     });
     user = await db.query.users.findFirst({ where: eq(s.users.id, id) });
