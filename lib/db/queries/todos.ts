@@ -1,7 +1,22 @@
 import 'server-only';
-import { and, asc, count, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
+
+/**
+ * Visibility predicate composed into every read against the todos table.
+ * `team` and `account` todos are visible to all workspace members;
+ * `private` todos are visible only to their creator or assignee. Mirrors
+ * the boundary in listTodos / listTodosPage so single-row fetches and
+ * count aggregates can't leak around it.
+ */
+function todosVisibilityClause(userId: string) {
+  return or(
+    ne(s.todos.visibility, 'private'),
+    eq(s.todos.createdById, userId),
+    eq(s.todos.assigneeId, userId)
+  )!;
+}
 import type {
   Todo,
   TodoActivityEntry,
@@ -462,10 +477,18 @@ export async function listTodosPage(
   return { items, nextCursor, hasMore };
 }
 
-export async function getTodo(workspaceId: string, todoId: string): Promise<Todo | null> {
+export async function getTodo(
+  workspaceId: string,
+  userId: string,
+  todoId: string
+): Promise<Todo | null> {
   const db = getDb();
   const row = await db.query.todos.findFirst({
-    where: and(eq(s.todos.workspaceId, workspaceId), eq(s.todos.id, todoId)),
+    where: and(
+      eq(s.todos.workspaceId, workspaceId),
+      eq(s.todos.id, todoId),
+      todosVisibilityClause(userId)
+    ),
     with: {
       createdBy: true,
       assignee: true,
@@ -497,7 +520,8 @@ export async function todoStats(workspaceId: string, userId: string) {
     .where(
       and(
         eq(s.todos.workspaceId, workspaceId),
-        eq(s.todos.status, 'offen')
+        eq(s.todos.status, 'offen'),
+        todosVisibilityClause(userId)
       )
     );
   const [todayRow] = await db
@@ -529,7 +553,7 @@ export async function todoStats(workspaceId: string, userId: string) {
   };
 }
 
-export async function todoTodayCount(workspaceId: string) {
+export async function todoTodayCount(workspaceId: string, userId: string) {
   const db = getDb();
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -541,7 +565,8 @@ export async function todoTodayCount(workspaceId: string) {
       and(
         eq(s.todos.workspaceId, workspaceId),
         gte(s.todos.dueAt, startToday),
-        lte(s.todos.dueAt, endToday)
+        lte(s.todos.dueAt, endToday),
+        todosVisibilityClause(userId)
       )
     );
   return row?.n ?? 0;

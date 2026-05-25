@@ -42,7 +42,7 @@ export async function GET() {
       listCustomers(ws.id),
       listContracts(ws.id),
       listVehicles(ws.id),
-      listNotesTree(ws.id),
+      listNotesTree(ws.id, user.id),
     ]);
 
     for (const c of channels) {

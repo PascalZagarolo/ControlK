@@ -42,6 +42,7 @@ export type InboxDetailContext = {
  */
 export async function loadInboxDetailContext(
   workspaceId: string,
+  userId: string,
   itemId: string,
   senderEmail: string | null
 ): Promise<InboxDetailContext> {
@@ -51,24 +52,26 @@ export async function loadInboxDetailContext(
   // header at all (e.g. some calendar invites) — bail early so we
   // don't query for nothing.
   if (!senderEmail) {
-    const history = await fetchSenderHistory(workspaceId, itemId, null);
+    const history = await fetchSenderHistory(workspaceId, userId, itemId, null);
     return { customer: null, senderHistory: history, customerTodos: [], customerNotes: [] };
   }
 
-  // 1. Customer match via contacts.email (case-insensitive).
+  // 1. Customer match via contacts.email (case-insensitive). Customers
+  // are shared workspace data, so no per-user filter here.
   const customer = await findCustomerByContactEmail(workspaceId, senderEmail);
 
-  // 2. Other emails in inbox_items from the same address — useful even
-  //    when there's no customer match.
-  const history = await fetchSenderHistory(workspaceId, itemId, senderEmail);
+  // 2. Other emails in inbox_items from the same address — sender
+  //    history is scoped to the current user's mailbox to prevent
+  //    leaking another member's correspondence.
+  const history = await fetchSenderHistory(workspaceId, userId, itemId, senderEmail);
 
   // 3. If we matched a customer, load their open todos + recent
   //    notes that mention them. Both queries are best-effort.
   let customerTodos: InboxDetailContext['customerTodos'] = [];
   let customerNotes: InboxDetailContext['customerNotes'] = [];
   if (customer) {
-    customerTodos = await fetchCustomerOpenTodos(workspaceId, customer.id);
-    customerNotes = await fetchCustomerMentioningNotes(workspaceId, customer.id);
+    customerTodos = await fetchCustomerOpenTodos(workspaceId, userId, customer.id);
+    customerNotes = await fetchCustomerMentioningNotes(workspaceId, userId, customer.id);
   }
 
   return { customer, senderHistory: history, customerTodos, customerNotes };
@@ -129,6 +132,7 @@ async function findCustomerByContactEmail(
 
 async function fetchSenderHistory(
   workspaceId: string,
+  userId: string,
   excludeItemId: string,
   senderEmail: string | null
 ): Promise<SenderHistoryItem[]> {
@@ -146,6 +150,7 @@ async function fetchSenderHistory(
     .where(
       and(
         eq(s.inboxItems.workspaceId, workspaceId),
+        eq(s.inboxItems.userId, userId),
         ne(s.inboxItems.id, excludeItemId),
         sql`LOWER(${s.inboxItems.senderEmail}) = LOWER(${senderEmail})`
       )
@@ -163,6 +168,7 @@ async function fetchSenderHistory(
 
 async function fetchCustomerOpenTodos(
   workspaceId: string,
+  userId: string,
   customerId: string
 ): Promise<{ id: string; title: string; dueAt: string | null }[]> {
   try {
@@ -178,7 +184,13 @@ async function fetchCustomerOpenTodos(
         and(
           eq(s.todos.workspaceId, workspaceId),
           eq(s.todos.customerId, customerId),
-          or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit'))
+          or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit')),
+          // Hide private todos owned by other members from this customer rail.
+          or(
+            ne(s.todos.visibility, 'private'),
+            eq(s.todos.createdById, userId),
+            eq(s.todos.assigneeId, userId)
+          )!
         )
       )
       .orderBy(desc(s.todos.createdAt))
@@ -202,6 +214,7 @@ async function fetchCustomerOpenTodos(
  */
 export async function resolveSyncedGmailIds(
   workspaceId: string,
+  userId: string,
   gmailIds: string[]
 ): Promise<Map<string, string>> {
   if (gmailIds.length === 0) return new Map();
@@ -216,6 +229,7 @@ export async function resolveSyncedGmailIds(
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.sourceType, 'email_gmail'),
           inArray(s.inboxItems.sourceId, gmailIds)
         )
@@ -230,12 +244,14 @@ export async function resolveSyncedGmailIds(
 
 async function fetchCustomerMentioningNotes(
   workspaceId: string,
+  userId: string,
   customerId: string
 ): Promise<{ id: string; noteId: string; title: string }[]> {
   try {
     const db = getDb();
     // Join through note_mentions where mention_type='customer'
     // and mention_id matches. Filter to workspace's notes only.
+    // Visibility-filtered: private notes from other members are excluded.
     const rows = await db
       .select({
         id: s.noteMentions.id,
@@ -249,7 +265,8 @@ async function fetchCustomerMentioningNotes(
           eq(s.notes.workspaceId, workspaceId),
           isNull(s.notes.archivedAt),
           eq(s.noteMentions.mentionType, 'customer'),
-          eq(s.noteMentions.mentionId, customerId)
+          eq(s.noteMentions.mentionId, customerId),
+          or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!
         )
       )
       .orderBy(desc(s.noteMentions.createdAt))

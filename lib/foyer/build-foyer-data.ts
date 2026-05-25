@@ -47,7 +47,7 @@ export async function buildFoyerData(input: {
       listNotifications(input.userId, 50).catch(() => []),
       fetchLatestUnreadMessage(input.workspaceId, input.userId).catch(() => null),
       fetchMostRecentNote(input.workspaceId).catch(() => null),
-      listFoyerInboxCards(input.workspaceId).catch(() => []),
+      listFoyerInboxCards(input.workspaceId, input.userId).catch(() => []),
       fetchGmailConnectionState(input.userId).catch(() => ({
         connected: false,
         syncedAt: null,

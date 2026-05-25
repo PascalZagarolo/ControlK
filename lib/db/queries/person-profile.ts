@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 
@@ -70,21 +70,26 @@ export type ProfileStats = {
  */
 export async function getPersonProfile(
   workspaceId: string,
+  userId: string,
   email: string
 ): Promise<PersonProfile> {
   const normalized = email.trim().toLowerCase();
 
+  // Email history (`fetchEmails`, `fetchBestDisplayName`) is per-user:
+  // each member sees only their own correspondence. Customer match is
+  // workspace-shared since customer records are shared business data.
   const [emails, customer, displayName] = await Promise.all([
-    fetchEmails(workspaceId, normalized).catch(() => []),
+    fetchEmails(workspaceId, userId, normalized).catch(() => []),
     fetchCustomerByEmail(workspaceId, normalized).catch(() => null),
-    fetchBestDisplayName(workspaceId, normalized).catch(() => ''),
+    fetchBestDisplayName(workspaceId, userId, normalized).catch(() => ''),
   ]);
 
   // Customer-derived rails: only fetched when we have a customer match.
+  // Todos + notes are visibility-scoped to hide other members' private items.
   const [todos, notes] = customer
     ? await Promise.all([
-        fetchCustomerOpenTodos(workspaceId, customer.id).catch(() => []),
-        fetchCustomerMentioningNotes(workspaceId, customer.id).catch(() => []),
+        fetchCustomerOpenTodos(workspaceId, userId, customer.id).catch(() => []),
+        fetchCustomerMentioningNotes(workspaceId, userId, customer.id).catch(() => []),
       ])
     : [[], []];
 
@@ -119,12 +124,14 @@ function computeStats(emails: PersonEmail[]): ProfileStats {
 
 async function fetchEmails(
   workspaceId: string,
+  userId: string,
   email: string
 ): Promise<PersonEmail[]> {
   const db = getDb();
-  // Either side: emails FROM this person OR TO this person. We cap at
-  // 100 for the timeline; deeper history would need its own pagination
-  // affordance.
+  // Either side: emails FROM this person OR TO this person. Scoped to
+  // the current user — never expose another member's correspondence
+  // with the same person. We cap at 100 for the timeline; deeper
+  // history would need its own pagination affordance.
   const rows = await db
     .select({
       id: s.inboxItems.id,
@@ -140,6 +147,7 @@ async function fetchEmails(
     .where(
       and(
         eq(s.inboxItems.workspaceId, workspaceId),
+        eq(s.inboxItems.userId, userId),
         or(
           sql`lower(${s.inboxItems.senderEmail}) = ${email}`,
           sql`lower(${s.inboxItems.recipientEmail}) = ${email}`
@@ -209,6 +217,7 @@ async function fetchCustomerByEmail(
 // fall back to the customer name when sender history is sent-only.
 async function fetchBestDisplayName(
   workspaceId: string,
+  userId: string,
   email: string
 ): Promise<string> {
   const db = getDb();
@@ -218,6 +227,7 @@ async function fetchBestDisplayName(
     .where(
       and(
         eq(s.inboxItems.workspaceId, workspaceId),
+        eq(s.inboxItems.userId, userId),
         sql`lower(${s.inboxItems.senderEmail}) = ${email}`
       )
     )
@@ -228,6 +238,7 @@ async function fetchBestDisplayName(
 
 async function fetchCustomerOpenTodos(
   workspaceId: string,
+  userId: string,
   customerId: string
 ): Promise<ProfileTodo[]> {
   const db = getDb();
@@ -243,7 +254,12 @@ async function fetchCustomerOpenTodos(
       and(
         eq(s.todos.workspaceId, workspaceId),
         eq(s.todos.customerId, customerId),
-        or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit'))
+        or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit')),
+        or(
+          ne(s.todos.visibility, 'private'),
+          eq(s.todos.createdById, userId),
+          eq(s.todos.assigneeId, userId)
+        )!
       )
     )
     .orderBy(desc(s.todos.createdAt))
@@ -258,6 +274,7 @@ async function fetchCustomerOpenTodos(
 
 async function fetchCustomerMentioningNotes(
   workspaceId: string,
+  userId: string,
   customerId: string
 ): Promise<ProfileNote[]> {
   const db = getDb();
@@ -274,7 +291,8 @@ async function fetchCustomerMentioningNotes(
         eq(s.notes.workspaceId, workspaceId),
         isNull(s.notes.archivedAt),
         eq(s.noteMentions.mentionType, 'customer'),
-        eq(s.noteMentions.mentionId, customerId)
+        eq(s.noteMentions.mentionId, customerId),
+        or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!
       )
     )
     .orderBy(desc(s.noteMentions.createdAt))

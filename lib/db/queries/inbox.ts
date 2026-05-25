@@ -40,20 +40,27 @@ function relativeMinutes(received: Date): number {
 }
 
 /**
- * Top N unread, non-archived inbox items for the workspace, ordered
- * most-recent first. Powers the foyer's NotificationStack.
+ * Top N unread, non-archived inbox items for the *current user* within
+ * the workspace, ordered most-recent first. Powers the foyer's
+ * NotificationStack.
+ *
+ * Inbox items belong to a single user (Gmail OAuth is per-user). In a
+ * shared workspace each member sees only their own items — the
+ * notification stack must NEVER leak another member's mail.
  *
  * We deliberately don't surface read OR archived items — the stack is
  * meant to be a "what's waiting on me" lens, not a history view.
  */
 export async function listFoyerInboxCards(
   workspaceId: string,
+  userId: string,
   limit = 6
 ): Promise<FoyerInboxCard[]> {
   const db = getDb();
   const rows = await db.query.inboxItems.findMany({
     where: and(
       eq(s.inboxItems.workspaceId, workspaceId),
+      eq(s.inboxItems.userId, userId),
       eq(s.inboxItems.isRead, false),
       eq(s.inboxItems.isArchived, false),
       // Hide snoozed items until their wake-up time passes. NULL means

@@ -1,5 +1,6 @@
 import 'server-only';
 import { cache } from 'react';
+import { randomUUID } from 'crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from './client';
 import * as s from './schema';
@@ -18,6 +19,18 @@ function slugify(value: string): string {
   );
 }
 
+/**
+ * Failsafe for users created before the signup flow always bootstrapped
+ * a workspace (and for cascade-delete edge cases where a user's only
+ * workspace was hard-deleted). New signups go through the atomic batch
+ * in lib/actions/auth.ts / app/api/auth/google/callback — this path
+ * should only ever fire for legacy rows.
+ *
+ * Creates a personal workspace with scope='private' to match the
+ * convention established by the signup flow. The two inserts are
+ * sent in a single batch so a slug collision after the first insert
+ * doesn't leave an orphan workspace.
+ */
 async function bootstrapDefaultWorkspace(user: SessionUser) {
   const db = getDb();
   const base = slugify(user.name);
@@ -27,23 +40,28 @@ async function bootstrapDefaultWorkspace(user: SessionUser) {
     if (!dup) break;
     slug = `${base}-${Math.floor(Math.random() * 9999)}`;
   }
-  const [ws] = await db
-    .insert(s.workspaces)
-    .values({
+  const workspaceId = randomUUID();
+  await db.batch([
+    db.insert(s.workspaces).values({
+      id: workspaceId,
       slug,
       name: `${user.name.split(' ')[0]}'s Workspace`,
       short: user.initials.slice(0, 2),
       fromColor: user.avatarFrom,
       toColor: user.avatarTo,
       ownerId: user.id,
-    })
-    .returning();
-  await db.insert(s.workspaceMembers).values({
-    workspaceId: ws.id,
-    userId: user.id,
-    role: 'owner',
+      scope: 'private',
+    }),
+    db.insert(s.workspaceMembers).values({
+      workspaceId,
+      userId: user.id,
+      role: 'owner',
+    }),
+  ]);
+  const ws = await db.query.workspaces.findFirst({
+    where: eq(s.workspaces.id, workspaceId),
   });
-  return ws;
+  return ws!;
 }
 
 /**

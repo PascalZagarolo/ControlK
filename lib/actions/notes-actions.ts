@@ -1,13 +1,35 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne, or } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
+
+/**
+ * Defensive: confirm the caller can actually see the note they're
+ * linking from. Without this a leaked private-note id could be used
+ * to spam mentions onto someone else's private note.
+ */
+async function userCanLinkFromNote(
+  noteId: string,
+  workspaceId: string,
+  userId: string
+): Promise<boolean> {
+  const db = getDb();
+  const row = await db.query.notes.findFirst({
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      eq(s.notes.id, noteId),
+      or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!
+    ),
+    columns: { id: true },
+  });
+  return !!row;
+}
 
 /**
  * Slash-command actions invoked from inside a note. They spawn workspace
@@ -25,6 +47,10 @@ export async function createTodoFromNote(input: {
 
   const title = input.title.trim();
   if (!title) return { ok: false, error: 'Titel fehlt.' };
+
+  if (!(await userCanLinkFromNote(input.noteId, ws.id, user.id))) {
+    return { ok: false, error: 'Notiz nicht gefunden.' };
+  }
 
   const firstGroup = await db.query.todoGroups.findFirst({
     where: eq(s.todoGroups.workspaceId, ws.id),
@@ -68,6 +94,11 @@ export async function createEventFromNote(input: {
 
   const title = input.title.trim();
   if (!title) return { ok: false, error: 'Titel fehlt.' };
+
+  if (!(await userCanLinkFromNote(input.noteId, ws.id, user.id))) {
+    return { ok: false, error: 'Notiz nicht gefunden.' };
+  }
+
   const start = new Date(input.startsAt);
   if (isNaN(start.getTime())) return { ok: false, error: 'Ungültiges Datum.' };
   const end = new Date(start.getTime() + (input.durationMinutes ?? 60) * 60 * 1000);

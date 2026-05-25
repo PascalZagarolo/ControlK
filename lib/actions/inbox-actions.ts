@@ -46,10 +46,13 @@ async function loadOwnedItem(itemId: string) {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
+  // userId match is the privacy boundary: another workspace member must
+  // not be able to mutate this user's inbox by passing the item id.
   const item = await db.query.inboxItems.findFirst({
     where: and(
       eq(s.inboxItems.id, itemId),
-      eq(s.inboxItems.workspaceId, ws.id)
+      eq(s.inboxItems.workspaceId, ws.id),
+      eq(s.inboxItems.userId, user.id)
     ),
   });
   if (!item) return null;

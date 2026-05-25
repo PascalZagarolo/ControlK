@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'crypto';
-import { and, asc, desc, eq, isNull, max } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max, ne, or } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
@@ -13,6 +13,19 @@ import type { NoteScope } from '@/lib/types';
 const REVISION_GAP_MS = 5 * 60 * 1000; // snapshot at most every 5 min
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
+
+/**
+ * Visibility predicate composed into every WHERE clause that mutates a
+ * note. A private note can only be modified by its creator; workspace
+ * and public notes are mutable by any workspace member. Mirrors the
+ * read-side `notesVisibilityClause` in lib/db/queries/notes.ts.
+ *
+ * Until the row-level permission system from Sprint D lands, this is
+ * the enforcement boundary — every update/delete must include it.
+ */
+function notesAccessClause(userId: string) {
+  return or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!;
+}
 
 async function nextPosition(workspaceId: string, parentNoteId: string | null): Promise<number> {
   const db = getDb();
@@ -67,26 +80,42 @@ export async function createNote(input: {
 }
 
 export async function renameNote(id: string, title: string): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  await db
+  const updated = await db
     .update(s.notes)
     .set({ title: title.trim() || 'Unbenannt', updatedAt: new Date() })
-    .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
+    .where(
+      and(
+        eq(s.notes.workspaceId, ws.id),
+        eq(s.notes.id, id),
+        notesAccessClause(user.id)
+      )
+    )
+    .returning({ id: s.notes.id });
+  if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath('/notes');
   revalidatePath(`/notes/${id}`);
   return { ok: true };
 }
 
 export async function setNoteIcon(id: string, icon: string | null): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  await db
+  const updated = await db
     .update(s.notes)
     .set({ icon: icon || null, updatedAt: new Date() })
-    .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
+    .where(
+      and(
+        eq(s.notes.workspaceId, ws.id),
+        eq(s.notes.id, id),
+        notesAccessClause(user.id)
+      )
+    )
+    .returning({ id: s.notes.id });
+  if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath(`/notes/${id}`);
   return { ok: true };
 }
@@ -95,6 +124,19 @@ export async function saveNoteDocument(id: string, document: unknown): Promise<R
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
+
+  // Verify the user actually has write-access to this note before we
+  // touch anything (snapshot or save). Private notes are write-locked
+  // to their creator.
+  const accessible = await db.query.notes.findFirst({
+    where: and(
+      eq(s.notes.workspaceId, ws.id),
+      eq(s.notes.id, id),
+      notesAccessClause(user.id)
+    ),
+    columns: { id: true },
+  });
+  if (!accessible) return { ok: false, error: 'Notiz nicht gefunden.' };
 
   // Snapshot the prior state if the last revision is older than REVISION_GAP_MS.
   // Catch-all best-effort — never block the save itself if snapshot fails.
@@ -156,25 +198,41 @@ export async function saveNoteDocument(id: string, document: unknown): Promise<R
 }
 
 export async function archiveNote(id: string): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  await db
+  const updated = await db
     .update(s.notes)
     .set({ archivedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
+    .where(
+      and(
+        eq(s.notes.workspaceId, ws.id),
+        eq(s.notes.id, id),
+        notesAccessClause(user.id)
+      )
+    )
+    .returning({ id: s.notes.id });
+  if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath('/notes');
   return { ok: true };
 }
 
 export async function restoreNote(id: string): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  await db
+  const updated = await db
     .update(s.notes)
     .set({ archivedAt: null, updatedAt: new Date() })
-    .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
+    .where(
+      and(
+        eq(s.notes.workspaceId, ws.id),
+        eq(s.notes.id, id),
+        notesAccessClause(user.id)
+      )
+    )
+    .returning({ id: s.notes.id });
+  if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath('/notes');
   return { ok: true };
 }
@@ -185,7 +243,7 @@ export async function moveNote(input: {
   beforeId?: string;
   afterId?: string;
 }): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
 
@@ -214,30 +272,47 @@ export async function moveNote(input: {
     newPos = await nextPosition(ws.id, input.parentNoteId);
   }
 
-  await db
+  const updated = await db
     .update(s.notes)
     .set({
       parentNoteId: input.parentNoteId,
       position: String(newPos) as any,
       updatedAt: new Date(),
     })
-    .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, input.id)));
+    .where(
+      and(
+        eq(s.notes.workspaceId, ws.id),
+        eq(s.notes.id, input.id),
+        notesAccessClause(user.id)
+      )
+    )
+    .returning({ id: s.notes.id });
+  if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath('/notes');
   return { ok: true };
 }
 
 export async function setNoteScope(id: string, scope: NoteScope): Promise<Result> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
 
+  // Visibility change is high-risk: it can demote a workspace note to
+  // private (locking out other members) or promote a private note to
+  // workspace (exposing the body). Only the creator may flip scope.
+  const accessible = await db.query.notes.findFirst({
+    where: and(
+      eq(s.notes.workspaceId, ws.id),
+      eq(s.notes.id, id),
+      notesAccessClause(user.id)
+    ),
+    columns: { id: true, shareToken: true },
+  });
+  if (!accessible) return { ok: false, error: 'Notiz nicht gefunden.' };
+
   const patch: Record<string, unknown> = { scope, updatedAt: new Date() };
   if (scope === 'public') {
-    const cur = await db.query.notes.findFirst({
-      where: and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)),
-      columns: { shareToken: true },
-    });
-    if (!cur?.shareToken) patch.shareToken = randomBytes(24).toString('hex');
+    if (!accessible.shareToken) patch.shareToken = randomBytes(24).toString('hex');
   } else {
     patch.shareToken = null;
   }
@@ -277,7 +352,11 @@ export async function restoreNoteRevision(
   const db = getDb();
 
   const note = await db.query.notes.findFirst({
-    where: and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, noteId)),
+    where: and(
+      eq(s.notes.workspaceId, ws.id),
+      eq(s.notes.id, noteId),
+      notesAccessClause(user.id)
+    ),
     columns: { id: true, title: true, document: true },
   });
   if (!note) return { ok: false, error: 'Notiz nicht gefunden.' };
@@ -330,7 +409,11 @@ export async function duplicateNote(id: string): Promise<Result<{ id: string }>>
   const ws = await requireCurrentWorkspace();
   const db = getDb();
   const src = await db.query.notes.findFirst({
-    where: and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)),
+    where: and(
+      eq(s.notes.workspaceId, ws.id),
+      eq(s.notes.id, id),
+      notesAccessClause(user.id)
+    ),
   });
   if (!src) return { ok: false, error: 'Notiz nicht gefunden.' };
   const position = await nextPosition(ws.id, src.parentNoteId ?? null);

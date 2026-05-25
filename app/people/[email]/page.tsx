@@ -23,7 +23,7 @@ export default async function Page({
   if (!user) redirect(`/sign-in?from=/people/${encodeURIComponent(email)}`);
   const ws = await requireCurrentWorkspace();
 
-  const profile = await getPersonProfile(ws.id, email);
+  const profile = await getPersonProfile(ws.id, user.id, email);
 
   // If there's truly nothing — no emails AND no customer match — it's
   // either a stale link or an address we've never seen. Render an

@@ -20,7 +20,7 @@ export default async function Page({
   const user = await currentUser();
   if (!user) redirect('/sign-in?from=/notes');
   const ws = await requireCurrentWorkspace();
-  const items = await listNotesForOverview(ws.id);
+  const items = await listNotesForOverview(ws.id, user.id);
   const sp = await searchParams;
   const selectedId = sp.n ?? null;
 
@@ -35,7 +35,7 @@ export default async function Page({
     items.find((n) => n.id === selectedId)?.id ?? items[0]?.id ?? null;
   let previewBlocks: PreviewBlock[] = [];
   if (activeId) {
-    const note = await getNote(ws.id, activeId);
+    const note = await getNote(ws.id, user.id, activeId);
     if (note) previewBlocks = extractPreviewBlocks(note.document, 8);
   }
 

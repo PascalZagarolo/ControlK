@@ -22,7 +22,7 @@ export default async function Page({
   if (!user) redirect(`/sign-in?from=/notes/${id}`);
   const ws = await requireCurrentWorkspace();
 
-  const note = await getNote(ws.id, id);
+  const note = await getNote(ws.id, user.id, id);
   if (!note) notFound();
 
   const [noteTags, workspaceTags] = await Promise.all([

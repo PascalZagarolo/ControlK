@@ -1,8 +1,20 @@
 import 'server-only';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import type { Note, NoteOverviewItem, NoteTreeItem } from '@/lib/types';
+
+/**
+ * Privacy clause for the notes table. A note with `scope='private'` is
+ * visible only to its creator; `workspace` and `public` notes are
+ * visible to every workspace member. The clause is composed into the
+ * WHERE of every list / get query so private notes never leak.
+ *
+ * Public-share-token access is a different path — see getNoteByShareToken.
+ */
+function notesVisibilityClause(userId: string) {
+  return or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!;
+}
 
 // Walks a BlockNote document and concatenates inline text. Stops once we
 // have enough characters to fill the list excerpt — we never need the
@@ -148,10 +160,17 @@ function toNote(row: any): Note {
   };
 }
 
-export async function listNotesTree(workspaceId: string): Promise<NoteTreeItem[]> {
+export async function listNotesTree(
+  workspaceId: string,
+  userId: string
+): Promise<NoteTreeItem[]> {
   const db = getDb();
   const rows = await db.query.notes.findMany({
-    where: and(eq(s.notes.workspaceId, workspaceId), isNull(s.notes.archivedAt)),
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      isNull(s.notes.archivedAt),
+      notesVisibilityClause(userId)
+    ),
     orderBy: [asc(s.notes.position), asc(s.notes.createdAt)],
     columns: {
       id: true,
@@ -186,13 +205,17 @@ export async function listNotesTree(workspaceId: string): Promise<NoteTreeItem[]
 
 // Flat list for the /notes overview. Sorted by most-recently-edited.
 // Templates and archived notes are filtered out at the query level.
-export async function listNotesForOverview(workspaceId: string): Promise<NoteOverviewItem[]> {
+export async function listNotesForOverview(
+  workspaceId: string,
+  userId: string
+): Promise<NoteOverviewItem[]> {
   const db = getDb();
   const rows = await db.query.notes.findMany({
     where: and(
       eq(s.notes.workspaceId, workspaceId),
       isNull(s.notes.archivedAt),
-      eq(s.notes.isTemplate, false)
+      eq(s.notes.isTemplate, false),
+      notesVisibilityClause(userId)
     ),
     orderBy: [desc(s.notes.updatedAt)],
     columns: {
@@ -226,10 +249,18 @@ export async function listNotesForOverview(workspaceId: string): Promise<NoteOve
   });
 }
 
-export async function getNote(workspaceId: string, id: string): Promise<Note | null> {
+export async function getNote(
+  workspaceId: string,
+  userId: string,
+  id: string
+): Promise<Note | null> {
   const db = getDb();
   const row = await db.query.notes.findFirst({
-    where: and(eq(s.notes.workspaceId, workspaceId), eq(s.notes.id, id)),
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      eq(s.notes.id, id),
+      notesVisibilityClause(userId)
+    ),
   });
   return row ? toNote(row) : null;
 }
@@ -253,12 +284,19 @@ export type NoteRevisionSummary = {
 
 export async function listNoteRevisions(
   workspaceId: string,
+  userId: string,
   noteId: string
 ): Promise<NoteRevisionSummary[]> {
   const db = getDb();
-  // Authorize by joining notes (must be in current workspace)
+  // Authorize by re-applying the same visibility clause used for the
+  // parent note. A user who can't read the note also can't see its
+  // history — even if they guess the revision id.
   const note = await db.query.notes.findFirst({
-    where: and(eq(s.notes.workspaceId, workspaceId), eq(s.notes.id, noteId)),
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      eq(s.notes.id, noteId),
+      notesVisibilityClause(userId)
+    ),
     columns: { id: true },
   });
   if (!note) return [];
@@ -279,12 +317,17 @@ export async function listNoteRevisions(
 
 export async function getNoteRevision(
   workspaceId: string,
+  userId: string,
   noteId: string,
   revisionId: string
 ): Promise<{ title: string; document: unknown; createdAt: string } | null> {
   const db = getDb();
   const note = await db.query.notes.findFirst({
-    where: and(eq(s.notes.workspaceId, workspaceId), eq(s.notes.id, noteId)),
+    where: and(
+      eq(s.notes.workspaceId, workspaceId),
+      eq(s.notes.id, noteId),
+      notesVisibilityClause(userId)
+    ),
     columns: { id: true },
   });
   if (!note) return null;

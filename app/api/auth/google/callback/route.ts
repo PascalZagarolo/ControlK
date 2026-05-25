@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { getDb, hasDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
@@ -191,42 +192,51 @@ export async function GET(req: NextRequest) {
           .where(eq(s.users.id, userId));
       }
     } else {
-      // Brand-new sign-up via Google. Create user + workspace + oauth row.
+      // Brand-new sign-up via Google. Four inserts go in a single
+      // atomic batch — if any step fails (slug collision, OAuth
+      // duplicate, …) the whole sign-up rolls back so we never
+      // create a half-provisioned account that can't log in.
+      //
+      // The personal workspace is created with `scope: 'private'`
+      // (signup bootstrap is always a personal workspace; shared
+      // ones are created later via createWorkspace).
       const name = (claims.name ?? '').trim() || claims.email.split('@')[0];
       const id = newUserId();
-      await db.insert(s.users).values({
-        id,
-        email: claims.email,
-        name,
-        initials: initialsFromName(name),
-        emailVerifiedAt: new Date(),
-      });
-      await db.insert(s.oauthAccounts).values({
-        userId: id,
-        provider: 'google',
-        providerAccountId: claims.sub,
-        email: claims.email,
-        name: claims.name ?? null,
-        avatarUrl: claims.picture ?? null,
-        ...tokenFields(null),
-      });
+      const workspaceId = randomUUID();
       const wsSlug = await uniqueWorkspaceSlug(slugify(name));
-      const [ws] = await db
-        .insert(s.workspaces)
-        .values({
+      await db.batch([
+        db.insert(s.users).values({
+          id,
+          email: claims.email,
+          name,
+          initials: initialsFromName(name),
+          emailVerifiedAt: new Date(),
+        }),
+        db.insert(s.oauthAccounts).values({
+          userId: id,
+          provider: 'google',
+          providerAccountId: claims.sub,
+          email: claims.email,
+          name: claims.name ?? null,
+          avatarUrl: claims.picture ?? null,
+          ...tokenFields(null),
+        }),
+        db.insert(s.workspaces).values({
+          id: workspaceId,
           slug: wsSlug,
           name: `${name.split(' ')[0]}'s Workspace`,
           short: initialsFromName(name).slice(0, 2),
           fromColor: '#5eb6ff',
           toColor: '#0369a1',
           ownerId: id,
-        })
-        .returning();
-      await db.insert(s.workspaceMembers).values({
-        workspaceId: ws.id,
-        userId: id,
-        role: 'owner',
-      });
+          scope: 'private',
+        }),
+        db.insert(s.workspaceMembers).values({
+          workspaceId,
+          userId: id,
+          role: 'owner',
+        }),
+      ]);
       userId = id;
     }
   }

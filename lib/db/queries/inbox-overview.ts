@@ -24,8 +24,14 @@ export type InboxCounts = {
  * Sidebar counts. Counts non-archived, non-snoozed inbox items per
  * category, plus AI-derived topic buckets. Topics aggregate via JOIN
  * to sender_topics on domain (extracted from sender_email).
+ *
+ * Scoped to the current user — other members of a shared workspace
+ * have their own counts and topics.
  */
-export async function getInboxCounts(workspaceId: string): Promise<InboxCounts> {
+export async function getInboxCounts(
+  workspaceId: string,
+  userId: string
+): Promise<InboxCounts> {
   const db = getDb();
   const visibleClause = or(
     isNull(s.inboxItems.snoozedUntil),
@@ -33,6 +39,7 @@ export async function getInboxCounts(workspaceId: string): Promise<InboxCounts> 
   )!;
   const baseWhere = and(
     eq(s.inboxItems.workspaceId, workspaceId),
+    eq(s.inboxItems.userId, userId),
     eq(s.inboxItems.isArchived, false),
     visibleClause
   );
@@ -121,6 +128,7 @@ const DEFAULT_PAGE_SIZE = 50;
 // domain — sql split_part keeps it server-side, no client mapping.
 export async function listInboxItemsPaginated(
   workspaceId: string,
+  userId: string,
   opts: {
     filter?: InboxFilter;
     page?: number;
@@ -134,7 +142,10 @@ export async function listInboxItemsPaginated(
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  const conditions = [eq(s.inboxItems.workspaceId, workspaceId)];
+  const conditions = [
+    eq(s.inboxItems.workspaceId, workspaceId),
+    eq(s.inboxItems.userId, userId),
+  ];
   if (filter === 'unread') {
     conditions.push(eq(s.inboxItems.isRead, false));
     conditions.push(eq(s.inboxItems.isArchived, false));
@@ -254,7 +265,10 @@ export type AwaitingSplit = {
  */
 const AWAITING_GRACE_DAYS = 3;
 
-export async function getAwaitingSplit(workspaceId: string): Promise<AwaitingSplit> {
+export async function getAwaitingSplit(
+  workspaceId: string,
+  userId: string
+): Promise<AwaitingSplit> {
   const db = getDb();
   const now = Date.now();
 
@@ -281,6 +295,7 @@ export async function getAwaitingSplit(workspaceId: string): Promise<AwaitingSpl
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false),
@@ -306,6 +321,7 @@ export async function getAwaitingSplit(workspaceId: string): Promise<AwaitingSpl
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'sent'),
           eq(s.inboxItems.awaitsTheirReply, true),
           eq(s.inboxItems.isArchived, false),
@@ -380,6 +396,7 @@ export type InboxGroup = {
  */
 export async function groupInboxBySender(
   workspaceId: string,
+  userId: string,
   opts: { filter?: 'unread' | 'all'; max?: number } = {}
 ): Promise<InboxGroup[]> {
   const db = getDb();
@@ -389,6 +406,7 @@ export async function groupInboxBySender(
   // 1. Aggregate per sender_email.
   const baseConditions = [
     eq(s.inboxItems.workspaceId, workspaceId),
+    eq(s.inboxItems.userId, userId),
     eq(s.inboxItems.isArchived, false),
     or(
       isNull(s.inboxItems.snoozedUntil),

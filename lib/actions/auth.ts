@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
+import { randomUUID } from 'crypto';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
@@ -67,35 +68,45 @@ export async function signUp(formData: FormData): Promise<Result> {
 
   const passwordHash = await hashPassword(password);
   const id = newUserId();
-  await db.insert(s.users).values({
-    id,
-    email,
-    name,
-    initials: initialsFromName(name),
-    passwordHash,
-    // emailVerifiedAt stays null — the verification mail goes out at
-    // the bottom of this function and the user has to click the link.
-    // Until then a banner in the root layout reminds them.
-  });
 
-  // Bootstrap: create a personal workspace + add user as owner-member.
+  // Bootstrap: user + personal workspace + owner-membership go in a
+  // single atomic batch. The HTTP driver's `db.batch` runs the
+  // statements in one server-side transaction — if any insert fails
+  // (slug collision, FK violation, …) none of them persist, so we
+  // never strand a user without a workspace.
+  //
+  // Personal workspaces use `scope: 'private'` so the switcher
+  // surfaces them under "🏡 Privat" and the booking-page gate blocks
+  // public-bookings against them (lib/actions/bookings.ts).
+  const workspaceId = randomUUID();
   const wsSlug = await uniqueWorkspaceSlug(slugify(name));
-  const [ws] = await db
-    .insert(s.workspaces)
-    .values({
+  await db.batch([
+    db.insert(s.users).values({
+      id,
+      email,
+      name,
+      initials: initialsFromName(name),
+      passwordHash,
+      // emailVerifiedAt stays null — the verification mail goes out at
+      // the bottom of this function and the user has to click the link.
+      // Until then a banner in the root layout reminds them.
+    }),
+    db.insert(s.workspaces).values({
+      id: workspaceId,
       slug: wsSlug,
       name: `${name.split(' ')[0]}'s Workspace`,
       short: initialsFromName(name).slice(0, 2),
       fromColor: '#5eb6ff',
       toColor: '#0369a1',
       ownerId: id,
-    })
-    .returning();
-  await db.insert(s.workspaceMembers).values({
-    workspaceId: ws.id,
-    userId: id,
-    role: 'owner',
-  });
+      scope: 'private',
+    }),
+    db.insert(s.workspaceMembers).values({
+      workspaceId,
+      userId: id,
+      role: 'owner',
+    }),
+  ]);
 
   const { token, expiresAt } = await createSession(id, info);
   await setSessionCookie(token, expiresAt);

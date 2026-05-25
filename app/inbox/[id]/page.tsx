@@ -30,10 +30,13 @@ export default async function Page({
   const ws = await requireCurrentWorkspace();
   const db = getDb();
 
+  // userId filter ensures a member in a shared workspace can't open
+  // another member's mail by URL-guessing the id.
   const item = await db.query.inboxItems.findFirst({
     where: and(
       eq(s.inboxItems.id, id),
-      eq(s.inboxItems.workspaceId, ws.id)
+      eq(s.inboxItems.workspaceId, ws.id),
+      eq(s.inboxItems.userId, user.id)
     ),
   });
   if (!item) notFound();
@@ -44,7 +47,7 @@ export default async function Page({
   // fetch's latency, not the sum.
   const [body, context, threadMessages] = await Promise.all([
     fetchBody(user.id, item.sourceType, item.sourceId).catch(() => null),
-    loadInboxDetailContext(ws.id, item.id, item.senderEmail),
+    loadInboxDetailContext(ws.id, user.id, item.id, item.senderEmail),
     fetchThread(user.id, item.sourceType, item.sourceThreadId).catch(
       () => [] as GmailThreadMessage[]
     ),
@@ -54,6 +57,7 @@ export default async function Page({
   // link into our own /inbox/[id] route where possible.
   const idMap = await resolveSyncedGmailIds(
     ws.id,
+    user.id,
     threadMessages.map((t) => t.id)
   ).catch(() => new Map<string, string>());
 

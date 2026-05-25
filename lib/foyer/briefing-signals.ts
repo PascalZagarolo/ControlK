@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { createHash } from 'crypto';
-import { and, asc, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 
@@ -57,6 +57,7 @@ export async function collectBriefingSignals(input: {
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false),
@@ -80,6 +81,7 @@ export async function collectBriefingSignals(input: {
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'sent'),
           eq(s.inboxItems.awaitsTheirReply, true),
           eq(s.inboxItems.isArchived, false),
@@ -90,6 +92,7 @@ export async function collectBriefingSignals(input: {
       .limit(AWAITING_LIMIT),
     // Overdue todos — past dueAt + still open. Grace of 1h to avoid
     // a todo flipping to overdue the second its time of day passes.
+    // Visibility-filtered: only todos this user is allowed to see.
     db
       .select({
         title: s.todos.title,
@@ -101,7 +104,12 @@ export async function collectBriefingSignals(input: {
           eq(s.todos.workspaceId, workspaceId),
           or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit')),
           sql`${s.todos.dueAt} IS NOT NULL`,
-          lt(s.todos.dueAt, new Date(now - OVERDUE_GRACE_HOURS * 60 * 60_000))
+          lt(s.todos.dueAt, new Date(now - OVERDUE_GRACE_HOURS * 60 * 60_000)),
+          or(
+            ne(s.todos.visibility, 'private'),
+            eq(s.todos.createdById, userId),
+            eq(s.todos.assigneeId, userId)
+          )!
         )
       )
       .orderBy(asc(s.todos.dueAt))
@@ -113,6 +121,7 @@ export async function collectBriefingSignals(input: {
       .where(
         and(
           eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false)
@@ -125,7 +134,12 @@ export async function collectBriefingSignals(input: {
         and(
           eq(s.todos.workspaceId, workspaceId),
           or(eq(s.todos.status, 'offen'), eq(s.todos.status, 'in_arbeit')),
-          sql`${s.todos.dueAt}::date = current_date`
+          sql`${s.todos.dueAt}::date = current_date`,
+          or(
+            ne(s.todos.visibility, 'private'),
+            eq(s.todos.createdById, userId),
+            eq(s.todos.assigneeId, userId)
+          )!
         )
       ),
   ]);

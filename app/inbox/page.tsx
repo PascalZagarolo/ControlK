@@ -83,21 +83,21 @@ export default async function Page({
 
   const [pageData, groups, awaiting, gmail, counts] = await Promise.all([
     effectiveMode === 'list'
-      ? listInboxItemsPaginated(ws.id, { filter, page, category, topic })
+      ? listInboxItemsPaginated(ws.id, user.id, { filter, page, category, topic })
       : Promise.resolve(null),
     effectiveMode === 'group'
-      ? groupInboxBySender(ws.id, {
+      ? groupInboxBySender(ws.id, user.id, {
           filter: filter === 'unread' ? 'unread' : 'all',
         })
       : Promise.resolve(null),
     effectiveMode === 'awaiting'
-      ? getAwaitingSplit(ws.id)
+      ? getAwaitingSplit(ws.id, user.id)
       : Promise.resolve(null),
     fetchGmailConnectionState(user.id).catch(() => ({
       connected: false,
       syncedAt: null,
     })),
-    getInboxCounts(ws.id).catch(() => null),
+    getInboxCounts(ws.id, user.id).catch(() => null),
   ]);
 
   return (

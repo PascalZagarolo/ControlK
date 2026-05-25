@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
@@ -526,10 +526,47 @@ export async function transferOwnership(input: {
 }
 
 // ─── Archive / unarchive / delete ────────────────────────────
+
+/**
+ * Returns the number of non-archived workspaces this user is still a
+ * member of, EXCLUDING the candidate workspaceId. Used by the
+ * delete/archive guards to prevent a user from removing their last
+ * landing-spot — if they did, the next request would auto-bootstrap a
+ * fresh "Personal Workspace" and they'd lose access to their existing
+ * data.
+ */
+async function countOtherLiveWorkspaces(
+  userId: string,
+  excludeWorkspaceId: string
+): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: s.workspaces.id })
+    .from(s.workspaceMembers)
+    .innerJoin(s.workspaces, eq(s.workspaces.id, s.workspaceMembers.workspaceId))
+    .where(
+      and(
+        eq(s.workspaceMembers.userId, userId),
+        isNull(s.workspaces.archivedAt)
+      )
+    );
+  return rows.filter((r) => r.id !== excludeWorkspaceId).length;
+}
+
 export async function archiveWorkspace(workspaceId: string): Promise<Result> {
   const user = await requireUser();
   const check = await requireRole(workspaceId, user.id, 'owner');
   if (!check.ok) return check;
+
+  const remaining = await countOtherLiveWorkspaces(user.id, workspaceId);
+  if (remaining === 0) {
+    return {
+      ok: false,
+      error:
+        'Das ist dein einziger aktiver Workspace. Erstelle erst einen anderen, bevor du diesen archivierst.',
+    };
+  }
+
   const db = getDb();
   await db
     .update(s.workspaces)
@@ -559,6 +596,20 @@ export async function deleteWorkspace(workspaceId: string): Promise<Result> {
   const check = await requireRole(workspaceId, user.id, 'owner');
   if (!check.ok) return check;
   if (!canDeleteWorkspace(check.role)) return { ok: false, error: 'Keine Berechtigung.' };
+
+  // Last-workspace guard. Hard-delete is irreversible (cascades through
+  // every workspace_id FK) and would leave the user with no landing
+  // spot — the foyer's auto-bootstrap would then create a fresh empty
+  // workspace, masking the data loss as "everything is gone."
+  const remaining = await countOtherLiveWorkspaces(user.id, workspaceId);
+  if (remaining === 0) {
+    return {
+      ok: false,
+      error:
+        'Das ist dein einziger Workspace. Erstelle erst einen anderen, bevor du diesen löschst.',
+    };
+  }
+
   const db = getDb();
   await db.delete(s.workspaces).where(eq(s.workspaces.id, workspaceId));
   revalidatePath('/');

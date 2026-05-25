@@ -16,9 +16,9 @@ export default async function Page({
   const user = await currentUser();
   if (!user) redirect(`/sign-in?from=/notes/${id}/history`);
   const ws = await requireCurrentWorkspace();
-  const note = await getNote(ws.id, id);
+  const note = await getNote(ws.id, user.id, id);
   if (!note) notFound();
-  const revisions = await listNoteRevisions(ws.id, id);
+  const revisions = await listNoteRevisions(ws.id, user.id, id);
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 px-4 pb-32 pt-28 md:px-6">
