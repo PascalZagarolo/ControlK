@@ -68,11 +68,16 @@ export default async function Page() {
 
   // Workspaces feed the inline foyer-switcher dropdown. Parallel to
   // the foyer-data fetch so we don't add a serial hop.
+  const workspaceScope = (ws.scope === 'private' ? 'private' : 'business') as
+    | 'business'
+    | 'private';
   const [data, workspaces] = await Promise.all([
     buildFoyerData({
       workspaceId: ws.id,
       userId: user.id,
       userName: user.name.split(' ')[0] || user.name,
+      workspaceScope,
+      workspaceName: ws.name,
     }),
     listUserWorkspaces(),
   ]);

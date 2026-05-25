@@ -30,6 +30,14 @@ export async function buildFoyerData(input: {
   workspaceId: string;
   userId: string;
   userName: string;
+  /** When 'private' (personal workspace), the foyer skips the channels
+   *  briefing row since channels don't exist there. Defaults to
+   *  'business' for the anonymous foyer / legacy callers. */
+  workspaceScope?: 'business' | 'private';
+  /** Workspace display name — used by the workspace-aware greeting
+   *  to swap "Guten Morgen, Pascal." for "Guten Morgen — uRent."
+   *  in shared workspaces. */
+  workspaceName?: string;
 }): Promise<FoyerData> {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -125,6 +133,32 @@ export async function buildFoyerData(input: {
     }
   })();
 
+  // ─── Channels activity (briefing row, shared workspaces only) ──
+  //
+  // Personal workspaces don't have channels — skip the row entirely
+  // there, otherwise the briefing renders a "0 ungelesen" line that
+  // never changes. Shared workspaces always render the row so the
+  // user knows whether they need to look at /channels.
+  const channelsActivity: FoyerData['channelsActivity'] =
+    input.workspaceScope === 'private' || channels.length === 0
+      ? null
+      : (() => {
+          const totalUnread = channels.reduce(
+            (sum, c) => sum + (c.unread ?? 0),
+            0
+          );
+          const top = [...channels]
+            .filter((c) => (c.unread ?? 0) > 0)
+            .sort((a, b) => (b.unread ?? 0) - (a.unread ?? 0))[0];
+          return {
+            channelCount: channels.length,
+            totalUnread,
+            topChannelName: top?.name ?? null,
+            topChannelUnread: top?.unread ?? 0,
+            hasMentions: unreadMentions > 0,
+          };
+        })();
+
   // Merge channel-mention notifications into the inbox-cards stack.
   // Mentions are time-sensitive ("@you in #akquise") so they belong in
   // the same calm-but-present strip as unread Gmail. Read-mentions
@@ -155,6 +189,8 @@ export async function buildFoyerData(input: {
 
   return {
     userName: input.userName,
+    workspaceName: input.workspaceName,
+    workspaceScope: input.workspaceScope ?? 'business',
     events,
     unread: unreadTotal,
     email: unreadEmail,
@@ -168,6 +204,7 @@ export async function buildFoyerData(input: {
     inboxCards: mergedInboxCards,
     gmail,
     briefing,
+    channelsActivity,
   };
 }
 

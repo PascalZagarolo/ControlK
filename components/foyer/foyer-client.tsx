@@ -96,6 +96,30 @@ export type FoyerData = {
     isFallback: boolean;
   } | null;
   /**
+   * Active workspace's display name. Drives the workspace-aware
+   * greeting in shared workspaces ("Guten Morgen — uRent."). Personal
+   * workspaces leave this undefined and fall back to the user-name
+   * greeting.
+   */
+  workspaceName?: string;
+  /**
+   * 'business' = shared workspace (channels row shows in briefing).
+   * 'private'  = personal workspace (channels row hidden). Defaults
+   * to 'business' for legacy / anon foyer.
+   */
+  workspaceScope?: 'business' | 'private';
+  /**
+   * Channels briefing-row summary. Null in personal workspaces or when
+   * the workspace has zero channels (don't render a hollow row).
+   */
+  channelsActivity?: {
+    channelCount: number;
+    totalUnread: number;
+    topChannelName: string | null;
+    topChannelUnread: number;
+    hasMentions: boolean;
+  } | null;
+  /**
    * Active workspace summary for the inline foyer TopNav switcher.
    * Anonymous foyer leaves this null and renders a generic pill
    * (the user has no workspaces yet to switch between).
@@ -157,18 +181,30 @@ function getMood(d: Date): Mood {
   return 'night';
 }
 
-function greetingFor(mood: Mood, userName: string): string {
+function greetingFor(
+  mood: Mood,
+  userName: string,
+  workspaceContext?: { name: string; scope: 'business' | 'private' } | null
+): string {
+  // Shared (business) workspaces swap the user-name with the workspace
+  // name — when you open the foyer of "uRent", the greeting reads as
+  // the workspace's lobby rather than your personal one. Personal
+  // workspaces keep the first-name greeting (it's still your space).
+  const isShared =
+    workspaceContext?.scope === 'business' && !!workspaceContext.name;
+  const subject = isShared ? workspaceContext!.name : userName;
+  const sep = isShared ? ' — ' : ', ';
   switch (mood) {
     case 'morning':
-      return `Guten Morgen, ${userName}.`;
+      return `Guten Morgen${sep}${subject}.`;
     case 'midday':
-      return `Hallo, ${userName}.`;
+      return `Hallo${sep}${subject}.`;
     case 'afternoon':
-      return `Schönen Nachmittag, ${userName}.`;
+      return `Schönen Nachmittag${sep}${subject}.`;
     case 'evening':
-      return `Guten Abend, ${userName}.`;
+      return `Guten Abend${sep}${subject}.`;
     case 'night':
-      return `Spät unterwegs, ${userName}.`;
+      return `Spät unterwegs${sep}${subject}.`;
   }
 }
 
@@ -329,14 +365,27 @@ export function FoyerClient(props: FoyerData) {
     const d = now ?? new Date(0);
     const mood: Mood = now ? getMood(d) : 'midday';
     const weekend = now ? d.getDay() === 0 || d.getDay() === 6 : false;
-    const greeting = now ? greetingFor(mood, props.userName) : ' ';
+    const workspaceContext =
+      props.workspaceName && props.workspaceScope
+        ? { name: props.workspaceName, scope: props.workspaceScope }
+        : null;
+    const greeting = now
+      ? greetingFor(mood, props.userName, workspaceContext)
+      : ' ';
     const subtitle = now
       ? subtitleFor(mood, weekend, props.events.length, props.unread)
       : ' ';
     const suggestions = now ? suggestionsFor(mood, weekend, props.unread) : [];
     const light = lightFor(mood);
     return { mood, weekend, greeting, subtitle, suggestions, light };
-  }, [now, props.userName, props.events.length, props.unread]);
+  }, [
+    now,
+    props.userName,
+    props.workspaceName,
+    props.workspaceScope,
+    props.events.length,
+    props.unread,
+  ]);
 
   const dimRest = searchFocused;
 
@@ -422,6 +471,7 @@ export function FoyerClient(props: FoyerData) {
                 mood={ctx.mood}
                 onNavigate={enterDoorway}
                 inboxHasItems={props.unread > 0 || props.mentions > 0 || !!props.latestMessage}
+                channelsActivity={props.channelsActivity ?? null}
               />
             </div>
 
@@ -693,6 +743,7 @@ function DailyBriefing({
   mood,
   onNavigate,
   inboxHasItems,
+  channelsActivity,
 }: {
   events: FoyerEvent[];
   dueToday: number;
@@ -703,6 +754,8 @@ function DailyBriefing({
   /** True when the notification stack on the left has any unread items —
    *  changes the wording of the all-empty briefing state. */
   inboxHasItems: boolean;
+  /** Channels summary for the third row — null in personal workspaces. */
+  channelsActivity: FoyerData['channelsActivity'];
 }) {
   const isEvening = mood === 'evening' || mood === 'night';
 
@@ -737,7 +790,12 @@ function DailyBriefing({
     </>
   );
 
-  const allEmpty = termineEmpty && todosEmpty;
+  // The channels row participates in the "all empty" decision only when
+  // the workspace actually has channels (channelsActivity != null). In
+  // personal workspaces channelsActivity is null → allEmpty falls back
+  // to the Termine + Todos check, matching the pre-channels behaviour.
+  const channelsEmpty = !channelsActivity || channelsActivity.totalUnread === 0;
+  const allEmpty = termineEmpty && todosEmpty && channelsEmpty;
   if (allEmpty) {
     // Two flavors of empty:
     //  - inbox also empty → italic, gentle: a true rest moment.
@@ -772,8 +830,38 @@ function DailyBriefing({
     rightMeta?: React.ReactNode;
   };
 
+  // Channels row only renders when the workspace actually has channels
+  // (shared workspace, non-empty). Personal workspaces leave this null
+  // and skip the row, so the briefing stays Termine + Todos like before.
+  const channelsRow: BriefingRow | null = channelsActivity
+    ? (() => {
+        const empty = channelsActivity.totalUnread === 0;
+        const content: React.ReactNode = empty ? (
+          <>Alles gelesen</>
+        ) : (
+          <>
+            <Num>{channelsActivity.totalUnread}</Num> ungelesen
+            {channelsActivity.topChannelName && channelsActivity.topChannelUnread > 0 && (
+              <>
+                {' · '}#{channelsActivity.topChannelName}{' '}
+                <Num>{channelsActivity.topChannelUnread}</Num> neu
+              </>
+            )}
+            {channelsActivity.hasMentions && <> · @ erwähnt</>}
+          </>
+        );
+        return {
+          label: 'Channels',
+          content,
+          empty,
+          href: '/channels',
+        };
+      })()
+    : null;
+
   const rows: BriefingRow[] = [
     { label: 'Termine', content: termineContent, empty: termineEmpty, href: '/kalender' },
+    ...(channelsRow ? [channelsRow] : []),
     { label: 'Todos', content: todosContent, empty: todosEmpty, href: '/todos' },
   ];
 

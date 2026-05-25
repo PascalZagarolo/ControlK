@@ -451,6 +451,7 @@ export async function smartChannelCounts(workspaceId: string, userId: string) {
       WHERE m.channel_id = ANY(${sql.raw(`ARRAY[${channelIds.map((id) => `'${id}'`).join(',')}]::uuid[]`)})
         AND (cm.last_read_at IS NULL OR m.created_at > cm.last_read_at)
         AND m.author_id != ${userId}
+        AND m.deleted_at IS NULL
       GROUP BY m.channel_id
     `);
     const cList: any[] = Array.isArray((counts as any).rows) ? (counts as any).rows : (counts as any);
