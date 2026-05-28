@@ -40,6 +40,19 @@ export function TodoSidebar({
     return m?.[1];
   })();
 
+  // Build a one-level tree from the flat group list: top-level groups, each
+  // with its subgroups. Order is preserved from the incoming array.
+  const topGroups = groups.filter((g) => !g.parentGroupId);
+  const childrenByParent = new Map<string, TodoGroup[]>();
+  for (const g of groups) {
+    if (g.parentGroupId) {
+      const list = childrenByParent.get(g.parentGroupId) ?? [];
+      list.push(g);
+      childrenByParent.set(g.parentGroupId, list);
+    }
+  }
+  const parentOptions = topGroups.map((g) => ({ id: g.id, name: g.name }));
+
   const smartViews: SmartView[] = [
     {
       key: 'all',
@@ -124,29 +137,53 @@ export function TodoSidebar({
                 <span className="text-ink-200">Marketing</span>.
               </p>
             )}
-            {groups.map((g) => (
-              <SidebarItem
-                key={g.id}
-                href={`/todos/${g.slug}`}
-                active={activeSlug === g.slug}
-                leading={
-                  g.emoji ? (
-                    <span className="text-[13px] leading-none">{g.emoji}</span>
-                  ) : (
-                    <span
-                      className="inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ background: g.color ?? '#9c9c9d' }}
-                    />
-                  )
-                }
-                trailing={
-                  g.openCount > 0 && (
-                    <span className="font-mono text-[10.5px] text-ink-300">{g.openCount}</span>
-                  )
-                }
-              >
-                {g.name}
-              </SidebarItem>
+            {topGroups.map((g) => (
+              <div key={g.id} className="flex flex-col">
+                <SidebarItem
+                  href={`/todos/${g.slug}`}
+                  active={activeSlug === g.slug}
+                  leading={
+                    g.emoji ? (
+                      <span className="text-[13px] leading-none">{g.emoji}</span>
+                    ) : (
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ background: g.color ?? '#9c9c9d' }}
+                      />
+                    )
+                  }
+                  trailing={
+                    g.openCount > 0 && (
+                      <span className="font-mono text-[10.5px] text-ink-300">{g.openCount}</span>
+                    )
+                  }
+                >
+                  {g.name}
+                </SidebarItem>
+                {/* Subgroups — indented one level under their parent. */}
+                {(childrenByParent.get(g.id) ?? []).map((c) => (
+                  <SidebarItem
+                    key={c.id}
+                    href={`/todos/${c.slug}`}
+                    active={activeSlug === c.slug}
+                    indent
+                    leading={
+                      c.emoji ? (
+                        <span className="text-[12px] leading-none">{c.emoji}</span>
+                      ) : (
+                        <span className="text-[10px] text-ink-300/70">↳</span>
+                      )
+                    }
+                    trailing={
+                      c.openCount > 0 && (
+                        <span className="font-mono text-[10.5px] text-ink-300">{c.openCount}</span>
+                      )
+                    }
+                  >
+                    {c.name}
+                  </SidebarItem>
+                ))}
+              </div>
             ))}
           </div>
 
@@ -189,7 +226,12 @@ export function TodoSidebar({
         </div>
       </aside>
 
-      <CreateGroupModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <CreateGroupModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        members={members}
+        parentOptions={parentOptions}
+      />
     </>
   );
 }
@@ -207,18 +249,22 @@ function SidebarItem({
   active,
   leading,
   trailing,
+  indent,
   children,
 }: {
   href: string;
   active: boolean;
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
+  indent?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Link
       href={href}
-      className={`group flex items-center gap-2.5 rounded-[8px] px-2 py-1.5 text-[13px] leading-tight transition-colors duration-150 ${
+      className={`group flex items-center gap-2.5 rounded-[8px] py-1.5 text-[13px] leading-tight transition-colors duration-150 ${
+        indent ? 'pl-6 pr-2' : 'px-2'
+      } ${
         active
           ? 'bg-white/[0.06] text-ink-50'
           : 'text-ink-200 hover:bg-white/[0.04] hover:text-ink-50'

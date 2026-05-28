@@ -776,6 +776,11 @@ export type TodoGroup = {
   defaultPriority?: TodoPriority;
   defaultVisibility?: TodoVisibility;
   health?: GroupHealth;
+  // One level of nesting: top-level groups have parentGroupId === null and
+  // may carry a childCount; subgroups point at their parent. See the
+  // todo_groups.parent_group_id self-reference in lib/db/schema.ts.
+  parentGroupId?: string | null;
+  childCount?: number;
 };
 
 export type TodoStatus = 'offen' | 'in_arbeit' | 'erledigt' | 'abgebrochen';

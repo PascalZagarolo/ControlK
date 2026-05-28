@@ -50,6 +50,7 @@ export function TodosOverviewClient({
         {showCreateGroup && (
           <CreateGroupForm
             projects={projects}
+            parentOptions={groups.map((g) => ({ id: g.id, name: g.name }))}
             defaultProjectId={
               activeProjectSlug && activeProjectSlug !== 'workspace'
                 ? projects.find((p) => p.slug === activeProjectSlug)?.id ?? null
@@ -196,11 +197,13 @@ function ProjectFilter({
 
 function CreateGroupForm({
   projects,
+  parentOptions,
   defaultProjectId,
   onClose,
   onCreated,
 }: {
   projects: Project[];
+  parentOptions: { id: string; name: string }[];
   defaultProjectId: string | null;
   onClose: () => void;
   onCreated: (slug: string) => void;
@@ -208,6 +211,7 @@ function CreateGroupForm({
   const [pending, start] = useTransition();
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState<string | null>(defaultProjectId);
+  const [parentGroupId, setParentGroupId] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -224,6 +228,7 @@ function CreateGroupForm({
           fd.set('name', name);
           if (description) fd.set('description', description);
           if (projectId) fd.set('projectId', projectId);
+          if (parentGroupId) fd.set('parentGroupId', parentGroupId);
           const res = await createTodoGroup(fd);
           if (res.ok) onCreated(res.slug);
           else setError(res.error);
@@ -241,6 +246,19 @@ function CreateGroupForm({
           required
           className="flex-1 rounded-md border border-[#1F1F23] bg-[#0A0A0C] px-3 py-2 text-[14px] text-[#FAFAFA] outline-none placeholder:text-[#52525B] focus:border-[#2A2A30]"
         />
+        <select
+          value={parentGroupId ?? ''}
+          onChange={(e) => setParentGroupId(e.target.value || null)}
+          title="Übergeordnete Gruppe"
+          className="rounded-md border border-[#1F1F23] bg-[#0A0A0C] px-3 py-2 text-[13px] text-[#A1A1AA] outline-none focus:border-[#2A2A30]"
+        >
+          <option value="">Keine Übergruppe</option>
+          {parentOptions.map((p) => (
+            <option key={p.id} value={p.id}>
+              ↳ in {p.name}
+            </option>
+          ))}
+        </select>
         <select
           value={projectId ?? ''}
           onChange={(e) => setProjectId(e.target.value || null)}
@@ -435,6 +453,31 @@ function GroupCard({
           </>
         )}
       </Link>
+
+      {/* Subgroups — rendered outside the parent Link (no nested <a>). */}
+      {group.children && group.children.length > 0 && (
+        <ul className="mt-1.5 flex flex-col gap-1 border-l border-[#1F1F23] pl-3">
+          {group.children.map((child) => (
+            <li key={child.id}>
+              <Link
+                href={`/todos/${child.slug}`}
+                className="group/sub flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] transition-colors duration-150 hover:bg-white/[0.03]"
+              >
+                <span aria-hidden className="text-[11px] text-[#52525B]">
+                  ↳
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[#A1A1AA] group-hover/sub:text-[#FAFAFA]">
+                  {child.emoji && <span className="mr-1">{child.emoji}</span>}
+                  {child.name}
+                </span>
+                <span className="shrink-0 font-mono text-[11px] text-[#52525B]">
+                  {child.openCount}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </motion.div>
   );
 }

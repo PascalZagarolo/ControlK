@@ -32,10 +32,13 @@ export function CreateGroupModal({
   open,
   onClose,
   members,
+  parentOptions = [],
 }: {
   open: boolean;
   onClose: () => void;
   members?: TodoUser[];
+  /** Top-level groups this new group can be nested under (one level only). */
+  parentOptions?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -44,6 +47,7 @@ export function CreateGroupModal({
   const [description, setDescription] = useState('');
   const [emoji, setEmoji] = useState<string>('');
   const [color, setColor] = useState<string>('');
+  const [parentGroupId, setParentGroupId] = useState<string>('');
 
   return (
     <Modal open={open} onClose={onClose} kicker="Neue Gruppe" title="Todo-Gruppe anlegen" maxWidth={560}>
@@ -56,6 +60,7 @@ export function CreateGroupModal({
           data.set('description', description);
           if (emoji) data.set('emoji', emoji);
           if (color) data.set('color', color);
+          if (parentGroupId) data.set('parentGroupId', parentGroupId);
           start(async () => {
             const res = await createTodoGroup(data);
             if (!res.ok) {
@@ -67,6 +72,7 @@ export function CreateGroupModal({
             setDescription('');
             setEmoji('');
             setColor('');
+            setParentGroupId('');
             router.push(`/todos/${res.slug}`);
             router.refresh();
           });
@@ -95,6 +101,25 @@ export function CreateGroupModal({
             maxLength={280}
           />
         </ModalField>
+
+        {parentOptions.length > 0 && (
+          <ModalField
+            label="Übergeordnete Gruppe (optional)"
+            hint={'Macht diese Gruppe zu einer Untergruppe — z.B. „Native App“ in „Fleet OS“.'}
+          >
+            <ModalSelect
+              value={parentGroupId}
+              onChange={(e) => setParentGroupId(e.target.value)}
+            >
+              <option value="">— Keine (eigenständige Gruppe) —</option>
+              {parentOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  ↳ in {p.name}
+                </option>
+              ))}
+            </ModalSelect>
+          </ModalField>
+        )}
 
         <ModalField label="Emoji">
           <div className="flex flex-wrap gap-1.5">

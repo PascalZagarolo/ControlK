@@ -25,6 +25,7 @@ import {
   setTodoDue,
   setTodoPriority,
 } from '@/lib/actions/todos';
+import { setTodoGroupParent } from '@/lib/actions/todo-groups';
 import { parseTodoInput } from '@/lib/todos/parse-quick-syntax';
 import type { TodoPriority, TodoStatus } from '@/lib/types';
 
@@ -37,7 +38,18 @@ type DetailGroup = {
   projectId: string | null;
   projectName?: string;
   projectSlug?: string;
+  parentName?: string;
+  parentSlug?: string;
 };
+
+type Subgroup = {
+  slug: string;
+  name: string;
+  emoji?: string;
+  openCount: number;
+};
+
+type ParentOption = { slug: string; name: string };
 
 type DetailTodo = {
   id: string;
@@ -57,11 +69,17 @@ export function TodoGroupDetailClient({
   openTodos,
   doneTodos,
   stats,
+  subgroups = [],
+  parentOptions = [],
+  canNest = true,
 }: {
   group: DetailGroup;
   openTodos: DetailTodo[];
   doneTodos: Omit<DetailTodo, 'description'>[];
   stats: Stats;
+  subgroups?: Subgroup[];
+  parentOptions?: ParentOption[];
+  canNest?: boolean;
 }) {
   const router = useRouter();
   const [doneOpen, setDoneOpen] = useState(false);
@@ -91,8 +109,33 @@ export function TodoGroupDetailClient({
             </h1>
             <p className="mt-1 truncate text-[13px] text-[#A1A1AA]">{metaLine}</p>
           </div>
-          <GroupMenu group={group} />
+          <GroupMenu group={group} parentOptions={parentOptions} canNest={canNest} />
         </header>
+
+        {subgroups.length > 0 && (
+          <section className="mt-6">
+            <SectionLabel className="mb-2">Untergruppen ({subgroups.length})</SectionLabel>
+            <ul className="flex flex-col divide-y divide-[#1F1F23] rounded-md border border-[#1F1F23]">
+              {subgroups.map((sg) => (
+                <li key={sg.slug}>
+                  <Link
+                    href={`/todos/${sg.slug}`}
+                    className="group flex h-11 items-center gap-3 px-3 transition-colors duration-150 hover:bg-white/[0.02]"
+                  >
+                    <span aria-hidden className="text-[12px] text-[#52525B]">↳</span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-[#FAFAFA]">
+                      {sg.emoji && <span className="mr-1.5">{sg.emoji}</span>}
+                      {sg.name}
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] text-[#52525B]">
+                      {sg.openCount} offen
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Continuous list: the input is the top row, the items are the
             rows below. They share divide-y separators so input and items
@@ -199,6 +242,17 @@ function Breadcrumb({ group }: { group: DetailGroup }) {
           </Link>
         </>
       )}
+      {group.parentName && group.parentSlug && (
+        <>
+          <span aria-hidden className="text-[#3a3a3f]">·</span>
+          <Link
+            href={`/todos/${group.parentSlug}`}
+            className="transition-colors duration-150 hover:text-[#A1A1AA]"
+          >
+            {group.parentName}
+          </Link>
+        </>
+      )}
       <span aria-hidden className="text-[#3a3a3f]">·</span>
       <span className="text-[#FAFAFA]">{group.name}</span>
     </nav>
@@ -209,11 +263,33 @@ function Breadcrumb({ group }: { group: DetailGroup }) {
 // Group context menu (⋯)
 // ───────────────────────────────────────────────────────────────
 
-function GroupMenu({ group }: { group: DetailGroup }) {
+function GroupMenu({
+  group,
+  parentOptions,
+  canNest,
+}: {
+  group: DetailGroup;
+  parentOptions: ParentOption[];
+  canNest: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [, start] = useTransition();
+
+  const moveTo = (parentSlug: string | null) => {
+    setOpen(false);
+    setMoveOpen(false);
+    start(async () => {
+      const res = await setTodoGroupParent(group.slug, parentSlug);
+      if (!res.ok) {
+        alert(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
 
   // Click-outside / Escape
   useEffect(() => {
@@ -221,10 +297,14 @@ function GroupMenu({ group }: { group: DetailGroup }) {
     const onClick = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setMoveOpen(false);
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        setMoveOpen(false);
+      }
     };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onKey);
@@ -272,24 +352,39 @@ function GroupMenu({ group }: { group: DetailGroup }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-9 z-50 min-w-[180px] rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 backdrop-blur-md"
+          className="absolute right-0 top-9 z-50 min-w-[200px] rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 backdrop-blur-md"
         >
-          <MenuItem
-            label="Umbenennen"
-            onClick={() => {
-              setOpen(false);
-              alert('Inline-Umbenennen kommt im Polish-Folgepatch.');
-            }}
-          />
-          <MenuItem
-            label="Verschieben"
-            onClick={() => {
-              setOpen(false);
-              alert('Project-Picker kommt im Polish-Folgepatch.');
-            }}
-          />
-          <MenuItem label="Archivieren" onClick={onArchive} />
-          <MenuItem label="Löschen" tone="danger" onClick={onDelete} />
+          {!moveOpen ? (
+            <>
+              {/* Nesting: a group with its own subgroups can't be nested
+                  (one-level limit). Such a group only offers "move out". */}
+              {canNest && parentOptions.length > 0 && (
+                <MenuItem label="In Übergruppe verschieben…" onClick={() => setMoveOpen(true)} />
+              )}
+              {group.parentSlug && (
+                <MenuItem label="Aus Übergruppe lösen" onClick={() => moveTo(null)} />
+              )}
+              <MenuItem label="Archivieren" onClick={onArchive} />
+              <MenuItem label="Löschen" tone="danger" onClick={onDelete} />
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setMoveOpen(false)}
+                className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] uppercase tracking-[0.4px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
+              >
+                ‹ Übergruppe wählen
+              </button>
+              <div className="max-h-[240px] overflow-y-auto">
+                {parentOptions
+                  .filter((p) => p.slug !== group.parentSlug)
+                  .map((p) => (
+                    <MenuItem key={p.slug} label={p.name} onClick={() => moveTo(p.slug)} />
+                  ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

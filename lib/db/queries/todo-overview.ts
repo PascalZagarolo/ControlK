@@ -12,6 +12,11 @@ export type TodoOverviewGroup = {
   color?: string;
   projectId: string | null;
   projectName?: string;
+  // Hierarchy: top-level groups have parentGroupId === null and carry their
+  // subgroups in `children`; subgroups point at their parent and are nested
+  // inside it (not returned at the top level).
+  parentGroupId: string | null;
+  children?: TodoOverviewGroup[];
   // Stats
   openCount: number;
   dueTodayCount: number;
@@ -45,16 +50,13 @@ export async function listTodoOverviewGroups(
 ): Promise<TodoOverviewGroup[]> {
   const db = getDb();
 
-  // 1. Groups + optional project name
-  const groupConds = [eq(s.todoGroups.workspaceId, workspaceId), isNull(s.todoGroups.archivedAt)];
-  if (filter.projectId === null) {
-    groupConds.push(isNull(s.todoGroups.projectId));
-  } else if (filter.projectId) {
-    groupConds.push(eq(s.todoGroups.projectId, filter.projectId));
-  }
-
+  // 1. Groups — always load the full (non-archived) set so subgroups can
+  //    attach to their parent regardless of their own projectId. The
+  //    projectId filter is applied to top-level groups AFTER nesting (below),
+  //    so filtering by a project keeps that project's groups together with
+  //    their subgroups instead of orphaning the children.
   const groupRows = await db.query.todoGroups.findMany({
-    where: and(...groupConds),
+    where: and(eq(s.todoGroups.workspaceId, workspaceId), isNull(s.todoGroups.archivedAt)),
     orderBy: [desc(s.todoGroups.pinned), asc(s.todoGroups.position), asc(s.todoGroups.name)],
   });
   if (groupRows.length === 0) return [];
@@ -156,8 +158,8 @@ export async function listTodoOverviewGroups(
     for (const p of projectRows) projectsById.set(p.id, p.name);
   }
 
-  // 6. Compose
-  return groupRows.map<TodoOverviewGroup>((g) => {
+  // 6. Compose flat rows (nesting happens in step 7)
+  const composed = groupRows.map<TodoOverviewGroup>((g) => {
     const stats = statsByGroup.get(g.id);
     const previews = previewsByGroup.get(g.id) ?? [];
     const activity = latestActivityByGroup.get(g.id);
@@ -175,6 +177,7 @@ export async function listTodoOverviewGroups(
       color: g.color ?? undefined,
       projectId: g.projectId ?? null,
       projectName: g.projectId ? projectsById.get(g.projectId) : undefined,
+      parentGroupId: g.parentGroupId ?? null,
       openCount,
       dueTodayCount,
       totalCount,
@@ -195,13 +198,39 @@ export async function listTodoOverviewGroups(
       })),
       itemPreviewMore: Math.max(0, previews.length - 3),
     };
-  })
-  // Re-sort: most-recently-active first, then by group position
-  .sort((a, b) => {
+  });
+
+  // 7. Nest subgroups under their parent, then keep only top-level groups.
+  //    Sort by most-recently-active first (both levels). A subgroup whose
+  //    parent is missing (archived/deleted) is treated as top-level so it
+  //    never silently disappears.
+  const byActivity = (a: TodoOverviewGroup, b: TodoOverviewGroup) => {
     const at = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
     const bt = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
     return bt - at;
-  });
+  };
+  const byId = new Map(composed.map((g) => [g.id, g]));
+  const tops: TodoOverviewGroup[] = [];
+  for (const g of composed) {
+    const parent = g.parentGroupId ? byId.get(g.parentGroupId) : null;
+    if (parent) {
+      (parent.children ??= []).push(g);
+    } else {
+      tops.push(g);
+    }
+  }
+  for (const t of tops) t.children?.sort(byActivity);
+
+  // 8. Apply the project filter to top-level groups only (children ride
+  //    along with their parent). null → workspace-wide (no project).
+  const filtered =
+    filter.projectId === undefined
+      ? tops
+      : filter.projectId === null
+        ? tops.filter((g) => !g.projectId)
+        : tops.filter((g) => g.projectId === filter.projectId);
+
+  return filtered.sort(byActivity);
 }
 
 /**

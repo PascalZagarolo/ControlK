@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, count, desc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import { getGroupHealthBatch } from './group-health';
@@ -21,6 +21,7 @@ function toGroup(row: any, counts?: { open: number; total: number }): TodoGroup 
     defaultAssigneeId: row.defaultAssigneeId ?? undefined,
     defaultPriority: row.defaultPriority ?? undefined,
     defaultVisibility: row.defaultVisibility ?? undefined,
+    parentGroupId: row.parentGroupId ?? null,
   };
 }
 
@@ -38,7 +39,7 @@ export async function listTodoGroups(
 
   if (rows.length === 0) return [];
 
-  const [counts, healthMap] = await Promise.all([
+  const [counts, healthMap, childCounts] = await Promise.all([
     db
       .select({
         groupId: s.todos.groupId,
@@ -49,17 +50,64 @@ export async function listTodoGroups(
       .where(eq(s.todos.workspaceId, workspaceId))
       .groupBy(s.todos.groupId),
     getGroupHealthBatch(workspaceId),
+    // How many subgroups each (top-level) group has.
+    db
+      .select({ parentGroupId: s.todoGroups.parentGroupId, n: count() })
+      .from(s.todoGroups)
+      .where(and(eq(s.todoGroups.workspaceId, workspaceId), isNotNull(s.todoGroups.parentGroupId)))
+      .groupBy(s.todoGroups.parentGroupId),
   ]);
   const byGroup = new Map<string, { total: number; open: number }>();
   for (const c of counts) {
     if (c.groupId) byGroup.set(c.groupId, { total: Number(c.total), open: Number(c.open) });
   }
+  const childByParent = new Map<string, number>();
+  for (const c of childCounts) {
+    if (c.parentGroupId) childByParent.set(c.parentGroupId, Number(c.n));
+  }
 
   return rows.map((r) => {
     const g = toGroup(r, byGroup.get(r.id));
     g.health = healthMap.get(r.id);
+    g.childCount = childByParent.get(r.id) ?? 0;
     return g;
   });
+}
+
+/**
+ * Subgroups of a single parent group, with open/total counts. Used by the
+ * group-detail page to render the "Untergruppen" section. Server-only.
+ */
+export async function listChildGroups(
+  workspaceId: string,
+  parentId: string
+): Promise<TodoGroup[]> {
+  const db = getDb();
+  const rows = await db.query.todoGroups.findMany({
+    where: and(
+      eq(s.todoGroups.workspaceId, workspaceId),
+      eq(s.todoGroups.parentGroupId, parentId),
+      isNull(s.todoGroups.archivedAt)
+    ),
+    orderBy: [asc(s.todoGroups.position), asc(s.todoGroups.createdAt)],
+  });
+  if (rows.length === 0) return [];
+
+  const childIds = rows.map((r) => r.id);
+  const counts = await db
+    .select({
+      groupId: s.todos.groupId,
+      total: count(),
+      open: sql<number>`COUNT(*) FILTER (WHERE ${s.todos.status} IN ('offen','in_arbeit'))`,
+    })
+    .from(s.todos)
+    .where(and(eq(s.todos.workspaceId, workspaceId), inArray(s.todos.groupId, childIds)))
+    .groupBy(s.todos.groupId);
+  const byGroup = new Map<string, { total: number; open: number }>();
+  for (const c of counts) {
+    if (c.groupId) byGroup.set(c.groupId, { total: Number(c.total), open: Number(c.open) });
+  }
+  return rows.map((r) => toGroup(r, byGroup.get(r.id)));
 }
 
 export async function listArchivedTodoGroups(workspaceId: string): Promise<TodoGroup[]> {
@@ -75,6 +123,13 @@ export async function getTodoGroupBySlug(workspaceId: string, slug: string) {
   const db = getDb();
   return db.query.todoGroups.findFirst({
     where: and(eq(s.todoGroups.workspaceId, workspaceId), eq(s.todoGroups.slug, slug)),
+  });
+}
+
+export async function getTodoGroupById(workspaceId: string, id: string) {
+  const db = getDb();
+  return db.query.todoGroups.findFirst({
+    where: and(eq(s.todoGroups.workspaceId, workspaceId), eq(s.todoGroups.id, id)),
   });
 }
 

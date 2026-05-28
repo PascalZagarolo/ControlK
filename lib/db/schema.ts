@@ -14,6 +14,7 @@ import {
   numeric,
   real,
   boolean,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -1015,6 +1016,13 @@ export const todoGroups = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     projectId: uuid('project_id'),
+    // Self-referential parent for one level of subgroups (e.g. "Fleet OS" →
+    // "Native App"). SET NULL on delete promotes orphaned subgroups to
+    // top-level instead of cascading into their todos. The one-level-depth
+    // invariant is enforced in lib/actions/todo-groups.ts, not in SQL.
+    parentGroupId: uuid('parent_group_id').references((): AnyPgColumn => todoGroups.id, {
+      onDelete: 'set null',
+    }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -1038,6 +1046,7 @@ export const todoGroups = pgTable(
   (t) => ({
     slugWsIdx: uniqueIndex('todo_groups_slug_workspace_idx').on(t.workspaceId, t.slug),
     positionIdx: index('todo_groups_position_idx').on(t.workspaceId, t.pinned, t.position),
+    parentIdx: index('todo_groups_parent_idx').on(t.workspaceId, t.parentGroupId, t.position),
   })
 );
 
@@ -1383,6 +1392,12 @@ export const reactionsRelations = relations(reactions, ({ one }) => ({
 export const todoGroupsRelations = relations(todoGroups, ({ one, many }) => ({
   workspace: one(workspaces, { fields: [todoGroups.workspaceId], references: [workspaces.id] }),
   createdBy: one(users, { fields: [todoGroups.createdById], references: [users.id] }),
+  parent: one(todoGroups, {
+    fields: [todoGroups.parentGroupId],
+    references: [todoGroups.id],
+    relationName: 'group_hierarchy',
+  }),
+  children: many(todoGroups, { relationName: 'group_hierarchy' }),
   todos: many(todos),
 }));
 

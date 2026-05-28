@@ -281,6 +281,13 @@
       "when": 1781350000000,
       "tag": "0039_inverse_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781400000000,
+      "tag": "0040_todo_subgroups",
+      "breakpoints": true
     }
   ]
 }

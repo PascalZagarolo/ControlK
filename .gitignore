@@ -39,3 +39,6 @@ coverage
 
 # Claude Code session state
 .claude
+
+# graphify knowledge graph output (generated)
+graphify-out/
