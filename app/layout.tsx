@@ -172,8 +172,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <PusherProvider config={pusherConfig} userId={user?.id}>
           <Header />
           <ProfileDock />
-          {showVerifyBanner && user && <VerifyBanner email={user.email} />}
-          {showCalendarBanner && <CalendarConnectBanner />}
+          {/* Floating hint banners — pinned just below the centered header
+              pill (which sits at top-6, ~68px tall) so they never overlap it.
+              The container ignores pointer events; each pill re-enables them
+              so the gaps between/around pills stay click-through. */}
+          {(showVerifyBanner || showCalendarBanner) && (
+            <div className="pointer-events-none fixed inset-x-0 top-[76px] z-40 flex flex-col items-center gap-2 px-4">
+              {showVerifyBanner && user && <VerifyBanner email={user.email} />}
+              {showCalendarBanner && <CalendarConnectBanner />}
+            </div>
+          )}
           {children}
           <CmdK />
           <QuickCreateMount />
