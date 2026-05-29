@@ -2,18 +2,35 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomBytes, randomUUID } from 'crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { detectConflictForCandidate } from '@/lib/db/queries/calendar';
+import { aiGenerateJSON, aiGatewayConfigured, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { triggerEvent } from '@/lib/realtime/pusher-server';
 import type { CalendarEventKind } from '@/lib/types';
+
+const EVENT_KINDS: CalendarEventKind[] = [
+  'meeting', 'call', 'focus', 'task', 'personal', 'health', 'travel', 'other',
+  'handover', 'return', 'maintenance', 'internal',
+];
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
 function paths() {
   revalidatePath('/kalender');
+}
+
+/**
+ * Revalidate + broadcast a live "calendar changed" event to everyone viewing
+ * this workspace's calendar (Pusher; no-op if Pusher isn't configured). Use
+ * in mutating actions so teammates see changes without a manual reload.
+ */
+async function bumpCalendar(workspaceId: string) {
+  revalidatePath('/kalender');
+  await triggerEvent(`private-workspace-${workspaceId}-calendar`, 'calendar.changed', {});
 }
 
 async function findGuarded(workspaceId: string, eventId: string) {
@@ -43,6 +60,8 @@ export async function createCalendarEvent(input: {
   allowConflict?: boolean;
   recurringGroupId?: string;
   autoSpawnSource?: string;
+  /** Workspace member user-ids to add as attendees. The creator is always added. */
+  attendeeIds?: string[];
 }): Promise<Result<{ id: string; conflict?: { id: string; title: string }[] }>> {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
@@ -99,8 +118,293 @@ export async function createCalendarEvent(input: {
     })
     .returning();
 
-  paths();
+  // Attendees: always include the creator (accepted); add any selected
+  // workspace members (invited). Non-members are silently dropped.
+  await insertAttendees(ws.id, row.id, user.id, input.attendeeIds ?? [], user.id);
+
+  await bumpCalendar(ws.id);
   return { ok: true, id: row.id };
+}
+
+/**
+ * Inserts attendees for an event, validating that each user is a member of the
+ * workspace. The creator is always added with status 'accepted'; everyone else
+ * 'invited'. Idempotent via the (event_id, user_id) unique index.
+ */
+async function insertAttendees(
+  workspaceId: string,
+  eventId: string,
+  creatorId: string,
+  userIds: string[],
+  addedById: string
+): Promise<void> {
+  const db = getDb();
+  const wanted = new Set(userIds);
+  wanted.add(creatorId);
+
+  // Keep only real workspace members.
+  const members = await db.query.workspaceMembers.findMany({
+    where: and(
+      eq(s.workspaceMembers.workspaceId, workspaceId),
+      inArray(s.workspaceMembers.userId, Array.from(wanted))
+    ),
+    columns: { userId: true },
+  });
+  const valid = new Set(members.map((m) => m.userId));
+  if (valid.size === 0) return;
+
+  await db
+    .insert(s.calendarEventAttendees)
+    .values(
+      Array.from(valid).map((userId) => ({
+        eventId,
+        userId,
+        workspaceId,
+        status: (userId === creatorId ? 'accepted' : 'invited') as
+          | 'accepted'
+          | 'invited',
+        addedById,
+      }))
+    )
+    .onConflictDoNothing();
+}
+
+// ─── Attendee management ──────────────────────────────────────
+export async function addEventAttendee(eventId: string, userId: string): Promise<Result> {
+  const me = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const event = await findGuarded(ws.id, eventId);
+  if (!event) return { ok: false, error: 'Termin nicht gefunden.' };
+  const db = getDb();
+  const member = await db.query.workspaceMembers.findFirst({
+    where: and(eq(s.workspaceMembers.workspaceId, ws.id), eq(s.workspaceMembers.userId, userId)),
+    columns: { userId: true },
+  });
+  if (!member) return { ok: false, error: 'Nutzer ist kein Workspace-Mitglied.' };
+  await db
+    .insert(s.calendarEventAttendees)
+    .values({ eventId, userId, workspaceId: ws.id, status: 'invited', addedById: me.id })
+    .onConflictDoNothing();
+  await bumpCalendar(ws.id);
+  return { ok: true };
+}
+
+export async function removeEventAttendee(eventId: string, userId: string): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const event = await findGuarded(ws.id, eventId);
+  if (!event) return { ok: false, error: 'Termin nicht gefunden.' };
+  const db = getDb();
+  await db
+    .delete(s.calendarEventAttendees)
+    .where(
+      and(
+        eq(s.calendarEventAttendees.eventId, eventId),
+        eq(s.calendarEventAttendees.userId, userId)
+      )
+    );
+  await bumpCalendar(ws.id);
+  return { ok: true };
+}
+
+// ─── Natural-language quick-add ───────────────────────────────
+export type QuickParsedEvent = {
+  title: string;
+  kind: CalendarEventKind;
+  startsAtIso: string;
+  durationMinutes: number;
+  location?: string;
+  detail?: string;
+};
+
+/**
+ * Parses a free-text line ("Übergabe morgen 14 Uhr BMW X5 für Müller") into
+ * structured event fields via the AI gateway. Returns a draft for the user to
+ * confirm in the create modal — never creates the event directly, so an AI
+ * misread is always editable first. Falls back to a title-only draft when the
+ * gateway isn't configured or parsing fails, so the feature degrades quietly.
+ */
+export async function parseQuickEvent(
+  text: string
+): Promise<Result<{ draft: QuickParsedEvent; ai: boolean }>> {
+  await requireUser();
+  await requireCurrentWorkspace();
+  const input = text.trim();
+  if (!input) return { ok: false, error: 'Leere Eingabe.' };
+
+  // Deterministic fallback: title-only draft, next full hour, 60 min.
+  const fallback = (): QuickParsedEvent => {
+    const d = new Date();
+    d.setMinutes(0, 0, 0);
+    d.setHours(d.getHours() + 1);
+    return { title: input, kind: 'meeting', startsAtIso: d.toISOString(), durationMinutes: 60 };
+  };
+
+  if (!aiGatewayConfigured()) {
+    return { ok: true, draft: fallback(), ai: false };
+  }
+
+  const now = new Date();
+  try {
+    const parsed = await aiGenerateJSON<{
+      title?: string;
+      kind?: string;
+      startsAtIso?: string;
+      durationMinutes?: number;
+      location?: string;
+      detail?: string;
+    }>({
+      model: AI_MODEL_FAST,
+      maxOutputTokens: 300,
+      system:
+        'Du extrahierst aus einer deutschen Termin-Eingabe strukturierte Felder. ' +
+        'Antworte NUR mit einem JSON-Objekt, keine Erklärung.',
+      prompt:
+        `Jetzt ist ${now.toISOString()} (${now.toLocaleString('de-DE', { weekday: 'long' })}).\n` +
+        `Eingabe: "${input}"\n\n` +
+        `Gib JSON mit: title (string, ohne Zeit-/Datumsangaben), ` +
+        `kind (einer von: ${EVENT_KINDS.join(', ')}), ` +
+        `startsAtIso (ISO 8601 mit Zeitzone, relative Angaben wie "morgen 14 Uhr" auflösen), ` +
+        `durationMinutes (number, Standard 60), ` +
+        `location (string, optional), detail (string, optional).`,
+    });
+
+    if (!parsed || !parsed.startsAtIso) return { ok: true, draft: fallback(), ai: false };
+    const start = new Date(parsed.startsAtIso);
+    if (Number.isNaN(start.getTime())) return { ok: true, draft: fallback(), ai: false };
+    const kind = (EVENT_KINDS.includes(parsed.kind as CalendarEventKind)
+      ? parsed.kind
+      : 'meeting') as CalendarEventKind;
+
+    return {
+      ok: true,
+      ai: true,
+      draft: {
+        title: (parsed.title || input).slice(0, 120),
+        kind,
+        startsAtIso: start.toISOString(),
+        durationMinutes:
+          typeof parsed.durationMinutes === 'number' && parsed.durationMinutes > 0
+            ? Math.min(parsed.durationMinutes, 1440)
+            : 60,
+        location: parsed.location?.slice(0, 200) || undefined,
+        detail: parsed.detail?.slice(0, 500) || undefined,
+      },
+    };
+  } catch {
+    return { ok: true, draft: fallback(), ai: false };
+  }
+}
+
+// ─── Smart slot finder ────────────────────────────────────────
+export type FreeSlot = { startIso: string; endIso: string };
+
+/**
+ * Finds open slots of `durationMinutes` within working hours over a date
+ * window, avoiding everything the chosen participants are already booked for
+ * (as creator or attendee) and — if given — a vehicle's bookings. Works for
+ * a solo private user (just "when am I free?") and for teams (overlap of
+ * several people). The current user is always part of the participant set.
+ */
+export async function findFreeSlots(input: {
+  durationMinutes: number;
+  fromIso: string;
+  toIso: string;
+  attendeeIds?: string[];
+  vehicleId?: string | null;
+  workStartHour?: number;
+  workEndHour?: number;
+}): Promise<Result<{ slots: FreeSlot[] }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+
+  const duration = Math.max(5, Math.min(input.durationMinutes || 60, 1440));
+  const from = new Date(input.fromIso);
+  const to = new Date(input.toIso);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+    return { ok: false, error: 'Ungültiger Zeitraum.' };
+  }
+  const workStart = clampHour(input.workStartHour, 8);
+  const workEnd = clampHour(input.workEndHour, 18);
+  if (workEnd <= workStart) return { ok: false, error: 'Ungültige Arbeitszeiten.' };
+
+  const participants = new Set<string>([user.id, ...(input.attendeeIds ?? [])]);
+
+  const events = await db.query.calendarEvents.findMany({
+    where: and(
+      eq(s.calendarEvents.workspaceId, ws.id),
+      gte(s.calendarEvents.endsAt, from),
+      lte(s.calendarEvents.startsAt, to)
+    ),
+    columns: { startsAt: true, endsAt: true, createdById: true, linkedVehicleId: true },
+    with: { attendees: { columns: { userId: true } } },
+  });
+
+  // Busy = any event involving a chosen participant or the chosen vehicle.
+  const busy: { start: number; end: number }[] = [];
+  for (const e of events as any[]) {
+    const involvesParticipant =
+      (e.createdById && participants.has(e.createdById)) ||
+      (e.attendees ?? []).some((a: any) => participants.has(a.userId));
+    const involvesVehicle = input.vehicleId && e.linkedVehicleId === input.vehicleId;
+    if (involvesParticipant || involvesVehicle) {
+      busy.push({ start: e.startsAt.getTime(), end: e.endsAt.getTime() });
+    }
+  }
+  busy.sort((a, b) => a.start - b.start);
+
+  const now = Date.now();
+  const durMs = duration * 60_000;
+  const slots: FreeSlot[] = [];
+  const MAX = 12;
+
+  const dayCursor = new Date(from);
+  dayCursor.setHours(0, 0, 0, 0);
+  while (dayCursor <= to && slots.length < MAX) {
+    const dayStart = new Date(dayCursor);
+    dayStart.setHours(workStart, 0, 0, 0);
+    const dayEnd = new Date(dayCursor);
+    dayEnd.setHours(workEnd, 0, 0, 0);
+
+    // Busy intervals clipped to this working window.
+    const dayBusy = busy
+      .map((b) => ({ start: Math.max(b.start, dayStart.getTime()), end: Math.min(b.end, dayEnd.getTime()) }))
+      .filter((b) => b.end > b.start)
+      .sort((a, b) => a.start - b.start);
+
+    // Walk the free gaps between busy intervals.
+    let cursor = Math.max(dayStart.getTime(), now);
+    cursor = roundUpTo(cursor, 15);
+    const pushFrom = (gapStart: number, gapEnd: number) => {
+      let c = roundUpTo(Math.max(gapStart, dayStart.getTime(), now), 15);
+      let perGap = 0;
+      while (c + durMs <= gapEnd && slots.length < MAX && perGap < 2) {
+        slots.push({ startIso: new Date(c).toISOString(), endIso: new Date(c + durMs).toISOString() });
+        c += durMs;
+        perGap++;
+      }
+    };
+    for (const b of dayBusy) {
+      if (b.start > cursor) pushFrom(cursor, b.start);
+      cursor = Math.max(cursor, b.end);
+      if (slots.length >= MAX) break;
+    }
+    if (cursor < dayEnd.getTime()) pushFrom(cursor, dayEnd.getTime());
+
+    dayCursor.setDate(dayCursor.getDate() + 1);
+  }
+
+  return { ok: true, slots: slots.slice(0, MAX) };
+}
+
+function clampHour(h: number | undefined, fallback: number): number {
+  if (typeof h !== 'number' || Number.isNaN(h)) return fallback;
+  return Math.max(0, Math.min(23, Math.round(h)));
+}
+function roundUpTo(ms: number, minutes: number): number {
+  const step = minutes * 60_000;
+  return Math.ceil(ms / step) * step;
 }
 
 export async function createCalendarEventFromForm(
@@ -203,7 +507,7 @@ export async function updateCalendarEvent(input: {
   }
 
   await db.update(s.calendarEvents).set(update).where(eq(s.calendarEvents.id, input.eventId));
-  paths();
+  await bumpCalendar(ws.id);
   return { ok: true };
 }
 
@@ -239,7 +543,7 @@ export async function rescheduleEvent(input: {
     .update(s.calendarEvents)
     .set({ startsAt: newStart, endsAt: newEnd })
     .where(eq(s.calendarEvents.id, input.eventId));
-  paths();
+  await bumpCalendar(ws.id);
   return { ok: true };
 }
 
@@ -251,7 +555,7 @@ export async function deleteCalendarEvent(eventId: string): Promise<Result> {
   const row = await findGuarded(ws.id, eventId);
   if (!row) return { ok: false, error: 'Event nicht gefunden.' };
   await db.delete(s.calendarEvents).where(eq(s.calendarEvents.id, eventId));
-  paths();
+  await bumpCalendar(ws.id);
   return { ok: true };
 }
 

@@ -603,6 +603,22 @@ export type CalendarEvent = {
   completedAt?: string;
   autoSpawnSource?: string;
   createdBy?: TodoUser;
+  // Workspace members linked to this event (e.g. "me + Vincent Garber").
+  attendees: CalendarAttendee[];
+  // Which layer this event comes from. 'internal' events are fully
+  // editable; 'google' (mirror) and 'todo' (due-dated todos) are
+  // read-only overlays shown via the layer toggles.
+  source?: CalendarEventSource;
+  // For read-only overlay events, where a click should navigate.
+  linkHref?: string;
+};
+
+export type CalendarEventSource = 'internal' | 'google' | 'todo';
+
+export type CalendarAttendeeStatus = 'invited' | 'accepted' | 'declined' | 'tentative';
+
+export type CalendarAttendee = TodoUser & {
+  status: CalendarAttendeeStatus;
 };
 
 export type CalendarConflict = {

@@ -937,6 +937,42 @@ export const calendarEvents = pgTable(
   })
 );
 
+// ─── Calendar Event Attendees ───────────────────────────────────
+// Links workspace members (other accounts) to an internal calendar event —
+// e.g. a customer meeting attended by "me + Vincent Garber". RSVP `status`
+// is stored for future accept/decline UI; today it defaults to 'invited'
+// (the creator is added as 'accepted'). Workspace membership is enforced in
+// the action layer.
+export const eventAttendeeStatusEnum = pgEnum('event_attendee_status', [
+  'invited',
+  'accepted',
+  'declined',
+  'tentative',
+]);
+
+export const calendarEventAttendees = pgTable(
+  'calendar_event_attendees',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => calendarEvents.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    status: eventAttendeeStatusEnum('status').notNull().default('invited'),
+    addedById: varchar('added_by_id', { length: 255 }).references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    eventUserUniq: uniqueIndex('calendar_event_attendees_event_user_idx').on(t.eventId, t.userId),
+    userIdx: index('calendar_event_attendees_user_idx').on(t.userId),
+  })
+);
+
 // ─── Calendar Event Templates ───────────────────────────────────
 export const calendarEventTemplates = pgTable(
   'calendar_event_templates',
@@ -1601,7 +1637,7 @@ export const vehicleShareLinksRelations = relations(vehicleShareLinks, ({ one })
   }),
 }));
 
-export const calendarEventsRelations = relations(calendarEvents, ({ one }) => ({
+export const calendarEventsRelations = relations(calendarEvents, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [calendarEvents.workspaceId],
     references: [workspaces.id],
@@ -1620,6 +1656,18 @@ export const calendarEventsRelations = relations(calendarEvents, ({ one }) => ({
   }),
   createdBy: one(users, {
     fields: [calendarEvents.createdById],
+    references: [users.id],
+  }),
+  attendees: many(calendarEventAttendees),
+}));
+
+export const calendarEventAttendeesRelations = relations(calendarEventAttendees, ({ one }) => ({
+  event: one(calendarEvents, {
+    fields: [calendarEventAttendees.eventId],
+    references: [calendarEvents.id],
+  }),
+  user: one(users, {
+    fields: [calendarEventAttendees.userId],
     references: [users.id],
   }),
 }));

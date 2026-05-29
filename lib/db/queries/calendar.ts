@@ -48,6 +48,19 @@ function toEvent(row: any): CalendarEvent {
           to: row.createdBy.avatarTo,
         }
       : undefined,
+    attendees: Array.isArray(row.attendees)
+      ? row.attendees
+          .filter((a: any) => a.user)
+          .map((a: any) => ({
+            id: a.user.id,
+            name: a.user.name,
+            initials: a.user.initials,
+            from: a.user.avatarFrom,
+            to: a.user.avatarTo,
+            status: a.status,
+          }))
+      : [],
+    source: 'internal',
   };
 }
 
@@ -56,6 +69,13 @@ const RELATIONS = {
   contract: { columns: { id: true, title: true } },
   vehicle: { columns: { id: true, externalId: true, plate: true, model: true } },
   createdBy: true,
+  attendees: {
+    with: {
+      user: {
+        columns: { id: true, name: true, initials: true, avatarFrom: true, avatarTo: true },
+      },
+    },
+  },
 } as const;
 
 export async function listCalendarEvents(

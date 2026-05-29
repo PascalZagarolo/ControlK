@@ -47,12 +47,14 @@ export function MonthView({
   const todayIso = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="rounded-[12px] border border-white/[0.06] bg-white/[0.02]">
+    <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-white/[0.015] shadow-panel">
       <div className="grid grid-cols-7 border-b border-white/[0.06]">
-        {DOW.map((d) => (
+        {DOW.map((d, i) => (
           <div
             key={d}
-            className="px-2 py-1.5 text-center font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300"
+            className={`px-2 py-2 text-center font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 ${
+              i >= 5 ? 'bg-white/[0.015]' : ''
+            }`}
           >
             {d}
           </div>
@@ -63,6 +65,7 @@ export function MonthView({
           const iso = cell.date.toISOString().slice(0, 10);
           const dayEvents = eventsByDay.get(iso) ?? [];
           const isToday = iso === todayIso;
+          const isWeekend = (cell.date.getDay() + 6) % 7 >= 5;
           const handleCellClick = () => {
             if (!onCreateAt) return;
             const start = new Date(cell.date);
@@ -73,19 +76,21 @@ export function MonthView({
             <div
               key={i}
               onClick={handleCellClick}
-              className={`group/cell relative min-h-[112px] cursor-pointer border-b border-r border-white/[0.04] p-1.5 transition-colors hover:bg-[#5eb6ff]/[0.04] ${
-                cell.inMonth ? '' : 'opacity-50'
-              }`}
+              className={`group/cell relative min-h-[116px] cursor-pointer border-b border-r border-white/[0.04] p-1.5 transition-colors hover:bg-[#5eb6ff]/[0.04] ${
+                cell.inMonth ? '' : 'opacity-40'
+              } ${isToday ? 'bg-[#5eb6ff]/[0.04]' : isWeekend ? 'bg-white/[0.012]' : ''}`}
             >
-              <div
-                className={`mb-1 flex items-center justify-between font-mono text-[11px] tabular-nums ${
-                  isToday ? 'text-[#5eb6ff] font-medium' : 'text-ink-300'
-                }`}
-              >
-                <span>{cell.date.getDate()}</span>
+              <div className="mb-1 flex items-center justify-between">
+                <span
+                  className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 font-mono text-[11px] tabular-nums ${
+                    isToday ? 'bg-[#5eb6ff] font-semibold text-black' : 'text-ink-300'
+                  }`}
+                >
+                  {cell.date.getDate()}
+                </span>
                 {onCreateAt && (
-                  <span className="opacity-0 transition-opacity group-hover/cell:opacity-100">
-                    <span className="text-[10px] text-ink-400">+ klicken</span>
+                  <span className="font-mono text-[9.5px] text-ink-300 opacity-0 transition-opacity group-hover/cell:opacity-100">
+                    + Termin
                   </span>
                 )}
               </div>
@@ -101,8 +106,12 @@ export function MonthView({
                         onOpen(e.id);
                       }}
                       title={`${meta.label} · ${e.title}`}
-                      className="flex items-center gap-1 rounded-[3px] px-1 py-0.5 text-left text-[10.5px] leading-tight transition-colors hover:bg-white/[0.06]"
-                      style={{ background: `${meta.color}1c`, color: '#e6e7ec' }}
+                      className="flex items-center gap-1 rounded-[4px] px-1 py-0.5 text-left text-[10.5px] leading-tight transition-[filter] duration-150 hover:brightness-125"
+                      style={{
+                        background: `linear-gradient(180deg, ${meta.color}22 0%, ${meta.color}14 100%)`,
+                        boxShadow: `inset 2px 0 0 0 ${meta.color}, inset 0 1px 0 0 rgba(255,255,255,.05)`,
+                        color: '#e6e7ec',
+                      }}
                     >
                       <span style={{ color: meta.color }}>{meta.icon}</span>
                       <span className="truncate">{e.title}</span>

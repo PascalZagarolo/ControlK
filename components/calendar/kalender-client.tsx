@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import { EASE_SOFT } from './_motion';
+import { usePusherChannel } from '@/components/realtime/pusher-provider';
 import { Headline, MetaTag, MetaDivider } from '@/components/ui/headline';
 import { FilterPills } from '@/components/ui/filter-pills';
 import { CreateEventModal } from './create-event-modal';
@@ -17,13 +20,21 @@ import { YearHeatmapView } from './year-heatmap-view';
 import { RecurringModal } from './recurring-modal';
 import { TemplatesModal } from './templates-modal';
 import { ShareCalendarModal } from './share-calendar-modal';
+import { QuickAddBar } from './quick-add-bar';
+import { UpNextPanel } from './up-next-panel';
+import { StandstillRail } from './standstill-rail';
+import { SlotFinderModal } from './slot-finder-modal';
 import { KIND_META } from './event-color';
+import type { QuickParsedEvent } from '@/lib/actions/calendar';
+import type { StandstillRow } from '@/lib/db/queries/inverse-calendar';
 import type {
   CalendarEvent,
   CalendarConflict,
   CalendarPreFlightAlert,
   CalendarTemplate,
+  CalendarEventKind,
   DayDensityCell,
+  TodoUser,
 } from '@/lib/types';
 
 const VIEWS = ['Monat', 'Woche', 'Tag', 'Agenda', 'Resource', 'Jahr'] as const;
@@ -46,6 +57,10 @@ export function KalenderClient({
   vehicles,
   contracts,
   counts,
+  members = [],
+  currentUserId,
+  standstills = [],
+  workspaceId,
 }: {
   events: CalendarEvent[];
   density: DayDensityCell[];
@@ -58,23 +73,60 @@ export function KalenderClient({
   vehicles: Vehicle[];
   contracts: Contract[];
   counts: { today: number; thisWeek: number; conflicts: number; openChecklists: number };
+  members?: TodoUser[];
+  currentUserId?: string;
+  standstills?: StandstillRow[];
+  workspaceId?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Live updates: any teammate creating/moving/deleting an event in this
+  // workspace pushes a "calendar.changed" event → we refetch. No-op when
+  // Pusher isn't configured.
+  usePusherChannel(workspaceId ? `private-workspace-${workspaceId}-calendar` : null, {
+    'calendar.changed': () => router.refresh(),
+  });
+
   const [view, setView] = useState<View>('Woche');
   const [smartView, setSmartView] = useState<CalendarSmartView>('all');
+  const [layers, setLayers] = useState({ internal: true, google: true, todo: true });
   const [cursor, setCursor] = useState<Date>(new Date());
   const [createOpen, setCreateOpen] = useState(false);
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [slotFinderOpen, setSlotFinderOpen] = useState(false);
   const [prefillStart, setPrefillStart] = useState<string | undefined>(undefined);
   const [prefillDuration, setPrefillDuration] = useState<number | undefined>(undefined);
+  const [prefillTitle, setPrefillTitle] = useState<string | undefined>(undefined);
+  const [prefillLocation, setPrefillLocation] = useState<string | undefined>(undefined);
+  const [prefillDetail, setPrefillDetail] = useState<string | undefined>(undefined);
+  const [prefillKind, setPrefillKind] = useState<CalendarEventKind | undefined>(undefined);
+
+  const resetPrefill = () => {
+    setPrefillStart(undefined);
+    setPrefillDuration(undefined);
+    setPrefillTitle(undefined);
+    setPrefillLocation(undefined);
+    setPrefillDetail(undefined);
+    setPrefillKind(undefined);
+  };
 
   const openCreateAt = (startIso: string, durationMinutes: number) => {
+    resetPrefill();
     setPrefillStart(startIso);
     setPrefillDuration(durationMinutes);
+    setCreateOpen(true);
+  };
+
+  const openCreateWithDraft = (draft: QuickParsedEvent) => {
+    setPrefillStart(draft.startsAtIso);
+    setPrefillDuration(draft.durationMinutes);
+    setPrefillTitle(draft.title);
+    setPrefillKind(draft.kind);
+    setPrefillLocation(draft.location);
+    setPrefillDetail(draft.detail);
     setCreateOpen(true);
   };
 
@@ -85,6 +137,12 @@ export function KalenderClient({
   );
 
   const openEvent = (id: string) => {
+    // Read-only overlay events don't get the editable drawer.
+    if (id.startsWith('ext_')) return; // Google mirror — read-only
+    if (id.startsWith('todo_')) {
+      router.push('/todos');
+      return;
+    }
     const p = new URLSearchParams(searchParams.toString());
     p.set('event', id);
     router.replace(`/kalender?${p.toString()}`, { scroll: false });
@@ -95,8 +153,11 @@ export function KalenderClient({
     router.replace(p.toString() ? `/kalender?${p.toString()}` : '/kalender', { scroll: false });
   };
 
+  const hasGoogle = useMemo(() => events.some((e) => e.source === 'google'), [events]);
+  const hasTodo = useMemo(() => events.some((e) => e.source === 'todo'), [events]);
+
   const filtered = useMemo(() => {
-    let list = events;
+    let list = events.filter((e) => layers[e.source ?? 'internal']);
     const now = new Date();
     const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endToday = new Date(startToday.getTime() + 86_400_000);
@@ -121,7 +182,7 @@ export function KalenderClient({
       );
     }
     return list;
-  }, [events, smartView, conflicts]);
+  }, [events, smartView, conflicts, layers]);
 
   // Today strip
   const todayStrip = useMemo(() => {
@@ -159,7 +220,7 @@ export function KalenderClient({
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1340px] gap-6 px-4 pb-32 pt-28 md:px-6">
+    <div className="mx-auto flex w-full max-w-[1720px] gap-6 px-4 pb-32 pt-28 md:px-6">
       <CalendarSidebar
         smartView={smartView}
         setSmartView={setSmartView}
@@ -170,6 +231,10 @@ export function KalenderClient({
       />
 
       <div className="min-w-0 flex-1">
+        <div className="mb-5">
+          <QuickAddBar onDraft={openCreateWithDraft} />
+        </div>
+
         <Headline
           kicker="Kalender"
           title={headlineTitle}
@@ -215,6 +280,13 @@ export function KalenderClient({
               </div>
               <button
                 type="button"
+                onClick={() => setSlotFinderOpen(true)}
+                className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-ink-200 hover:bg-white/[0.05] hover:text-ink-50"
+              >
+                🔍 Slot finden
+              </button>
+              <button
+                type="button"
                 onClick={() => setRecurringOpen(true)}
                 className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-ink-200 hover:bg-white/[0.05] hover:text-ink-50"
               >
@@ -237,8 +309,7 @@ export function KalenderClient({
               <button
                 type="button"
                 onClick={() => {
-                  setPrefillStart(undefined);
-                  setPrefillDuration(undefined);
+                  resetPrefill();
                   setCreateOpen(true);
                 }}
                 className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[12.5px] font-medium text-ink-50 hover:border-white/[0.18] hover:bg-white/[0.06]"
@@ -251,7 +322,12 @@ export function KalenderClient({
 
         {/* Today strip */}
         {todayStrip.items.length > 0 && (
-          <div className="mt-5 rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: EASE_SOFT }}
+            className="mt-5 rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-4 py-3 shadow-panel"
+          >
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
                 Heute
@@ -272,7 +348,7 @@ export function KalenderClient({
                 );
               })}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Pre-Flight Alerts */}
@@ -314,38 +390,85 @@ export function KalenderClient({
           </div>
         )}
 
+        {(hasGoogle || hasTodo) && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
+              Ebenen
+            </span>
+            <LayerToggle
+              label="Termine"
+              color="#c084fc"
+              active={layers.internal}
+              onClick={() => setLayers((l) => ({ ...l, internal: !l.internal }))}
+            />
+            {hasGoogle && (
+              <LayerToggle
+                label="Google"
+                color="#5E9EFF"
+                active={layers.google}
+                onClick={() => setLayers((l) => ({ ...l, google: !l.google }))}
+              />
+            )}
+            {hasTodo && (
+              <LayerToggle
+                label="Todos"
+                color="#5ee08a"
+                active={layers.todo}
+                onClick={() => setLayers((l) => ({ ...l, todo: !l.todo }))}
+              />
+            )}
+          </div>
+        )}
+
         <div className="mt-6">
-          {view === 'Monat' && (
-            <MonthView
-              cursor={cursor}
-              events={filtered}
-              onOpen={openEvent}
-              onCreateAt={openCreateAt}
-            />
-          )}
-          {view === 'Woche' && (
-            <WeekView
-              cursor={cursor}
-              events={filtered}
-              onOpen={openEvent}
-              onCreateAt={openCreateAt}
-            />
-          )}
-          {view === 'Tag' && (
-            <DayView
-              cursor={cursor}
-              events={filtered}
-              onOpen={openEvent}
-              onCreateAt={openCreateAt}
-            />
-          )}
-          {view === 'Agenda' && <AgendaView events={filtered} onOpen={openEvent} />}
-          {view === 'Resource' && (
-            <ResourceView cursor={cursor} rows={resourceRows} onOpen={openEvent} />
-          )}
-          {view === 'Jahr' && <YearHeatmapView density={yearDensity} />}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: EASE_SOFT }}
+            >
+              {view === 'Monat' && (
+                <MonthView
+                  cursor={cursor}
+                  events={filtered}
+                  onOpen={openEvent}
+                  onCreateAt={openCreateAt}
+                />
+              )}
+              {view === 'Woche' && (
+                <WeekView
+                  cursor={cursor}
+                  events={filtered}
+                  onOpen={openEvent}
+                  onCreateAt={openCreateAt}
+                />
+              )}
+              {view === 'Tag' && (
+                <DayView
+                  cursor={cursor}
+                  events={filtered}
+                  onOpen={openEvent}
+                  onCreateAt={openCreateAt}
+                />
+              )}
+              {view === 'Agenda' && <AgendaView events={filtered} onOpen={openEvent} />}
+              {view === 'Resource' && (
+                <ResourceView cursor={cursor} rows={resourceRows} onOpen={openEvent} />
+              )}
+              {view === 'Jahr' && <YearHeatmapView density={yearDensity} />}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
+
+      {/* Right rail — up-next + standstill reminders. Hidden on smaller
+          viewports where the calendar grid takes the full width. */}
+      <aside className="hidden w-[320px] shrink-0 flex-col gap-4 xl:flex">
+        <UpNextPanel events={events} onOpen={openEvent} />
+        <StandstillRail standstills={standstills} />
+      </aside>
 
       <CreateEventModal
         open={createOpen}
@@ -354,8 +477,14 @@ export function KalenderClient({
         vehicles={vehicles}
         contracts={contracts}
         templates={templates}
+        members={members}
+        currentUserId={currentUserId}
         prefilledStart={prefillStart}
         prefilledDurationMinutes={prefillDuration}
+        prefilledTitle={prefillTitle}
+        prefilledLocation={prefillLocation}
+        prefilledDetail={prefillDetail}
+        prefilledKind={prefillKind}
       />
       <RecurringModal
         open={recurringOpen}
@@ -374,9 +503,56 @@ export function KalenderClient({
         onClose={() => setShareOpen(false)}
         customers={customers}
       />
+      <SlotFinderModal
+        open={slotFinderOpen}
+        onClose={() => setSlotFinderOpen(false)}
+        members={members}
+        currentUserId={currentUserId}
+        vehicles={vehicles}
+        onPick={(startIso, dur) => openCreateAt(startIso, dur)}
+      />
 
-      {drawerEvent && <EventDetailDrawer event={drawerEvent} onClose={closeEvent} />}
+      {drawerEvent && (
+        <EventDetailDrawer
+          event={drawerEvent}
+          onClose={closeEvent}
+          members={members}
+          currentUserId={currentUserId}
+        />
+      )}
     </div>
+  );
+}
+
+function LayerToggle({
+  label,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+        active
+          ? 'border-white/[0.12] bg-white/[0.05] text-ink-50'
+          : 'border-white/[0.06] bg-transparent text-ink-300 hover:text-ink-100'
+      }`}
+    >
+      <span
+        aria-hidden
+        className="inline-block h-2 w-2 rounded-[3px]"
+        style={{ background: active ? color : 'transparent', boxShadow: `inset 0 0 0 1px ${color}` }}
+      />
+      {label}
+    </button>
   );
 }
 

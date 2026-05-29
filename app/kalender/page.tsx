@@ -14,6 +14,11 @@ import {
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { asc, eq } from 'drizzle-orm';
+import { listWorkspaceMembers } from '@/lib/db/queries/members';
+import { listStandstills } from '@/lib/db/queries/inverse-calendar';
+import { listExternalEventsInRange } from '@/lib/db/queries/external-calendar';
+import { listTodos } from '@/lib/db/queries/todos';
+import type { CalendarEvent } from '@/lib/types';
 import { KalenderClient } from '@/components/calendar/kalender-client';
 
 export default async function Page() {
@@ -38,6 +43,10 @@ export default async function Page() {
     customers,
     vehicles,
     contracts,
+    members,
+    standstills,
+    externalEvents,
+    todosForCal,
   ] = await Promise.all([
     listCalendarEvents(ws.id, from, to),
     getDayDensity(
@@ -70,11 +79,47 @@ export default async function Page() {
       columns: { id: true, title: true, customerId: true },
       orderBy: [asc(s.contracts.title)],
     }),
+    listWorkspaceMembers(ws.id),
+    listStandstills(user.id),
+    listExternalEventsInRange(user.id, from, to),
+    listTodos(ws.id, user.id),
   ]);
+
+  // Unified layers: fold the read-only Google mirror and due-dated todos into
+  // the same event stream so one day shows everything. They carry a `source`
+  // so the client can toggle layers and keep them non-editable.
+  const googleEvents: CalendarEvent[] = externalEvents.map((e) => ({
+    id: `ext_${e.id}`,
+    kind: 'meeting',
+    title: e.title,
+    startsAt: e.startAt,
+    endsAt: e.endAt,
+    location: e.location ?? undefined,
+    checklist: [],
+    attendees: [],
+    source: 'google',
+  }));
+  const todoEvents: CalendarEvent[] = todosForCal
+    .filter((t) => t.dueAt && t.status !== 'erledigt' && t.status !== 'abgebrochen')
+    .map((t) => {
+      const start = new Date(t.dueAt as string);
+      return {
+        id: `todo_${t.id}`,
+        kind: 'task',
+        title: t.title,
+        startsAt: start.toISOString(),
+        endsAt: new Date(start.getTime() + 30 * 60_000).toISOString(),
+        checklist: [],
+        attendees: [],
+        source: 'todo',
+        linkHref: '/todos',
+      };
+    });
+  const allEvents = [...events, ...googleEvents, ...todoEvents];
 
   return (
     <KalenderClient
-      events={events}
+      events={allEvents}
       density={density}
       yearDensity={yearDensity}
       conflicts={conflicts}
@@ -90,6 +135,10 @@ export default async function Page() {
       }))}
       contracts={contracts.map((c) => ({ id: c.id, title: c.title }))}
       counts={counts}
+      members={members}
+      currentUserId={user.id}
+      standstills={standstills}
+      workspaceId={ws.id}
     />
   );
 }

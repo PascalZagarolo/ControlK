@@ -14,8 +14,9 @@ import {
   ModalTextarea,
 } from '@/components/ui/modal';
 import { createCalendarEvent } from '@/lib/actions/calendar';
+import { Avatar } from '@/components/channel/avatar';
 import { KIND_GROUPS, KIND_META } from './event-color';
-import type { CalendarEventKind, CalendarTemplate } from '@/lib/types';
+import type { CalendarEventKind, CalendarTemplate, TodoUser } from '@/lib/types';
 
 function defaultStart(prefilledIso?: string): string {
   if (prefilledIso) return prefilledIso.slice(0, 16);
@@ -37,11 +38,16 @@ export function CreateEventModal({
   vehicles = [],
   contracts = [],
   templates = [],
+  members = [],
+  currentUserId,
   prefilledStart,
   prefilledDurationMinutes,
   prefilledKind,
   prefilledCustomerId,
   prefilledVehicleId,
+  prefilledTitle,
+  prefilledLocation,
+  prefilledDetail,
 }: {
   open: boolean;
   onClose: () => void;
@@ -49,11 +55,16 @@ export function CreateEventModal({
   vehicles?: Vehicle[];
   contracts?: Contract[];
   templates?: CalendarTemplate[];
+  members?: TodoUser[];
+  currentUserId?: string;
   prefilledStart?: string;
   prefilledDurationMinutes?: number;
   prefilledKind?: CalendarEventKind;
   prefilledCustomerId?: string;
   prefilledVehicleId?: string;
+  prefilledTitle?: string;
+  prefilledLocation?: string;
+  prefilledDetail?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -62,23 +73,49 @@ export function CreateEventModal({
   const [allowConflict, setAllowConflict] = useState(false);
   const [templateId, setTemplateId] = useState<string>('');
   const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [detail, setDetail] = useState('');
   const [kind, setKind] = useState<CalendarEventKind>(prefilledKind ?? 'meeting');
   const [duration, setDuration] = useState(prefilledDurationMinutes ?? 60);
   const [checklist, setChecklist] = useState('');
+  const [attendeeIds, setAttendeeIds] = useState<string[]>(
+    currentUserId ? [currentUserId] : []
+  );
 
   useEffect(() => {
     if (open) {
       setKind(prefilledKind ?? 'meeting');
       setDuration(prefilledDurationMinutes ?? 60);
+      setAttendeeIds(currentUserId ? [currentUserId] : []);
+      setTitle(prefilledTitle ?? '');
+      setLocation(prefilledLocation ?? '');
+      setDetail(prefilledDetail ?? '');
     } else {
       setError(null);
       setConflict(null);
       setAllowConflict(false);
       setTemplateId('');
       setTitle('');
+      setLocation('');
+      setDetail('');
       setChecklist('');
     }
-  }, [open, prefilledKind, prefilledDurationMinutes]);
+  }, [
+    open,
+    prefilledKind,
+    prefilledDurationMinutes,
+    currentUserId,
+    prefilledTitle,
+    prefilledLocation,
+    prefilledDetail,
+  ]);
+
+  const toggleAttendee = (id: string) => {
+    if (id === currentUserId) return; // creator is always included
+    setAttendeeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const applyTemplate = (id: string) => {
     setTemplateId(id);
@@ -118,6 +155,7 @@ export function CreateEventModal({
               linkedContractId: String(data.get('linkedContractId') ?? '') || null,
               checklist: checklistArr,
               allowConflict,
+              attendeeIds,
             });
             if (!res.ok) {
               if (res.error.toLowerCase().includes('konflikt') || res.error.toLowerCase().includes('gebucht')) {
@@ -197,8 +235,46 @@ export function CreateEventModal({
         </ModalField>
 
         <ModalField label="Ort (optional)">
-          <ModalInput name="location" placeholder="Adresse, Raum, Online-Link…" />
+          <ModalInput
+            name="location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Adresse, Raum, Online-Link…"
+          />
         </ModalField>
+
+        {members.length > 0 && (
+          <ModalField label="Teilnehmer" hint="Workspace-Mitglieder zu diesem Termin hinzufügen.">
+            <div className="flex flex-wrap gap-1.5">
+              {members.map((m) => {
+                const selected = attendeeIds.includes(m.id);
+                const isSelf = m.id === currentUserId;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleAttendee(m.id)}
+                    disabled={isSelf}
+                    aria-pressed={selected}
+                    className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12px] transition-colors ${
+                      selected
+                        ? 'bg-white/[0.08] text-ink-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,.12)]'
+                        : 'bg-white/[0.02] text-ink-300 hover:bg-white/[0.05] hover:text-ink-100'
+                    } ${isSelf ? 'cursor-default' : ''}`}
+                    title={isSelf ? `${m.name} (du — immer dabei)` : m.name}
+                  >
+                    <Avatar initials={m.initials} from={m.from} to={m.to} size={20} />
+                    <span className="max-w-[120px] truncate">
+                      {m.name}
+                      {isSelf ? ' (du)' : ''}
+                    </span>
+                    {selected && !isSelf && <span className="text-ink-300">×</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </ModalField>
+        )}
 
         <details className="rounded-[10px] border border-white/[0.06] bg-white/[0.02] p-3" open={!!(prefilledCustomerId || prefilledVehicleId)}>
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
@@ -249,7 +325,13 @@ export function CreateEventModal({
         </ModalField>
 
         <ModalField label="Notiz (optional)">
-          <ModalTextarea name="detail" rows={2} placeholder="Worum geht's? Hintergrund, Links, Vorbereitung …" />
+          <ModalTextarea
+            name="detail"
+            rows={2}
+            value={detail}
+            onChange={(e) => setDetail(e.target.value)}
+            placeholder="Worum geht's? Hintergrund, Links, Vorbereitung …"
+          />
         </ModalField>
 
         {conflict && (

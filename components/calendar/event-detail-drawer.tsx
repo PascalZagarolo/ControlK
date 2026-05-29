@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { drawerVariants, scrimVariants } from './_motion';
 import { Avatar } from '@/components/channel/avatar';
 import {
   Select,
@@ -16,23 +18,29 @@ import {
 import { KIND_GROUPS, KIND_META } from './event-color';
 import {
   addChecklistItem,
+  addEventAttendee,
   deleteCalendarEvent,
   deleteRecurringSeries,
   removeChecklistItem,
+  removeEventAttendee,
   rescheduleEvent,
   toggleChecklistItem,
   toggleEventComplete,
   updateCalendarEvent,
 } from '@/lib/actions/calendar';
-import type { CalendarEvent, CalendarEventKind } from '@/lib/types';
+import type { CalendarEvent, CalendarEventKind, TodoUser } from '@/lib/types';
 
 
 export function EventDetailDrawer({
   event,
   onClose,
+  members = [],
+  currentUserId,
 }: {
   event: CalendarEvent;
   onClose: () => void;
+  members?: TodoUser[];
+  currentUserId?: string;
 }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
@@ -72,9 +80,17 @@ export function EventDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-[150]">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
-      <aside
+      <motion.div
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+        variants={scrimVariants}
+        initial="hidden"
+        animate="show"
+      />
+      <motion.aside
         ref={ref}
+        variants={drawerVariants}
+        initial="hidden"
+        animate="show"
         className="absolute bottom-0 right-0 top-0 flex w-[min(560px,100vw)] flex-col overflow-y-auto border-l border-white/[0.08] bg-[rgba(14,15,18,0.97)] shadow-panel backdrop-blur-xl"
       >
         <div className="flex items-start gap-3 border-b border-white/[0.06] px-5 py-4">
@@ -284,6 +300,17 @@ export function EventDetailDrawer({
             </div>
           </Section>
 
+          {/* Attendees */}
+          <Section title={`Teilnehmer · ${event.attendees.length}`}>
+            <AttendeeManager
+              eventId={event.id}
+              attendees={event.attendees}
+              members={members}
+              currentUserId={currentUserId}
+              onChanged={refresh}
+            />
+          </Section>
+
           {/* Location */}
           {event.location && (
             <Section title="Ort">
@@ -406,7 +433,7 @@ export function EventDetailDrawer({
             </Section>
           )}
         </div>
-      </aside>
+      </motion.aside>
     </div>
   );
 }
@@ -511,5 +538,94 @@ function LinkRow({
       </span>
       <span className="font-mono text-[11px] text-ink-300">→</span>
     </Link>
+  );
+}
+
+function AttendeeManager({
+  eventId,
+  attendees,
+  members,
+  currentUserId,
+  onChanged,
+}: {
+  eventId: string;
+  attendees: { id: string; name: string; initials: string; from: string; to: string; status: string }[];
+  members: TodoUser[];
+  currentUserId?: string;
+  onChanged: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const attendeeIds = new Set(attendees.map((a) => a.id));
+  const candidates = members.filter((m) => !attendeeIds.has(m.id));
+
+  const add = (userId: string) =>
+    start(async () => {
+      await addEventAttendee(eventId, userId);
+      onChanged();
+    });
+  const remove = (userId: string) =>
+    start(async () => {
+      await removeEventAttendee(eventId, userId);
+      onChanged();
+    });
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {attendees.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {attendees.map((a) => (
+            <div
+              key={a.id}
+              className="flex items-center gap-2.5 rounded-[8px] bg-white/[0.02] px-2 py-1.5"
+            >
+              <Avatar initials={a.initials} from={a.from} to={a.to} size={22} />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-50">
+                {a.name}
+                {a.id === currentUserId && <span className="text-ink-300"> · du</span>}
+              </span>
+              {a.status !== 'accepted' && (
+                <span className="font-mono text-[9.5px] uppercase tracking-[0.3px] text-ink-300">
+                  {a.status === 'invited'
+                    ? 'eingeladen'
+                    : a.status === 'declined'
+                      ? 'abgesagt'
+                      : 'vielleicht'}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => remove(a.id)}
+                disabled={pending}
+                aria-label={`${a.name} entfernen`}
+                className="shrink-0 px-1 text-[14px] text-ink-300 transition-colors hover:text-[#ff8a8a] disabled:opacity-50"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[12.5px] text-ink-300">Noch keine Teilnehmer.</p>
+      )}
+
+      {candidates.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {candidates.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => add(m.id)}
+              disabled={pending}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.02] py-1 pl-1 pr-2.5 text-[12px] text-ink-300 transition-colors hover:bg-white/[0.05] hover:text-ink-100 disabled:opacity-50"
+              title={`${m.name} hinzufügen`}
+            >
+              <Avatar initials={m.initials} from={m.from} to={m.to} size={18} />
+              <span className="max-w-[120px] truncate">{m.name}</span>
+              <span className="text-ink-300">+</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

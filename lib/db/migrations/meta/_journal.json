@@ -288,6 +288,13 @@
       "when": 1781400000000,
       "tag": "0040_todo_subgroups",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781450000000,
+      "tag": "0041_calendar_event_attendees",
+      "breakpoints": true
     }
   ]
 }
