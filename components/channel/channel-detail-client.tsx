@@ -5,6 +5,7 @@ import { ChannelHeadline } from '@/components/channel/channel-headline';
 import { MessageItem } from '@/components/channel/message-item';
 import { DateSeparator } from '@/components/channel/date-separator';
 import { Composer } from '@/components/channel/composer';
+import { ChannelAiBar } from '@/components/channel/channel-ai-bar';
 import { ThreadPanel } from '@/components/channel/thread-panel';
 import { PinnedStrip } from '@/components/channel/pinned-strip';
 import { MembersSidebar } from '@/components/channel/members-sidebar';
@@ -140,6 +141,9 @@ export function ChannelDetailClient({
 
         <div className="shrink-0 border-t border-[#1F1F23] bg-ink-900 px-6 pb-4 pt-3">
           <div className="mx-auto w-full max-w-[760px]">
+            {messages.length > 0 && (
+              <ChannelAiBar channelName={channel.name} messages={messages} />
+            )}
             <Composer
               channelName={channel.name}
               channelId={channelId ?? undefined}
