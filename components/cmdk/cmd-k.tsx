@@ -70,6 +70,7 @@ type Mode = 'workspace' | 'global';
 export function CmdK() {
   const open = useUIStore((s) => s.cmdKOpen);
   const setOpen = useUIStore((s) => s.setCmdKOpen);
+  const openAsk = useUIStore((s) => s.openAsk);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -182,12 +183,17 @@ export function CmdK() {
         if (picked) {
           e.preventDefault();
           onPick(picked);
+        } else if (query.trim()) {
+          // No match → hand the query to the AI assistant.
+          e.preventDefault();
+          setOpen(false);
+          openAsk(query.trim());
         }
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, flat, activeIndex, router, setOpen]);
+  }, [open, flat, activeIndex, router, setOpen, query, openAsk]);
 
   if (!open) return null;
 
@@ -250,6 +256,27 @@ export function CmdK() {
             Esc
           </button>
         </div>
+
+        {query.trim() && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              openAsk(query.trim());
+            }}
+            className="flex w-full items-center gap-3 border-b border-white/[0.06] px-5 py-3 text-left transition-colors hover:bg-white/[0.03]"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-[#5E9EFF]/[0.14] text-[12px] text-[#5E9EFF]">
+              ✦
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink-100">
+              „{query.trim()}" mit <span className="text-[#5E9EFF]">Ask Ctrl K</span> beantworten
+            </span>
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300">
+              KI
+            </span>
+          </button>
+        )}
 
         {!loaded ? (
           <div className="px-5 py-12 text-center text-[13px] text-ink-300">Lade …</div>

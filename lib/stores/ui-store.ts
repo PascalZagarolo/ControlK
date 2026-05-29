@@ -13,6 +13,13 @@ type UIState = {
   quickCreateOpen: boolean;
   setQuickCreateOpen: (open: boolean) => void;
   toggleQuickCreate: () => void;
+
+  // Ask Ctrl K assistant. `askQuery` carries an initial question (e.g. from
+  // the ⌘K palette) that the panel auto-sends once on open.
+  askOpen: boolean;
+  askQuery: string | null;
+  setAskOpen: (open: boolean) => void;
+  openAsk: (query?: string) => void;
 };
 
 export const useUIStore = create<UIState>((set) => ({
@@ -26,4 +33,9 @@ export const useUIStore = create<UIState>((set) => ({
   quickCreateOpen: false,
   setQuickCreateOpen: (quickCreateOpen) => set({ quickCreateOpen }),
   toggleQuickCreate: () => set((s) => ({ quickCreateOpen: !s.quickCreateOpen })),
+
+  askOpen: false,
+  askQuery: null,
+  setAskOpen: (askOpen) => set(askOpen ? { askOpen } : { askOpen, askQuery: null }),
+  openAsk: (query) => set({ askOpen: true, askQuery: query ?? null }),
 }));

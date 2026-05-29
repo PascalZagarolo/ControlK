@@ -9,6 +9,8 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { askWorkspace, type AskMessage } from '@/lib/actions/ask';
+import { useUIStore } from '@/lib/stores/ui-store';
+import { VoiceCaptureButton } from '@/components/todos/voice-capture-button';
 
 const SUGGESTIONS = [
   'Was steht heute an?',
@@ -17,11 +19,14 @@ const SUGGESTIONS = [
 ];
 
 export function AskCtrlK() {
-  const [open, setOpen] = useState(false);
+  const open = useUIStore((s) => s.askOpen);
+  const setOpen = useUIStore((s) => s.setAskOpen);
+  const askQuery = useUIStore((s) => s.askQuery);
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState('');
   const [pending, start] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const consumedRef = useRef<string | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -42,11 +47,20 @@ export function AskCtrlK() {
     });
   };
 
+  // Auto-send a question handed in from ⌘K (once per distinct query).
+  useEffect(() => {
+    if (open && askQuery && consumedRef.current !== askQuery) {
+      consumedRef.current = askQuery;
+      send(askQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, askQuery]);
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         aria-label="Ask Ctrl K"
         className="fixed bottom-5 left-5 z-[120] flex h-11 items-center gap-2 rounded-full border border-white/[0.1] bg-[rgba(17,17,20,0.9)] px-4 text-[13px] font-medium text-ink-50 shadow-[0_8px_28px_rgba(0,0,0,.5)] backdrop-blur-xl transition-colors hover:border-white/[0.2]"
       >
@@ -146,6 +160,7 @@ export function AskCtrlK() {
                 placeholder="Frag etwas …"
                 className="min-w-0 flex-1 bg-transparent text-[13px] text-ink-50 outline-none placeholder:text-ink-300 disabled:opacity-60"
               />
+              <VoiceCaptureButton onTranscript={(t) => send(t)} />
               <button
                 type="submit"
                 disabled={pending || !input.trim()}
