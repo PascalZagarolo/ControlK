@@ -10,6 +10,7 @@ import {
   snoozeInboxItem,
 } from '@/lib/actions/inbox-actions';
 import { toast } from '@/lib/stores/toast-store';
+import { InboxAiPanel } from '@/components/inbox/inbox-ai-panel';
 import type { GmailFullBody } from '@/lib/google/gmail';
 
 type ItemSummary = {
@@ -176,6 +177,13 @@ export function InboxDetailClient({
           )}
         </div>
       </header>
+
+      {/* AI helpers — summarize / draft reply */}
+      <InboxAiPanel
+        subject={subject}
+        from={sender}
+        bodyText={body?.plain ?? item.preview ?? null}
+      />
 
       {/* Body */}
       <article className="flex flex-col gap-4">
