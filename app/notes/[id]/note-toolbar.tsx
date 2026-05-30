@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { archiveNote, duplicateNote } from '@/lib/actions/notes';
+import { extractNoteTodos } from '@/lib/actions/note-ai';
+import { toast } from '@/lib/stores/toast-store';
 import { useNoteSaveStore } from '@/lib/notes/note-save-store';
 
 export function NoteToolbar({
@@ -64,6 +66,20 @@ export function NoteToolbar({
     start(async () => {
       await archiveNote(noteId);
       router.push('/notes');
+    });
+  };
+
+  const doExtractTodos = () => {
+    setMenuOpen(false);
+    start(async () => {
+      const res = await extractNoteTodos(noteId);
+      if (!res.ok) {
+        toast(res.error, 'danger');
+      } else if (res.created > 0) {
+        toast(`${res.created} Todo${res.created === 1 ? '' : 's'} aus Notiz erstellt`, 'success');
+      } else {
+        toast('Keine Action-Items in der Notiz gefunden', 'success');
+      }
     });
   };
 
@@ -152,6 +168,9 @@ export function NoteToolbar({
               </MenuItem>
               <MenuItem onSelect={doDuplicate} disabled={pending}>
                 Duplizieren
+              </MenuItem>
+              <MenuItem onSelect={doExtractTodos} disabled={pending}>
+                ✦ Action-Items → Todos
               </MenuItem>
               <div className="my-1 h-px bg-white/[0.05]" />
               <MenuItem
