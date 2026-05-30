@@ -11,6 +11,7 @@
 import { useState, useTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { channelAsk, channelReplyDraft, channelSummary } from '@/lib/actions/channel-ai';
+import { createTodoFromForm } from '@/lib/actions/todos';
 import { useComposerStore } from '@/lib/stores/composer-store';
 import { toast } from '@/lib/stores/toast-store';
 import type { Message } from '@/lib/types';
@@ -29,7 +30,20 @@ export function ChannelAiBar({
   const [answer, setAnswer] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [addedItems, setAddedItems] = useState<Set<number>>(new Set());
   const setDraft = useComposerStore((s) => s.setDraft);
+
+  const addTodo = (index: number, title: string) => {
+    start(async () => {
+      const fd = new FormData();
+      fd.set('title', title);
+      const res = await createTodoFromForm(fd);
+      if (res.ok) {
+        setAddedItems((s) => new Set(s).add(index));
+        toast('→ Todo erstellt', 'success');
+      } else toast(res.error ?? 'Konnte Todo nicht erstellen', 'danger');
+    });
+  };
 
   const payload = () => ({
     channelName,
@@ -126,12 +140,25 @@ export function ChannelAiBar({
                   <p className="text-[12.5px] leading-relaxed text-ink-100">{summary.summary}</p>
                   {summary.openItems.length > 0 && (
                     <ul className="mt-1.5 flex flex-col gap-1">
-                      {summary.openItems.map((it, i) => (
-                        <li key={i} className="flex gap-2 text-[12px] text-ink-200">
-                          <span aria-hidden className="text-[#5E9EFF]">▪</span>
-                          <span>{it}</span>
-                        </li>
-                      ))}
+                      {summary.openItems.map((it, i) => {
+                        const added = addedItems.has(i);
+                        return (
+                          <li key={i} className="group flex items-start gap-2 text-[12px] text-ink-200">
+                            <span aria-hidden className="mt-0.5 text-[#5E9EFF]">▪</span>
+                            <span className="min-w-0 flex-1">{it}</span>
+                            <button
+                              type="button"
+                              onClick={() => !added && addTodo(i, it)}
+                              disabled={pending || added}
+                              className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.3px] transition-colors ${
+                                added ? 'text-[#5ee08a]' : 'text-ink-300 hover:bg-white/[0.06] hover:text-ink-50 disabled:opacity-50'
+                              }`}
+                            >
+                              {added ? '✓' : '→ Todo'}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

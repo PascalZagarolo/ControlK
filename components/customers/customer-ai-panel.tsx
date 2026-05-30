@@ -8,6 +8,8 @@
 import { useState, useTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { customerInsight, customerMeetingPrep } from '@/lib/actions/crm-ai';
+import { createTodoFromForm } from '@/lib/actions/todos';
+import { toast } from '@/lib/stores/toast-store';
 
 const RISK_COLOR: Record<string, string> = {
   niedrig: '#5ee08a',
@@ -25,10 +27,24 @@ export function CustomerAiPanel({ customerId }: { customerId: string }) {
   } | null>(null);
   const [prep, setPrep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionAdded, setActionAdded] = useState(false);
+
+  const addNextActionTodo = (title: string) => {
+    start(async () => {
+      const fd = new FormData();
+      fd.set('title', title);
+      const res = await createTodoFromForm(fd);
+      if (res.ok) {
+        setActionAdded(true);
+        toast('→ Todo erstellt', 'success');
+      } else toast(res.error ?? 'Konnte Todo nicht erstellen', 'danger');
+    });
+  };
 
   const runInsight = () => {
     setError(null);
     setActive('insight');
+    setActionAdded(false);
     start(async () => {
       const res = await customerInsight(customerId);
       if (res.ok) setInsight({ summary: res.summary, nextAction: res.nextAction, risk: res.risk });
@@ -86,7 +102,17 @@ export function CustomerAiPanel({ customerId }: { customerId: string }) {
                 <span className="mt-0.5 shrink-0 font-mono text-[9.5px] uppercase tracking-[0.3px] text-[#5E9EFF]">
                   Next
                 </span>
-                <p className="text-[13px] font-medium text-ink-50">{insight.nextAction}</p>
+                <p className="min-w-0 flex-1 text-[13px] font-medium text-ink-50">{insight.nextAction}</p>
+                <button
+                  type="button"
+                  onClick={() => !actionAdded && addNextActionTodo(insight.nextAction)}
+                  disabled={pending || actionAdded}
+                  className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.3px] transition-colors ${
+                    actionAdded ? 'text-[#5ee08a]' : 'text-ink-300 hover:bg-white/[0.06] hover:text-ink-50 disabled:opacity-50'
+                  }`}
+                >
+                  {actionAdded ? '✓ Todo' : '→ Todo'}
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 <span
