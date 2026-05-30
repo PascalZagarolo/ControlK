@@ -10,6 +10,9 @@ type Tab = {
   // Tabs without a scopes array are always visible.
   // Tabs with a scopes array are only visible if the current workspace scope is included.
   scopes?: ('business' | 'private')[];
+  // Tabs flagged `rental` only show when the workspace opted into the
+  // uRent/Vermietungs-Pack. Keeps the default product horizontal.
+  rental?: boolean;
 };
 
 // Primary tabs sit inline in the header pill. Kept lean so the pill never
@@ -27,18 +30,27 @@ const PRIMARY: Tab[] = [
 // Contacts are useful for everyone (private: people you track; business:
 // CRM-light); the rental/ops trio is business-only.
 const MORE: Tab[] = [
+  // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },
-  { label: 'Kunden', href: '/kunden', scopes: ['business'] },
-  { label: 'Flotte', href: '/flotte', scopes: ['business'] },
-  { label: 'Verträge', href: '/vertraege', scopes: ['business'] },
+  // uRent-specific modules — only when the Vermietungs-Pack is enabled.
+  { label: 'Kunden', href: '/kunden', rental: true },
+  { label: 'Flotte', href: '/flotte', rental: true },
+  { label: 'Verträge', href: '/vertraege', rental: true },
 ];
 
-export function NavTabs({ scope = 'business' }: { scope?: 'business' | 'private' }) {
+export function NavTabs({
+  scope = 'business',
+  rentalPack = false,
+}: {
+  scope?: 'business' | 'private';
+  rentalPack?: boolean;
+}) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const inScope = (t: Tab) => !t.scopes || t.scopes.includes(scope);
+  const inScope = (t: Tab) =>
+    (!t.scopes || t.scopes.includes(scope)) && (!t.rental || rentalPack);
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   const primary = PRIMARY.filter(inScope);

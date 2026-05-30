@@ -66,6 +66,7 @@ type Workspace = {
   iconEmoji?: string;
   timezone?: string;
   isPublic?: boolean;
+  rentalPack?: boolean;
 };
 
 const ROLE_OPTIONS: WorkspaceRole[] = ['admin', 'member', 'guest'];
@@ -182,6 +183,7 @@ function GeneralTab({ workspace, canEdit }: { workspace: Workspace; canEdit: boo
   const [description, setDescription] = useState(workspace.description ?? '');
   const [iconEmoji, setIconEmoji] = useState(workspace.iconEmoji ?? '');
   const [isPublic, setIsPublic] = useState(!!workspace.isPublic);
+  const [rentalPack, setRentalPack] = useState(!!workspace.rentalPack);
 
   const save = () => {
     setError(null);
@@ -193,6 +195,7 @@ function GeneralTab({ workspace, canEdit }: { workspace: Workspace; canEdit: boo
           description,
           iconEmoji,
           isPublic,
+          rentalPack,
         },
       });
       if (!res.ok) {
@@ -253,6 +256,20 @@ function GeneralTab({ workspace, canEdit }: { workspace: Workspace; canEdit: boo
             disabled={!canEdit}
           />
           Workspace ist öffentlich auffindbar
+        </label>
+      </Field>
+      <Field
+        label="Vermietungs-Pack"
+        hint="Schaltet die uRent-Module frei: Flotte, Verträge und das Vermietungs-CRM. Standardmäßig aus — der Kern bleibt schlank (Notizen, Todos, Kalender, Inbox, Channels)."
+      >
+        <label className="inline-flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-100">
+          <input
+            type="checkbox"
+            checked={rentalPack}
+            onChange={(e) => setRentalPack(e.target.checked)}
+            disabled={!canEdit}
+          />
+          Flotte · Verträge · Vermietungs-CRM aktivieren
         </label>
       </Field>
       {canEdit && (

@@ -295,6 +295,13 @@
       "when": 1781450000000,
       "tag": "0041_calendar_event_attendees",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1781500000000,
+      "tag": "0042_workspace_rental_pack",
+      "breakpoints": true
     }
   ]
 }

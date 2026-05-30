@@ -14,8 +14,8 @@ import { VoiceCaptureButton } from '@/components/todos/voice-capture-button';
 
 const SUGGESTIONS = [
   'Was steht heute an?',
-  'Welche Verträge laufen aus?',
-  'Wer hat sich lange nicht gemeldet?',
+  'Welche Todos sind überfällig?',
+  'Fasse meine letzten Notizen zusammen',
 ];
 
 export function AskCtrlK() {

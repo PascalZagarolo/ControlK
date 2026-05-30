@@ -213,6 +213,7 @@ export async function updateWorkspace(input: {
     toColor?: string;
     timezone?: string;
     isPublic?: boolean;
+    rentalPack?: boolean;
   };
 }): Promise<Result> {
   const user = await requireUser();
@@ -257,6 +258,10 @@ export async function updateWorkspace(input: {
   if (input.patch.isPublic !== undefined) {
     update.isPublic = input.patch.isPublic ? 1 : 0;
     changes.isPublic = input.patch.isPublic;
+  }
+  if (input.patch.rentalPack !== undefined) {
+    update.rentalPack = input.patch.rentalPack;
+    changes.rentalPack = input.patch.rentalPack;
   }
 
   if (Object.keys(update).length === 0) return { ok: true };

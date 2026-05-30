@@ -49,7 +49,7 @@ export async function Header() {
         }))}
       />
       <span aria-hidden className="mx-1 h-4 w-px bg-[#1F1F23]" />
-      <NavTabs scope={activeScope} />
+      <NavTabs scope={activeScope} rentalPack={!!active.rentalPack} />
       <span aria-hidden className="mx-1 h-4 w-px bg-[#1F1F23]" />
       <NotificationsBell initial={notifications} />
     </header>

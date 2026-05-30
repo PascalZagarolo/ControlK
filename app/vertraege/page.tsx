@@ -14,6 +14,7 @@ export default async function Page() {
   const user = await currentUser();
   if (!user) redirect('/sign-in?from=/vertraege');
   const ws = await requireCurrentWorkspace();
+  if (!ws.rentalPack) redirect('/');
 
   const [contracts, customers, members, counts, revenueStack] = await Promise.all([
     listContractsDetailed(ws.id),

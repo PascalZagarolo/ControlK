@@ -26,8 +26,14 @@ export async function askWorkspace(messages: AskMessage[]): Promise<Result> {
   if (trimmed.length === 0) return { ok: false, error: 'Leere Anfrage.' };
 
   const ctx = { workspaceId: ws.id, userId: user.id };
+  // The rental/CRM tools are only exposed when the workspace opted into the
+  // Vermietungs-Pack — keeps the assistant horizontal by default.
+  const RENTAL_TOOLS = new Set(['searchCustomers', 'getCustomerDetail', 'listContracts']);
+  const available = ws.rentalPack
+    ? TOOL_DEFINITIONS
+    : TOOL_DEFINITIONS.filter((t) => !RENTAL_TOOLS.has(t.name));
   const tools = Object.fromEntries(
-    TOOL_DEFINITIONS.map((t) => [
+    available.map((t) => [
       t.name,
       {
         description: t.description,

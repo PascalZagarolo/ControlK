@@ -36,6 +36,7 @@ export default async function Page() {
         iconEmoji: ws.iconEmoji ?? undefined,
         timezone: ws.timezone ?? undefined,
         isPublic: ws.isPublic === 1,
+        rentalPack: ws.rentalPack,
       }}
       myRole={role}
       myUserId={user.id}
