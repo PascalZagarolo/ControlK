@@ -23,6 +23,7 @@ import { CustomerNotesEditor, QuickNoteEntry } from './customer-notes-editor';
 import { ShareCustomerModal } from './share-customer-modal';
 import { QuoteInChannelButton } from './quote-in-channel-button';
 import { WorkflowQuickReplay } from './workflow-quick-replay';
+import { CustomerAiPanel } from './customer-ai-panel';
 import type {
   Contract,
   Customer,
@@ -304,6 +305,8 @@ export function KundenDetailClient({
           {tab === 'Übersicht' && (
             <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
               <div className="flex flex-col gap-6">
+                {dbId && <CustomerAiPanel customerId={dbId} />}
+
                 {dbId && customer.onboardingProgress !== undefined && (
                   <OnboardingChecklist
                     customerId={dbId}

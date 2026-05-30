@@ -13,6 +13,7 @@ import { MarginCalculator } from './margin-calculator';
 import { ContractVersions } from './contract-versions';
 import { ContractShareModal } from './contract-share-modal';
 import { RenewContractModal } from './renew-contract-modal';
+import { ContractRenewalDraft } from './contract-renewal-draft';
 import { ContractQuoteButton } from './contract-quote-button';
 import { deleteContract, setContractOwner, setContractVehicle } from '@/lib/actions/contracts';
 import type {
@@ -262,7 +263,12 @@ export function VertraegeDetailClient({
               <ContractBodyEditor contractId={dbId} body={contract.body} />
             )}
 
-            {tab === 'Kennzahlen' && dbId && <MarginCalculator contract={contract} />}
+            {tab === 'Kennzahlen' && dbId && (
+              <div className="flex flex-col gap-6">
+                <MarginCalculator contract={contract} />
+                <ContractRenewalDraft contractId={dbId} />
+              </div>
+            )}
 
             {tab === 'Versionen' && (
               <ContractVersions
