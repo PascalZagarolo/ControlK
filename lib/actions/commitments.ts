@@ -6,7 +6,8 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { aiAvailable, aiGenerateJSON, isTransientAIError, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { aiAvailable, isTransientAIError } from '@/lib/ai/gateway';
+import { extractCommitmentsFromMail, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listUnscannedSentItems } from '@/lib/db/queries/commitments';
@@ -59,26 +60,13 @@ export async function scanCommitments(
     }
 
     if (bodyText.trim()) {
-      let parsed: { commitments?: { promise?: string; dueIso?: string | null }[] } | null;
+      let candidates: CommitmentCandidate[] = [];
       try {
-        parsed = await aiGenerateJSON<{
-          commitments?: { promise?: string; dueIso?: string | null }[];
-        }>({
-          userId: user.id,
-          model: AI_MODEL_FAST,
-          maxOutputTokens: 400,
-          system:
-            'Du extrahierst aus einer vom Nutzer GESENDETEN E-Mail verbindliche Zusagen, die DER ' +
-            'NUTZER selbst gemacht hat — Dinge, die er liefern/erledigen wird, idealerweise mit Frist. ' +
-            'Antworte NUR mit JSON: { "commitments": [{ "promise": string (kurz, z.B. "Angebot schicken"), ' +
-            '"dueIso": string|null (ISO-Datum wenn eine Frist genannt ist; relative wie "bis Freitag/morgen" ' +
-            'relativ zum Mail-Datum auflösen, sonst null) }] }. Nur echte eigene Zusagen, keine Fragen oder ' +
-            'Höflichkeitsfloskeln. Leeres Array wenn keine.',
-          prompt:
-            `Mail-Datum: ${new Date(date).toISOString()}\n` +
-            `An: ${to ?? '(unbekannt)'}\n` +
-            `Betreff: ${it.subject ?? ''}\n\n` +
-            `Text:\n${bodyText.slice(0, 4000)}`,
+        candidates = await extractCommitmentsFromMail(user.id, {
+          dateIso: new Date(date).toISOString(),
+          to,
+          subject: it.subject,
+          body: bodyText,
         });
       } catch (e) {
         // Transient (rate-limit / timeout): leave this item UNSCANNED so a
@@ -88,15 +76,10 @@ export async function scanCommitments(
           rateLimited = true;
           break;
         }
-        console.error('[commitments] parse failed', e);
-        parsed = null;
+        console.error('[commitments] extraction failed', e);
       }
 
-      const commitments = (parsed?.commitments ?? [])
-        .filter((c) => c?.promise?.trim())
-        .slice(0, 5);
-
-      if (commitments.length > 0) {
+      if (candidates.length > 0) {
         let customerId: string | null = null;
         if (to) {
           const [match] = await db
@@ -113,23 +96,20 @@ export async function scanCommitments(
           customerId = match?.customerId ?? null;
         }
         await db.insert(s.inboxCommitments).values(
-          commitments.map((c) => {
-            const due = c.dueIso ? new Date(c.dueIso) : null;
-            return {
-              workspaceId: ws.id,
-              userId: user.id,
-              sourceItemId: it.id,
-              sourceThreadId: it.sourceThreadId,
-              recipientEmail: to,
-              recipientName: to ? to.split('@')[0] : null,
-              customerId,
-              promiseText: c.promise!.trim().slice(0, 400),
-              dueAt: due && !Number.isNaN(due.getTime()) ? due : null,
-              status: 'open' as const,
-            };
-          })
+          candidates.map((c) => ({
+            workspaceId: ws.id,
+            userId: user.id,
+            sourceItemId: it.id,
+            sourceThreadId: it.sourceThreadId,
+            recipientEmail: to,
+            recipientName: to ? to.split('@')[0] : null,
+            customerId,
+            promiseText: c.promise,
+            dueAt: c.dueIso ? new Date(c.dueIso) : null,
+            status: 'open' as const,
+          }))
         );
-        found += commitments.length;
+        found += candidates.length;
       }
 
       // Gentle throttle between AI calls to stay under burst limits.

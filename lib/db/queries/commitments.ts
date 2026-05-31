@@ -84,6 +84,40 @@ export async function getCommitmentCounts(
   return { open: Number(row?.open ?? 0), overdue: Number(row?.overdue ?? 0) };
 }
 
+/**
+ * Recent sent items REGARDLESS of scan state — powers the Schritt-0 dry-run
+ * validation (measure extraction accuracy on real mail without touching the
+ * persisted commitments or the scanned-marker).
+ */
+export async function listRecentSentItems(
+  workspaceId: string,
+  userId: string,
+  limit: number,
+  days: number
+): Promise<{ id: string; sourceId: string; recipientEmail: string | null; subject: string | null; receivedAt: Date }[]> {
+  const db = getDb();
+  return db
+    .select({
+      id: s.inboxItems.id,
+      sourceId: s.inboxItems.sourceId,
+      recipientEmail: s.inboxItems.recipientEmail,
+      subject: s.inboxItems.subject,
+      receivedAt: s.inboxItems.receivedAt,
+    })
+    .from(s.inboxItems)
+    .where(
+      and(
+        eq(s.inboxItems.workspaceId, workspaceId),
+        eq(s.inboxItems.userId, userId),
+        eq(s.inboxItems.direction, 'sent'),
+        eq(s.inboxItems.sourceType, 'email_gmail'),
+        sql`${s.inboxItems.receivedAt} >= now() - make_interval(days => ${days})`
+      )
+    )
+    .orderBy(sql`${s.inboxItems.receivedAt} DESC`)
+    .limit(limit);
+}
+
 /** Sent inbox items not yet scanned for commitments (most recent first). */
 export async function listUnscannedSentItems(
   workspaceId: string,
