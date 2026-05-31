@@ -3,6 +3,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { syncGmailForUser } from '@/lib/google/gmail-sync';
+import { scanCommitments } from '@/lib/actions/commitments';
 
 export const dynamic = 'force-dynamic';
 // Vercel function timeout — the Hobby/Pro default of 300s is plenty
@@ -71,6 +72,11 @@ export async function GET(req: NextRequest) {
       const res = await syncGmailForUser(account.userId, workspaceId);
       if (res.ok) {
         synced += 1;
+        // Autopilot: scan freshly-synced sent mails for commitments.
+        // Best-effort — never let it fail the sync loop.
+        await scanCommitments(account.userId, workspaceId).catch((e) =>
+          console.warn(`[cron/sync-inboxes] commitments scan failed for ${account.userId}:`, e)
+        );
       } else {
         failed += 1;
         console.warn(

@@ -25,6 +25,8 @@ export type BriefingSignals = {
   overdueTodos: Array<{ title: string; dueAt: string | null }>;
   dueTodayTodos: number;
   unreadEmailCount: number;
+  /** Open commitments the user made that are now overdue (Promise Tracker). */
+  overdueCommitments: number;
   /** 'morning' | 'afternoon' | 'evening' — drives tone in the prompt. */
   timeOfDay: 'morning' | 'afternoon' | 'evening';
   /** Localised display date for the prompt header. */
@@ -44,7 +46,7 @@ export async function collectBriefingSignals(input: {
   const db = getDb();
   const now = Date.now();
 
-  const [awaitingOthers, awaitingMine, overdue, unread, dueToday] = await Promise.all([
+  const [awaitingOthers, awaitingMine, overdue, unread, dueToday, overdueCommits] = await Promise.all([
     // Unread inbox items — capped, oldest first so we surface
     // long-pending threads, not the freshest 5.
     db
@@ -142,6 +144,20 @@ export async function collectBriefingSignals(input: {
           )!
         )
       ),
+    // Promise Tracker — open commitments the user made whose deadline
+    // has passed. One COUNT; feeds the "you owe …" line in the briefing.
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(s.inboxCommitments)
+      .where(
+        and(
+          eq(s.inboxCommitments.workspaceId, workspaceId),
+          eq(s.inboxCommitments.userId, userId),
+          eq(s.inboxCommitments.status, 'open'),
+          sql`${s.inboxCommitments.dueAt} IS NOT NULL`,
+          lt(s.inboxCommitments.dueAt, new Date(now))
+        )
+      ),
   ]);
 
   const daysSince = (d: Date | string) =>
@@ -172,6 +188,7 @@ export async function collectBriefingSignals(input: {
     })),
     dueTodayTodos: Number(dueToday[0]?.n ?? 0),
     unreadEmailCount: Number(unread[0]?.n ?? 0),
+    overdueCommitments: Number(overdueCommits[0]?.n ?? 0),
     timeOfDay,
     todayLabel: new Date().toLocaleDateString('de-DE', {
       weekday: 'long',
@@ -192,6 +209,7 @@ export function hashSignals(signals: BriefingSignals): string {
     d: signals.overdueTodos.map((t) => t.title),
     e: signals.dueTodayTodos,
     f: signals.unreadEmailCount,
+    g: signals.overdueCommitments,
   };
   return createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 32);
 }

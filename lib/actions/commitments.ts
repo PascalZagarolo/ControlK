@@ -10,28 +10,32 @@ import { aiAvailable, aiGenerateJSON, AI_MODEL_FAST } from '@/lib/ai/gateway';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listUnscannedSentItems } from '@/lib/db/queries/commitments';
+import { createTodo } from '@/lib/actions/todos';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
 const SCAN_BATCH = 12;
 
 /**
- * Scans recently-sent mails (not yet processed) for commitments the user made
- * — "schick ich dir bis Freitag das Angebot" — and persists them. Marks each
- * item scanned so a Gmail body is never re-fetched. Returns counts.
+ * Session-free core: scans recently-sent mails (not yet processed) for
+ * commitments the user made, persists them, marks each item scanned. Used by
+ * the on-demand action AND the inbox-sync cron (autopilot). No-op (returns
+ * zeros) when AI or Gmail isn't available.
  */
-export async function extractCommitments(): Promise<Result<{ scanned: number; found: number }>> {
-  const user = await requireUser();
-  const ws = await requireCurrentWorkspace();
-  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
-
-  const token = await getValidGoogleAccessToken(user.id);
-  if (!token) return { ok: false, error: 'Gmail nicht verbunden.' };
+export async function scanCommitments(
+  userId: string,
+  workspaceId: string
+): Promise<{ scanned: number; found: number }> {
+  if (!(await aiAvailable(userId))) return { scanned: 0, found: 0 };
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return { scanned: 0, found: 0 };
 
   const db = getDb();
-  const items = await listUnscannedSentItems(ws.id, user.id, SCAN_BATCH);
-  if (items.length === 0) return { ok: true, scanned: 0, found: 0 };
+  const items = await listUnscannedSentItems(workspaceId, userId, SCAN_BATCH);
+  if (items.length === 0) return { scanned: 0, found: 0 };
 
+  const ws = { id: workspaceId };
+  const user = { id: userId };
   let found = 0;
   for (const it of items) {
     let bodyText = '';
@@ -119,8 +123,18 @@ export async function extractCommitments(): Promise<Result<{ scanned: number; fo
       .where(eq(s.inboxItems.id, it.id));
   }
 
+  return { scanned: items.length, found };
+}
+
+/** On-demand wrapper for the "Gesendete Mails scannen" button. */
+export async function extractCommitments(): Promise<Result<{ scanned: number; found: number }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await getValidGoogleAccessToken(user.id))) return { ok: false, error: 'Gmail nicht verbunden.' };
+  const res = await scanCommitments(user.id, ws.id);
   revalidatePath('/inbox');
-  return { ok: true, scanned: items.length, found };
+  return { ok: true, ...res };
 }
 
 async function setStatus(id: string, status: 'done' | 'dismissed'): Promise<Result> {
@@ -146,4 +160,51 @@ export async function resolveCommitment(id: string): Promise<Result> {
 }
 export async function dismissCommitment(id: string): Promise<Result> {
   return setStatus(id, 'dismissed');
+}
+
+/**
+ * One-click cross-module conversion: turn a commitment into a real Todo.
+ * Carries over the deadline and customer link, then marks the commitment
+ * resolved so it leaves the Promise Tracker (it now lives in Todos).
+ */
+export async function commitmentToTodo(id: string): Promise<Result<{ todoId: string }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+
+  const [c] = await db
+    .select({
+      promiseText: s.inboxCommitments.promiseText,
+      dueAt: s.inboxCommitments.dueAt,
+      customerId: s.inboxCommitments.customerId,
+      recipientName: s.inboxCommitments.recipientName,
+    })
+    .from(s.inboxCommitments)
+    .where(
+      and(
+        eq(s.inboxCommitments.id, id),
+        eq(s.inboxCommitments.workspaceId, ws.id),
+        eq(s.inboxCommitments.userId, user.id),
+        eq(s.inboxCommitments.status, 'open')
+      )
+    )
+    .limit(1);
+
+  if (!c) return { ok: false, error: 'Zusage nicht gefunden.' };
+
+  const res = await createTodo({
+    title: c.promiseText,
+    dueAt: c.dueAt ? new Date(c.dueAt).toISOString() : null,
+    customerId: c.customerId ?? undefined,
+    assigneeId: user.id,
+  });
+  if (!res.ok) return res;
+
+  await db
+    .update(s.inboxCommitments)
+    .set({ status: 'done' })
+    .where(eq(s.inboxCommitments.id, id));
+
+  revalidatePath('/inbox');
+  return { ok: true, todoId: res.id };
 }

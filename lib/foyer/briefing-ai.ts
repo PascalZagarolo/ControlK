@@ -200,6 +200,13 @@ function buildUserPrompt(s: BriefingSignals): string {
     lines.push(`${s.dueTodayTodos} Todo${s.dueTodayTodos === 1 ? '' : 's'} heute fällig.`);
   }
 
+  if (s.overdueCommitments > 0) {
+    lines.push('');
+    lines.push(
+      `${s.overdueCommitments} eigene Zusage${s.overdueCommitments === 1 ? '' : 'n'} überfällig (du hast etwas versprochen, die Frist ist verstrichen).`
+    );
+  }
+
   lines.push('');
   lines.push('Schreibe jetzt das Briefing.');
   return lines.join('\n');
@@ -239,6 +246,9 @@ function deterministicFallback(s: BriefingSignals): string {
     parts.push(`${s.overdueTodos.length} überfällige Todo${s.overdueTodos.length === 1 ? '' : 's'}`);
   } else if (s.dueTodayTodos > 0) {
     parts.push(`${s.dueTodayTodos} Todo${s.dueTodayTodos === 1 ? '' : 's'} heute fällig`);
+  }
+  if (s.overdueCommitments > 0) {
+    parts.push(`${s.overdueCommitments} Zusage${s.overdueCommitments === 1 ? '' : 'n'} überfällig`);
   }
   if (parts.length === 0) {
     return 'Nichts Drängendes. Heute ist offen.';
