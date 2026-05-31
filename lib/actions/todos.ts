@@ -149,7 +149,7 @@ export async function createTodoFromForm(formData: FormData): Promise<Result<{ i
     .map((line) => line.replace(/^[-•–—\s]*/, '').trim())
     .filter(Boolean);
 
-  return createTodo({
+  const base = {
     title: String(formData.get('title') ?? ''),
     description: String(formData.get('description') ?? '') || undefined,
     priority: (String(formData.get('priority') ?? 'mittel') as TodoPriority) || 'mittel',
@@ -162,7 +162,32 @@ export async function createTodoFromForm(formData: FormData): Promise<Result<{ i
     channelId: String(formData.get('channelId') ?? '') || null,
     groupId: String(formData.get('groupId') ?? '') || null,
     subtasks,
-  });
+  };
+
+  // Recurring todos: when a rule + due date are set, materialize up to N
+  // instances with shifted due dates (no separate schema — just todos).
+  const rule = String(formData.get('recurrence') ?? 'none');
+  const count = Math.min(60, Math.max(1, parseInt(String(formData.get('recurrenceCount') ?? '1'), 10) || 1));
+  if (rule === 'none' || !base.dueAt || count <= 1) {
+    return createTodo(base);
+  }
+
+  const first = await createTodo(base);
+  if (!first.ok) return first;
+  const start = new Date(base.dueAt);
+  for (let i = 1; i < count; i++) {
+    const due = shiftDate(start, rule, i);
+    await createTodo({ ...base, dueAt: due.toISOString(), subtasks: undefined });
+  }
+  return first;
+}
+
+function shiftDate(start: Date, rule: string, n: number): Date {
+  const d = new Date(start);
+  if (rule === 'daily') d.setDate(d.getDate() + n);
+  else if (rule === 'weekly') d.setDate(d.getDate() + n * 7);
+  else if (rule === 'monthly') d.setMonth(d.getMonth() + n);
+  return d;
 }
 
 // ─── Update fields ─────────────────────────────────────────────

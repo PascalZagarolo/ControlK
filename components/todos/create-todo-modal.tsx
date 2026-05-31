@@ -56,6 +56,7 @@ export function CreateTodoModal({
   const titleRef = useRef<HTMLInputElement>(null);
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
+  const [recurrence, setRecurrence] = useState('none');
 
   return (
     <Modal open={open} onClose={onClose} kicker="Neues Todo" title="Todo erstellen" maxWidth={620}>
@@ -158,6 +159,28 @@ export function CreateTodoModal({
             </ModalSelect>
           </ModalField>
         </div>
+
+        {dueDate && (
+          <div className="grid grid-cols-2 gap-3">
+            <ModalField label="Wiederholen" hint="Erzeugt mehrere Todos mit verschobenem Fälligkeitsdatum.">
+              <ModalSelect
+                name="recurrence"
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value)}
+              >
+                <option value="none">Einmalig</option>
+                <option value="daily">Täglich</option>
+                <option value="weekly">Wöchentlich</option>
+                <option value="monthly">Monatlich</option>
+              </ModalSelect>
+            </ModalField>
+            {recurrence !== 'none' && (
+              <ModalField label="Anzahl" hint="Wie viele Vorkommen (max. 60).">
+                <ModalInput name="recurrenceCount" type="number" defaultValue={4} min={2} max={60} />
+              </ModalField>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <ModalField label="Zugewiesen an">
