@@ -7,6 +7,7 @@ import {
   listNotesForOverview,
   type PreviewBlock,
 } from '@/lib/db/queries/notes';
+import { getNoteTemplatesForWorkspaceTemplate } from '@/lib/notes/seed-templates';
 import { NotesOverview } from './notes-overview';
 import { NewNoteButton } from './new-note-button';
 
@@ -39,11 +40,19 @@ export default async function Page({
     if (note) previewBlocks = extractPreviewBlocks(note.document, 8);
   }
 
+  const noteTemplates = getNoteTemplatesForWorkspaceTemplate(ws.template ?? null).map((t) => ({
+    key: t.key,
+    title: t.title,
+    icon: t.icon,
+    description: t.description,
+  }));
+
   return (
     <NotesOverview
       items={items}
       selectedId={selectedId}
       previewBlocks={previewBlocks}
+      templates={noteTemplates}
     />
   );
 }

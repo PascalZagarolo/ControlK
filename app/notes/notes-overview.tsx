@@ -2,6 +2,10 @@ import Link from 'next/link';
 import type { NoteOverviewItem } from '@/lib/types';
 import type { PreviewBlock } from '@/lib/db/queries/notes';
 import { NewNoteButton } from './new-note-button';
+import {
+  NoteTemplatesGallery,
+  type NoteTemplateMeta,
+} from '@/components/notes/note-templates-gallery';
 
 // Right pane click target — wrapping the preview in a Link means the
 // whole card is clickable to open the editor.
@@ -33,10 +37,12 @@ export function NotesOverview({
   items,
   selectedId,
   previewBlocks,
+  templates = [],
 }: {
   items: NoteOverviewItem[];
   selectedId: string | null;
   previewBlocks: PreviewBlock[];
+  templates?: NoteTemplateMeta[];
 }) {
   // Resolve the active note. If no selection (or selection points at a
   // note that's been deleted/archived since the link was generated),
@@ -66,7 +72,10 @@ export function NotesOverview({
             )}
           </p>
         </div>
-        <NewNoteButton />
+        <div className="flex items-center gap-2">
+          <NoteTemplatesGallery templates={templates} />
+          <NewNoteButton />
+        </div>
       </header>
 
       {/* Two-column area */}
