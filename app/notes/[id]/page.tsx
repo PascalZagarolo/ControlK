@@ -22,7 +22,14 @@ export default async function Page({
   if (!user) redirect(`/sign-in?from=/notes/${id}`);
   const ws = await requireCurrentWorkspace();
 
-  const note = await getNote(ws.id, user.id, id);
+  // Optimistic creation navigates here before the background insert commits.
+  // Briefly retry on a miss so the freshly-minted note isn't a false 404;
+  // a genuinely missing id just pays this small penalty once.
+  let note = await getNote(ws.id, user.id, id);
+  for (let i = 0; i < 3 && !note; i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    note = await getNote(ws.id, user.id, id);
+  }
   if (!note) notFound();
 
   const [noteTags, workspaceTags] = await Promise.all([

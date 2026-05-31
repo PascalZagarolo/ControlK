@@ -3,6 +3,7 @@
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createNote } from '@/lib/actions/notes';
+import { toast } from '@/lib/stores/toast-store';
 
 /**
  * Inline trigger that creates an empty note and navigates straight into
@@ -21,9 +22,18 @@ export function NewNoteButton({
 
   const onClick = () => {
     if (pending) return;
-    start(async () => {
-      const res = await createNote({ title: '' });
-      if (res.ok) router.push(`/notes/${res.id}`);
+    // Optimistic: mint the id on the client and navigate into the editor
+    // immediately. The insert runs in the background against that same id, so
+    // the page render and the DB write overlap instead of stacking up.
+    const id = crypto.randomUUID();
+    start(() => {
+      router.push(`/notes/${id}`);
+    });
+    createNote({ id, title: '' }).then((res) => {
+      if (!res.ok) {
+        toast(res.error || 'Notiz konnte nicht angelegt werden.', 'danger');
+        router.push('/notes');
+      }
     });
   };
 

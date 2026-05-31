@@ -53,7 +53,12 @@ async function nextPosition(workspaceId: string, parentNoteId: string | null): P
   return cur + 1000;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function createNote(input: {
+  /** Client-supplied id → enables optimistic navigation (the editor opens on
+   *  this id before the insert returns). Validated; ignored if malformed. */
+  id?: string;
   title?: string;
   icon?: string;
   parentNoteId?: string | null;
@@ -71,6 +76,7 @@ export async function createNote(input: {
   const [row] = await db
     .insert(s.notes)
     .values({
+      ...(input.id && UUID_RE.test(input.id) ? { id: input.id } : {}),
       workspaceId: ws.id,
       parentNoteId: input.parentNoteId ?? null,
       title: input.title?.trim() || 'Unbenannt',
@@ -85,7 +91,9 @@ export async function createNote(input: {
     })
     .returning();
 
-  revalidatePath('/notes');
+  // No revalidatePath: /notes is force-dynamic (re-renders on every visit),
+  // so invalidation is a no-op that only forces a wasteful list re-render in
+  // the action response — pure latency on the hot path.
   return { ok: true, id: row.id };
 }
 
