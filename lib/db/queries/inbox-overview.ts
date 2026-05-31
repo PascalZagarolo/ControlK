@@ -484,6 +484,20 @@ export async function groupInboxBySender(
   if (filter === 'unread') {
     baseConditions.push(eq(s.inboxItems.isRead, false));
   }
+  // "Von Kunden": restrict to senders that ARE known customer contacts BEFORE
+  // the maxGroups cap — otherwise the cap (30 most-recent senders) could be
+  // entirely non-customers and the customer-only view would wrongly look empty.
+  if (opts.customerOnly) {
+    baseConditions.push(
+      sql`lower(${s.inboxItems.senderEmail}) in (
+        select lower(${s.customerContacts.email})
+        from ${s.customerContacts}
+        join ${s.customers} on ${s.customers.id} = ${s.customerContacts.customerId}
+        where ${s.customers.workspaceId} = ${workspaceId}
+          and ${s.customerContacts.email} is not null
+      )`
+    );
+  }
 
   const aggregates = await db
     .select({

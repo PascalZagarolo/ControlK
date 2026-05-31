@@ -94,7 +94,7 @@ export function InboxOverviewClient({
   const total =
     mode === 'list'
       ? pageData?.total ?? 0
-      : mode === 'group'
+      : mode === 'group' || mode === 'von_kunden'
         ? groups?.reduce((sum, g) => sum + g.totalCount, 0) ?? 0
         : awaiting
           ? awaiting.onYou.length + awaiting.onThem.length
