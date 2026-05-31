@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { InboxCockpit } from '@/components/inbox/inbox-cockpit';
 import type {
   AwaitingRow,
   AwaitingSplit,
@@ -47,6 +48,8 @@ export function InboxOverviewClient({
   groups,
   awaiting,
   counts,
+  cockpit,
+  customerCount = 0,
 }: {
   mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
@@ -57,6 +60,8 @@ export function InboxOverviewClient({
   groups: InboxGroup[] | null;
   awaiting: AwaitingSplit | null;
   counts: InboxCounts | null;
+  cockpit?: AwaitingSplit | null;
+  customerCount?: number;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -94,6 +99,15 @@ export function InboxOverviewClient({
       />
 
       <div className="min-w-0 flex-1">
+      {/* Morning cockpit — the at-a-glance value, on the default view. */}
+      {mode === 'list' && gmailConnected && cockpit && (
+        <InboxCockpit
+          onYou={cockpit.onYou}
+          onThem={cockpit.onThem}
+          customerCount={customerCount}
+        />
+      )}
+
       {/* Module header */}
       <header className="flex flex-col gap-6 pb-6">
         <div className="flex items-end justify-between gap-4">

@@ -3,10 +3,58 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiGenerate, aiGenerateJSON, aiAvailable, AI_MODEL_CHAT, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { getAwaitingSplit } from '@/lib/db/queries/inbox-overview';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
 type EmailInput = { subject?: string | null; from?: string | null; bodyText?: string | null };
+
+/**
+ * A 2-3 sentence "morning briefing" for the inbox: what needs a reply and
+ * which of your own threads have gone unanswered too long. Grounded in the
+ * awaiting-split (no email bodies fetched), so it's cheap.
+ */
+export async function inboxDigest(): Promise<Result<{ digest: string }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+
+  const split = await getAwaitingSplit(ws.id, user.id);
+  const needsReply = split.onYou
+    .slice(0, 10)
+    .map((r) => `- ${r.senderName}: ${r.subject ?? '(kein Betreff)'} (vor ${r.ageDays}d)`);
+  const overdue = split.onThem
+    .filter((r) => r.ageDays >= 3)
+    .slice(0, 10)
+    .map(
+      (r) =>
+        `- an ${r.awaitingRecipient ?? r.senderName}: ${r.subject ?? '(kein Betreff)'} (seit ${r.ageDays}d keine Antwort)`
+    );
+
+  if (needsReply.length === 0 && overdue.length === 0) {
+    return { ok: true, digest: 'Dein Posteingang ist ruhig — nichts wartet auf eine Antwort.' };
+  }
+
+  try {
+    const digest = await aiGenerate({
+      userId: user.id,
+      model: AI_MODEL_FAST,
+      maxOutputTokens: 220,
+      temperature: 0.4,
+      system:
+        'Du bist ein knapper Posteingang-Assistent. Schreibe ein Morgen-Briefing in 2-3 Sätzen ' +
+        'auf Deutsch: was heute am dringendsten eine Antwort braucht und welche eigenen Threads ' +
+        'überfällig sind. Konkret mit Namen, keine Aufzählung, kein Vorwort.',
+      prompt:
+        `Braucht deine Antwort:\n${needsReply.join('\n') || '(nichts)'}\n\n` +
+        `Du wartest überfällig auf:\n${overdue.join('\n') || '(nichts)'}`,
+    });
+    return { ok: true, digest: digest.trim() || 'Heute nichts Dringendes im Posteingang.' };
+  } catch (e) {
+    console.error('[inbox-ai] digest failed', e);
+    return { ok: false, error: 'Briefing fehlgeschlagen.' };
+  }
+}
 
 function context(input: EmailInput): string {
   const body = (input.bodyText ?? '').slice(0, 4000);

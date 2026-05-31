@@ -81,7 +81,7 @@ export default async function Page({
   // ignore topic for V1 — adding the JOIN to them is the next iteration).
   const effectiveMode = topic ? 'list' : mode;
 
-  const [pageData, groups, awaiting, gmail, counts] = await Promise.all([
+  const [pageData, groups, cockpit, gmail, counts] = await Promise.all([
     effectiveMode === 'list'
       ? listInboxItemsPaginated(ws.id, user.id, { filter, page, category, topic })
       : Promise.resolve(null),
@@ -90,9 +90,9 @@ export default async function Page({
           filter: filter === 'unread' ? 'unread' : 'all',
         })
       : Promise.resolve(null),
-    effectiveMode === 'awaiting'
-      ? getAwaitingSplit(ws.id, user.id)
-      : Promise.resolve(null),
+    // Always load the awaiting split — powers both the "awaiting" mode and
+    // the morning cockpit on the default view.
+    getAwaitingSplit(ws.id, user.id).catch(() => null),
     fetchGmailConnectionState(user.id).catch(() => ({
       connected: false,
       syncedAt: null,
@@ -109,8 +109,10 @@ export default async function Page({
       gmailConnected={gmail.connected}
       pageData={pageData}
       groups={groups}
-      awaiting={awaiting}
+      awaiting={effectiveMode === 'awaiting' ? cockpit : null}
       counts={counts}
+      cockpit={cockpit}
+      customerCount={counts?.byCategory.customer ?? 0}
     />
   );
 }
