@@ -143,6 +143,7 @@ export async function createWorkspace(input: {
       iconEmoji: input.iconEmoji || tpl?.icon || null,
       template: input.template ?? null,
       scope,
+      rentalPack: tpl?.rentalPack ?? false,
     })
     .returning();
 

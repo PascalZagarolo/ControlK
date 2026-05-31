@@ -12,6 +12,9 @@ export type WorkspaceTemplate = {
   fromColor: string;
   toColor: string;
   defaultScope: WorkspaceScope;
+  // Enables the opt-in Vermietungs-Pack (Flotte/Verträge/Vermietungs-CRM)
+  // for workspaces created from this template.
+  rentalPack?: boolean;
 };
 
 export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
@@ -35,6 +38,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
     fromColor: '#5ee08a',
     toColor: '#166534',
     defaultScope: 'business',
+    rentalPack: true,
   },
   {
     key: 'familie',
