@@ -34,14 +34,32 @@ function slugifyTag(input: string): string {
     .slice(0, 64);
 }
 
-async function authorizeNote(noteId: string): Promise<{ ok: true; workspaceId: string } | { ok: false; error: string }> {
+// A note created optimistically inserts its row in the background, so a tag
+// added immediately after can beat the insert. `wait` lets mutations retry
+// briefly for the row instead of failing; reads pass it through as false.
+const NOTE_ROW_RETRIES = 4;
+const NOTE_ROW_RETRY_MS = 150;
+const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function authorizeNote(
+  noteId: string,
+  opts?: { wait?: boolean }
+): Promise<{ ok: true; workspaceId: string } | { ok: false; error: string }> {
   await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  const note = await db.query.notes.findFirst({
-    where: and(eq(s.notes.id, noteId), eq(s.notes.workspaceId, ws.id)),
-    columns: { id: true, workspaceId: true },
-  });
+  const find = () =>
+    db.query.notes.findFirst({
+      where: and(eq(s.notes.id, noteId), eq(s.notes.workspaceId, ws.id)),
+      columns: { id: true, workspaceId: true },
+    });
+  let note = await find();
+  if (opts?.wait) {
+    for (let i = 0; i < NOTE_ROW_RETRIES && !note; i++) {
+      await sleepMs(NOTE_ROW_RETRY_MS);
+      note = await find();
+    }
+  }
   if (!note) return { ok: false, error: 'Notiz nicht gefunden.' };
   return { ok: true, workspaceId: note.workspaceId };
 }
@@ -109,7 +127,7 @@ export async function listNoteTags(noteId: string): Promise<Tag[]> {
 }
 
 export async function addTagToNote(noteId: string, rawName: string): Promise<Result<{ tag: Tag }>> {
-  const auth = await authorizeNote(noteId);
+  const auth = await authorizeNote(noteId, { wait: true });
   if (!auth.ok) return auth;
   const tag = await findOrCreateTag(auth.workspaceId, rawName);
   if (!tag) return { ok: false, error: 'Tag-Name ist leer.' };
@@ -132,7 +150,7 @@ export async function addTagToNote(noteId: string, rawName: string): Promise<Res
 }
 
 export async function removeTagFromNote(noteId: string, tagId: string): Promise<Result> {
-  const auth = await authorizeNote(noteId);
+  const auth = await authorizeNote(noteId, { wait: true });
   if (!auth.ok) return auth;
   const db = getDb();
   await db

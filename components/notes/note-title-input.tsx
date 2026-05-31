@@ -4,6 +4,7 @@ import { useEffect, useRef, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { renameNote } from '@/lib/actions/notes';
 import { useNoteSaveStore } from '@/lib/notes/note-save-store';
+import { toast } from '@/lib/stores/toast-store';
 
 /**
  * Plain editable title — no background, no border, no icon picker. Sits
@@ -51,7 +52,11 @@ export function NoteTitleInput({
     const next = title.trim();
     if (next === initialTitle.trim()) return;
     start(async () => {
-      await renameNote(noteId, next || 'Unbenannt');
+      const res = await renameNote(noteId, next || 'Unbenannt');
+      if (!res.ok) {
+        toast(res.error || 'Titel konnte nicht gespeichert werden.', 'danger');
+        return;
+      }
       router.refresh();
     });
   };

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { addTagToNote, removeTagFromNote, type Tag } from '@/lib/actions/note-tags';
+import { toast } from '@/lib/stores/toast-store';
 
 /**
  * Inline tag editor — sits between the note title and the editor body.
@@ -60,8 +61,10 @@ export function TagsBar({
     start(async () => {
       const res = await addTagToNote(noteId, name);
       if (!res.ok) {
-        // Rollback on failure.
+        // Rollback on failure — and say so, rather than letting the pill
+        // vanish silently.
         setTags((prev) => prev.filter((t) => t.id !== optimisticId));
+        toast(res.error || 'Tag konnte nicht gespeichert werden.', 'danger');
         return;
       }
       // Replace the optimistic row with the canonical tag (avoids
@@ -80,7 +83,10 @@ export function TagsBar({
     setTags((t) => t.filter((x) => x.id !== tagId));
     start(async () => {
       const res = await removeTagFromNote(noteId, tagId);
-      if (!res.ok) setTags(prev);
+      if (!res.ok) {
+        setTags(prev);
+        toast(res.error || 'Tag konnte nicht entfernt werden.', 'danger');
+      }
     });
   };
 

@@ -21,6 +21,13 @@ export async function searchNotesContent(query: string): Promise<NoteSearchHit[]
 
 const REVISION_GAP_MS = 5 * 60 * 1000; // snapshot at most every 5 min
 
+// Optimistic note creation inserts the row in the background; metadata writes
+// (rename, etc.) can race ahead of it. These bound a short server-side wait so
+// such writes succeed instead of failing with "Notiz nicht gefunden".
+const NOTE_ROW_RETRIES = 4;
+const NOTE_ROW_RETRY_MS = 150;
+const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
 /**
@@ -101,17 +108,22 @@ export async function renameNote(id: string, title: string): Promise<Result> {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   const db = getDb();
-  const updated = await db
-    .update(s.notes)
-    .set({ title: title.trim() || 'Unbenannt', updatedAt: new Date() })
-    .where(
-      and(
-        eq(s.notes.workspaceId, ws.id),
-        eq(s.notes.id, id),
-        notesAccessClause(user.id)
-      )
-    )
-    .returning({ id: s.notes.id });
+  const value = { title: title.trim() || 'Unbenannt', updatedAt: new Date() };
+  const run = () =>
+    db
+      .update(s.notes)
+      .set(value)
+      .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id), notesAccessClause(user.id)))
+      .returning({ id: s.notes.id });
+
+  // Fresh-note race: a note created optimistically inserts its row in the
+  // background, so an early blur can land before the row exists. Retry briefly
+  // instead of dropping the title — mirrors the document save's durability.
+  let updated = await run();
+  for (let i = 0; i < NOTE_ROW_RETRIES && updated.length === 0; i++) {
+    await sleepMs(NOTE_ROW_RETRY_MS);
+    updated = await run();
+  }
   if (updated.length === 0) return { ok: false, error: 'Notiz nicht gefunden.' };
   revalidatePath('/notes');
   revalidatePath(`/notes/${id}`);
