@@ -95,6 +95,12 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxItems.awaitsTheirReply, true),
           eq(s.inboxItems.isArchived, false),
           briefingMailCategoryClause,
+          // Respect snooze — a deferred send must not resurface in the brief
+          // while it stays hidden from the main awaiting view.
+          or(
+            isNull(s.inboxItems.snoozedUntil),
+            sql`${s.inboxItems.snoozedUntil} <= now()`
+          )!,
           sql`${s.inboxItems.receivedAt} < now() - interval '3 days'`
         )
       )
@@ -136,7 +142,13 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false),
-          briefingMailCategoryClause
+          briefingMailCategoryClause,
+          // Snoozed-but-unread mail is hidden from the inbox list, so it must
+          // not inflate the brief's unread signal either.
+          or(
+            isNull(s.inboxItems.snoozedUntil),
+            sql`${s.inboxItems.snoozedUntil} <= now()`
+          )!
         )
       ),
     db
@@ -156,6 +168,8 @@ export async function collectBriefingSignals(input: {
       ),
     // Promise Tracker — open commitments the user made whose deadline
     // has passed. One COUNT; feeds the "you owe …" line in the briefing.
+    // Only HIGH-confidence ones are asserted as real obligations; tentative
+    // "bitte bestätigen" promises must not be stated as overdue facts.
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(s.inboxCommitments)
@@ -164,6 +178,7 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxCommitments.workspaceId, workspaceId),
           eq(s.inboxCommitments.userId, userId),
           eq(s.inboxCommitments.status, 'open'),
+          eq(s.inboxCommitments.confidence, 'high'),
           sql`${s.inboxCommitments.dueAt} IS NOT NULL`,
           lt(s.inboxCommitments.dueAt, new Date(now))
         )

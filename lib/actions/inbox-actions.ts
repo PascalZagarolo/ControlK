@@ -153,6 +153,13 @@ export async function createTodoFromInboxItem(
   if (!owned) return { ok: false, error: 'Nicht gefunden.' };
   const { item } = owned;
 
+  // Guard against a double-fire (rapid clicks / replay): if the item was
+  // already archived, a todo was almost certainly already created from it.
+  // Bail instead of silently producing a duplicate.
+  if (item.isArchived) {
+    return { ok: false, error: 'Aus dieser Nachricht wurde bereits ein Todo erstellt.' };
+  }
+
   // Title prefers subject, falls back to sender + snippet so the todo
   // is still meaningful for senderless / no-subject messages.
   const title =

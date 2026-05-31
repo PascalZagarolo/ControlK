@@ -140,8 +140,10 @@ export function InboxOverviewClient({
           onYou={cockpit.onYou}
           onThem={cockpit.onThem}
           customerCount={customerCount}
-          commitmentsOpen={commitments.length}
-          commitmentsOverdue={commitments.filter((c) => c.overdueDays != null).length}
+          commitmentsOpen={commitments.filter((c) => c.confidence === 'high').length}
+          commitmentsOverdue={
+            commitments.filter((c) => c.confidence === 'high' && c.overdueDays != null).length
+          }
         />
       )}
 

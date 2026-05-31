@@ -81,7 +81,12 @@ export function CommitmentsPanel({ commitments }: { commitments: OpenCommitment[
         <div className="flex items-center gap-2">
           <span aria-hidden className="text-[13px]">🤝</span>
           <h3 className="font-mono text-[10.5px] uppercase tracking-[0.4px] text-ink-200">
-            Offene Zusagen{firm.length > 0 ? ` · ${firm.length}` : ''}
+            Offene Zusagen
+            {firm.length > 0
+              ? ` · ${firm.length}`
+              : tentative.length > 0
+                ? ` · ${tentative.length} zu prüfen`
+                : ''}
           </h3>
         </div>
         <button
@@ -181,7 +186,7 @@ function CommitmentRow({
             )}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {tentative && (
             <button
               type="button"
