@@ -3,11 +3,62 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiGenerate, aiGenerateJSON, aiAvailable, AI_MODEL_CHAT, AI_MODEL_FAST } from '@/lib/ai/gateway';
-import { getAwaitingSplit } from '@/lib/db/queries/inbox-overview';
+import { getAwaitingSplit, getInboxRangeItems, type InboxRange } from '@/lib/db/queries/inbox-overview';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
 type EmailInput = { subject?: string | null; from?: string | null; bodyText?: string | null };
+
+/**
+ * Natural-language synthesis of a time bucket ("Heute" / "Diese Woche"):
+ * what arrived, who, what stands out — e.g. "Vier Kunden haben sich gemeldet.
+ * Dein DHL-Paket kommt heute." Grounded in subjects/previews + categories.
+ */
+export async function inboxRangeDigest(
+  range: InboxRange
+): Promise<Result<{ digest: string; count: number }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+
+  const items = await getInboxRangeItems(ws.id, user.id, range);
+  if (items.length === 0) {
+    return {
+      ok: true,
+      count: 0,
+      digest: range === 'today' ? 'Heute ist noch nichts angekommen.' : 'Diese Woche bisher nichts.',
+    };
+  }
+
+  const byCat: Record<string, number> = {};
+  for (const it of items) byCat[it.category] = (byCat[it.category] ?? 0) + 1;
+  const catLine = Object.entries(byCat)
+    .map(([c, n]) => `${n}× ${c}`)
+    .join(', ');
+  const lines = items
+    .slice(0, 40)
+    .map((it) => `- [${it.category}] ${it.senderName}: ${it.subject ?? '(kein Betreff)'}${it.preview ? ` — ${it.preview.slice(0, 120)}` : ''}`);
+
+  try {
+    const digest = await aiGenerate({
+      userId: user.id,
+      model: AI_MODEL_FAST,
+      maxOutputTokens: 220,
+      temperature: 0.4,
+      system:
+        `Du fasst den Posteingang ${range === 'today' ? 'von heute' : 'dieser Woche'} in 2-3 ` +
+        'kurzen deutschen Sätzen zusammen. Sag konkret, wie viele Kunden sich gemeldet haben, ' +
+        'und hebe einzelne wichtige Mails hervor (z.B. Versand/Pakete mit Lieferdatum wie „Dein ' +
+        'DHL-Paket kommt heute", Rechnungen, Termine). Promos/Social nur erwähnen wenn relevant. ' +
+        'Fließtext, kein Vorwort, keine Aufzählung.',
+      prompt: `Kategorien: ${catLine}\n\nNachrichten:\n${lines.join('\n')}`,
+    });
+    return { ok: true, count: items.length, digest: digest.trim() || 'Nichts Auffälliges.' };
+  } catch (e) {
+    console.error('[inbox-ai] range digest failed', e);
+    return { ok: false, error: 'Zusammenfassung fehlgeschlagen.' };
+  }
+}
 
 /**
  * A 2-3 sentence "morning briefing" for the inbox: what needs a reply and

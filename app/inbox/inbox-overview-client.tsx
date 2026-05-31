@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { InboxCockpit } from '@/components/inbox/inbox-cockpit';
+import { InboxRangeDigest } from '@/components/inbox/inbox-range-digest';
 import type {
   AwaitingRow,
   AwaitingSplit,
@@ -50,6 +51,7 @@ export function InboxOverviewClient({
   counts,
   cockpit,
   customerCount = 0,
+  range = null,
 }: {
   mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
@@ -62,6 +64,7 @@ export function InboxOverviewClient({
   counts: InboxCounts | null;
   cockpit?: AwaitingSplit | null;
   customerCount?: number;
+  range?: 'today' | 'week' | null;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -99,6 +102,28 @@ export function InboxOverviewClient({
       />
 
       <div className="min-w-0 flex-1">
+      {/* Time-range buckets + AI synthesis of the active range. */}
+      {mode === 'list' && (
+        <div className="mb-3 flex items-center gap-1.5">
+          <FilterChip
+            label="Heute"
+            active={range === 'today'}
+            onClick={() => setQuery({ range: range === 'today' ? null : 'today', p: null })}
+          />
+          <FilterChip
+            label="Diese Woche"
+            active={range === 'week'}
+            onClick={() => setQuery({ range: range === 'week' ? null : 'week', p: null })}
+          />
+          <FilterChip
+            label="Alle Zeiträume"
+            active={!range}
+            onClick={() => setQuery({ range: null, p: null })}
+          />
+        </div>
+      )}
+      {mode === 'list' && gmailConnected && range && <InboxRangeDigest range={range} />}
+
       {/* Morning cockpit — the at-a-glance value, on the default view. */}
       {mode === 'list' && gmailConnected && cockpit && (
         <InboxCockpit

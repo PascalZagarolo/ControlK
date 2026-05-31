@@ -4,6 +4,60 @@ import { getDb } from '../client';
 import * as s from '../schema';
 
 export type InboxFilter = 'all' | 'unread' | 'archived';
+export type InboxRange = 'today' | 'week';
+
+export type InboxRangeItem = {
+  senderName: string;
+  subject: string | null;
+  preview: string | null;
+  category: InboxCategoryKey;
+  receivedAt: string;
+};
+
+/**
+ * Compact item list for the time-range AI digest ("Heute" / "Diese Woche").
+ * Incoming, non-archived, non-future-snoozed items in the range — with
+ * category + preview so the model can say things like "Dein DHL-Paket
+ * kommt heute" or "Vier Kunden haben sich gemeldet".
+ */
+export async function getInboxRangeItems(
+  workspaceId: string,
+  userId: string,
+  range: InboxRange
+): Promise<InboxRangeItem[]> {
+  const db = getDb();
+  const since =
+    range === 'today'
+      ? sql`date_trunc('day', now())`
+      : sql`date_trunc('week', now())`;
+  const rows = await db
+    .select({
+      senderName: s.inboxItems.senderName,
+      subject: s.inboxItems.subject,
+      preview: s.inboxItems.preview,
+      category: s.inboxItems.category,
+      receivedAt: s.inboxItems.receivedAt,
+    })
+    .from(s.inboxItems)
+    .where(
+      and(
+        eq(s.inboxItems.workspaceId, workspaceId),
+        eq(s.inboxItems.userId, userId),
+        eq(s.inboxItems.direction, 'inbox'),
+        eq(s.inboxItems.isArchived, false),
+        sql`${s.inboxItems.receivedAt} >= ${since}`
+      )
+    )
+    .orderBy(desc(s.inboxItems.receivedAt))
+    .limit(60);
+  return rows.map((r) => ({
+    senderName: r.senderName,
+    subject: r.subject,
+    preview: r.preview,
+    category: r.category as InboxCategoryKey,
+    receivedAt: new Date(r.receivedAt).toISOString(),
+  }));
+}
 
 export type InboxCategoryKey =
   | 'primary'
@@ -135,6 +189,7 @@ export async function listInboxItemsPaginated(
     pageSize?: number;
     category?: InboxCategoryKey | null;
     topic?: string | null;
+    range?: InboxRange | null;
   } = {}
 ): Promise<InboxOverviewPage> {
   const db = getDb();
@@ -171,6 +226,11 @@ export async function listInboxItemsPaginated(
 
   if (opts.category) {
     conditions.push(eq(s.inboxItems.category, opts.category));
+  }
+  if (opts.range === 'today') {
+    conditions.push(sql`${s.inboxItems.receivedAt} >= date_trunc('day', now())`);
+  } else if (opts.range === 'week') {
+    conditions.push(sql`${s.inboxItems.receivedAt} >= date_trunc('week', now())`);
   }
 
   const where = and(...conditions);

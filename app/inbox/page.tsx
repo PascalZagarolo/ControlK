@@ -20,7 +20,12 @@ type Search = {
   p?: string;
   category?: string;
   topic?: string;
+  range?: string;
 };
+
+function parseRange(raw: string | undefined): 'today' | 'week' | null {
+  return raw === 'today' || raw === 'week' ? raw : null;
+}
 
 const CATEGORY_KEYS = new Set<InboxCategoryKey>([
   'primary',
@@ -76,6 +81,7 @@ export default async function Page({
   const page = parsePage(sp.p);
   const category = parseCategory(sp.category);
   const topic = parseTopic(sp.topic);
+  const range = parseRange(sp.range);
 
   // Force list mode when filtering by topic (the group/awaiting modes
   // ignore topic for V1 — adding the JOIN to them is the next iteration).
@@ -83,7 +89,7 @@ export default async function Page({
 
   const [pageData, groups, cockpit, gmail, counts] = await Promise.all([
     effectiveMode === 'list'
-      ? listInboxItemsPaginated(ws.id, user.id, { filter, page, category, topic })
+      ? listInboxItemsPaginated(ws.id, user.id, { filter, page, category, topic, range })
       : Promise.resolve(null),
     effectiveMode === 'group'
       ? groupInboxBySender(ws.id, user.id, {
@@ -113,6 +119,7 @@ export default async function Page({
       counts={counts}
       cockpit={cockpit}
       customerCount={counts?.byCategory.customer ?? 0}
+      range={range}
     />
   );
 }
