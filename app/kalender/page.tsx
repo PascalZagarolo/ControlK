@@ -139,6 +139,7 @@ export default async function Page() {
       currentUserId={user.id}
       standstills={standstills}
       workspaceId={ws.id}
+      rentalPack={ws.rentalPack}
     />
   );
 }

@@ -61,6 +61,7 @@ export function KalenderClient({
   currentUserId,
   standstills = [],
   workspaceId,
+  rentalPack = false,
 }: {
   events: CalendarEvent[];
   density: DayDensityCell[];
@@ -77,6 +78,7 @@ export function KalenderClient({
   currentUserId?: string;
   standstills?: StandstillRow[];
   workspaceId?: string;
+  rentalPack?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -91,6 +93,8 @@ export function KalenderClient({
   const [view, setView] = useState<View>('Woche');
   const [smartView, setSmartView] = useState<CalendarSmartView>('all');
   const [layers, setLayers] = useState({ internal: true, google: true, todo: true });
+  // The fleet "Resource" view is rental-specific — hide it without the pack.
+  const visibleViews = rentalPack ? VIEWS : VIEWS.filter((v) => v !== 'Resource');
   const [cursor, setCursor] = useState<Date>(new Date());
   const [createOpen, setCreateOpen] = useState(false);
   const [recurringOpen, setRecurringOpen] = useState(false);
@@ -238,7 +242,11 @@ export function KalenderClient({
         <Headline
           kicker="Kalender"
           title={headlineTitle}
-          subtitle="Meetings, Arzttermine, Privates, Übergaben — mit Conflict-Detection bei Fahrzeug-Buchungen und optionaler Resource-Ansicht."
+          subtitle={
+            rentalPack
+              ? 'Meetings, Arzttermine, Privates, Übergaben — mit Conflict-Detection bei Fahrzeug-Buchungen und optionaler Resource-Ansicht.'
+              : 'Meetings, Termine, Privates — Google-Kalender, Todos und interne Termine in einer Ansicht.'
+          }
           meta={
             <>
               <MetaTag highlight>{counts.today} heute</MetaTag>
@@ -254,7 +262,7 @@ export function KalenderClient({
           }
           trailing={
             <div className="flex flex-wrap items-center gap-2">
-              <FilterPills options={VIEWS} value={view} onChange={setView} />
+              <FilterPills options={visibleViews} value={view} onChange={setView} />
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -479,6 +487,7 @@ export function KalenderClient({
         templates={templates}
         members={members}
         currentUserId={currentUserId}
+        rentalPack={rentalPack}
         prefilledStart={prefillStart}
         prefilledDurationMinutes={prefillDuration}
         prefilledTitle={prefillTitle}

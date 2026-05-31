@@ -31,6 +31,8 @@ type Customer = { id: string; name: string };
 type Vehicle = { id: string; plate: string; model: string };
 type Contract = { id: string; title: string; customerId?: string };
 
+const RENTAL_KINDS: CalendarEventKind[] = ['handover', 'return', 'maintenance'];
+
 export function CreateEventModal({
   open,
   onClose,
@@ -40,6 +42,7 @@ export function CreateEventModal({
   templates = [],
   members = [],
   currentUserId,
+  rentalPack = false,
   prefilledStart,
   prefilledDurationMinutes,
   prefilledKind,
@@ -57,6 +60,7 @@ export function CreateEventModal({
   templates?: CalendarTemplate[];
   members?: TodoUser[];
   currentUserId?: string;
+  rentalPack?: boolean;
   prefilledStart?: string;
   prefilledDurationMinutes?: number;
   prefilledKind?: CalendarEventKind;
@@ -82,9 +86,12 @@ export function CreateEventModal({
     currentUserId ? [currentUserId] : []
   );
 
+  const kindGroups = rentalPack ? KIND_GROUPS : KIND_GROUPS.filter((g) => g.key !== 'rental');
+
   useEffect(() => {
     if (open) {
-      setKind(prefilledKind ?? 'meeting');
+      const wanted = prefilledKind ?? 'meeting';
+      setKind(!rentalPack && RENTAL_KINDS.includes(wanted) ? 'meeting' : wanted);
       setDuration(prefilledDurationMinutes ?? 60);
       setAttendeeIds(currentUserId ? [currentUserId] : []);
       setTitle(prefilledTitle ?? '');
@@ -108,6 +115,7 @@ export function CreateEventModal({
     prefilledTitle,
     prefilledLocation,
     prefilledDetail,
+    rentalPack,
   ]);
 
   const toggleAttendee = (id: string) => {
@@ -203,7 +211,7 @@ export function CreateEventModal({
               value={kind}
               onChange={(e) => setKind(e.target.value as CalendarEventKind)}
             >
-              {KIND_GROUPS.map((g) => (
+              {kindGroups.map((g) => (
                 <optgroup key={g.key} label={g.label}>
                   {g.kinds.map((k) => (
                     <option key={k} value={k}>
@@ -276,6 +284,7 @@ export function CreateEventModal({
           </ModalField>
         )}
 
+        {rentalPack && (
         <details className="rounded-[10px] border border-white/[0.06] bg-white/[0.02] p-3" open={!!(prefilledCustomerId || prefilledVehicleId)}>
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.4px] text-ink-300">
             Verknüpfungen (uRent — optional)
@@ -313,6 +322,7 @@ export function CreateEventModal({
             </ModalField>
           </div>
         </details>
+        )}
 
         <ModalField label="Checkliste (optional)" hint="Eine Zeile pro Schritt, optional mit – am Anfang">
           <ModalTextarea
