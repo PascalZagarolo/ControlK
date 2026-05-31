@@ -29,19 +29,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function scanCommitments(
   userId: string,
   workspaceId: string
-): Promise<{ scanned: number; found: number }> {
-  if (!(await aiAvailable(userId))) return { scanned: 0, found: 0 };
+): Promise<{ scanned: number; found: number; rateLimited: boolean }> {
+  if (!(await aiAvailable(userId))) return { scanned: 0, found: 0, rateLimited: false };
   const token = await getValidGoogleAccessToken(userId);
-  if (!token) return { scanned: 0, found: 0 };
+  if (!token) return { scanned: 0, found: 0, rateLimited: false };
 
   const db = getDb();
   const items = await listUnscannedSentItems(workspaceId, userId, SCAN_BATCH);
-  if (items.length === 0) return { scanned: 0, found: 0 };
+  if (items.length === 0) return { scanned: 0, found: 0, rateLimited: false };
 
   const ws = { id: workspaceId };
   const user = { id: userId };
   let found = 0;
   let processed = 0;
+  let rateLimited = false;
   for (const it of items) {
     let bodyText = '';
     let to = it.recipientEmail;
@@ -83,7 +84,10 @@ export async function scanCommitments(
         // Transient (rate-limit / timeout): leave this item UNSCANNED so a
         // later run retries it — a 429 must never silently drop a commitment
         // — and stop the batch to avoid hammering the limit further.
-        if (isTransientAIError(e)) break;
+        if (isTransientAIError(e)) {
+          rateLimited = true;
+          break;
+        }
         console.error('[commitments] parse failed', e);
         parsed = null;
       }
@@ -139,11 +143,13 @@ export async function scanCommitments(
     processed += 1;
   }
 
-  return { scanned: processed, found };
+  return { scanned: processed, found, rateLimited };
 }
 
 /** On-demand wrapper for the "Gesendete Mails scannen" button. */
-export async function extractCommitments(): Promise<Result<{ scanned: number; found: number }>> {
+export async function extractCommitments(): Promise<
+  Result<{ scanned: number; found: number; rateLimited: boolean }>
+> {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
   if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };

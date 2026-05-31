@@ -37,10 +37,19 @@ export function CommitmentsPanel({ commitments }: { commitments: OpenCommitment[
         toast(res.error, 'danger');
         return;
       }
-      toast(
-        res.found > 0 ? `${res.found} Zusage${res.found === 1 ? '' : 'n'} erfasst` : 'Keine neuen Zusagen gefunden',
-        'success'
-      );
+      if (res.rateLimited) {
+        toast(
+          res.found > 0
+            ? `${res.found} erfasst, dann KI-Limit erreicht — Rest beim nächsten Versuch`
+            : 'KI-Limit erreicht (Gateway) — bitte später erneut, nichts geht verloren',
+          'danger'
+        );
+      } else {
+        toast(
+          res.found > 0 ? `${res.found} Zusage${res.found === 1 ? '' : 'n'} erfasst` : 'Keine neuen Zusagen gefunden',
+          'success'
+        );
+      }
       router.refresh();
     });
 
