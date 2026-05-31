@@ -63,6 +63,12 @@ export type FoyerData = {
   dueWeek: number;
   /** Todos due tomorrow */
   dueTomorrow: number;
+  /** Morgen-Plan: triaged mail waiting on you / that you're waiting on. */
+  awaitingOnYou?: number;
+  awaitingOnThem?: number;
+  /** Morgen-Plan: firm (high-confidence) commitments you owe. */
+  commitmentsOpen?: number;
+  commitmentsOverdue?: number;
   /**
    * Suggestions for the "Jetzt" section — 1-N items the user can cycle
    * through with "Anderes vorschlagen". Caller may provide computed
