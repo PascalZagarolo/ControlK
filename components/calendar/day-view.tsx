@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { EventChip } from './event-chip';
+import { isBandEvent } from './week-view';
+import { KIND_META } from './event-color';
 import { NowLine } from './now-line';
 import { gridStagger } from './_motion';
 import { updateCalendarEvent } from '@/lib/actions/calendar';
@@ -147,6 +149,35 @@ export function DayView({
           </span>
         )}
       </div>
+
+      {/* All-day / multi-day band */}
+      {dayEvents.some(isBandEvent) && (
+        <div className="flex flex-col gap-1 border-b border-white/[0.06] px-3 py-2">
+          {dayEvents.filter(isBandEvent).map((e) => {
+            const meta = KIND_META[e.kind];
+            return (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => onOpen(e.id)}
+                title={`${meta.label} · ${e.title}`}
+                className="flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1 text-left text-[12px] text-ink-50 transition-[filter] hover:brightness-110"
+                style={{
+                  background: `${meta.color}22`,
+                  boxShadow: `inset 2px 0 0 0 ${meta.color}, inset 0 0 0 1px ${meta.color}33`,
+                }}
+              >
+                <span aria-hidden style={{ color: meta.color }}>{meta.icon}</span>
+                <span className="font-mono text-[9px] uppercase tracking-[0.3px] text-ink-300">
+                  {e.allDay ? 'Ganztägig' : 'Mehrtägig'}
+                </span>
+                <span className="truncate">{e.title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div
         ref={containerRef}
         className="relative cursor-cell"
@@ -200,6 +231,7 @@ export function DayView({
           animate="show"
         >
           {dayEvents.map((e) => {
+            if (isBandEvent(e)) return null;
             const s = new Date(e.startsAt);
             const en = new Date(e.endsAt);
             const startHour = Math.max(START_H, s.getHours() + s.getMinutes() / 60);

@@ -81,6 +81,7 @@ export function CreateEventModal({
   const [detail, setDetail] = useState('');
   const [kind, setKind] = useState<CalendarEventKind>(prefilledKind ?? 'meeting');
   const [duration, setDuration] = useState(prefilledDurationMinutes ?? 60);
+  const [allDay, setAllDay] = useState(false);
   const [checklist, setChecklist] = useState('');
   const [attendeeIds, setAttendeeIds] = useState<string[]>(
     currentUserId ? [currentUserId] : []
@@ -97,6 +98,7 @@ export function CreateEventModal({
       setTitle(prefilledTitle ?? '');
       setLocation(prefilledLocation ?? '');
       setDetail(prefilledDetail ?? '');
+      setAllDay(false);
     } else {
       setError(null);
       setConflict(null);
@@ -164,6 +166,7 @@ export function CreateEventModal({
               checklist: checklistArr,
               allowConflict,
               attendeeIds,
+              allDay,
             });
             if (!res.ok) {
               if (res.error.toLowerCase().includes('konflikt') || res.error.toLowerCase().includes('gebucht')) {
@@ -222,25 +225,33 @@ export function CreateEventModal({
               ))}
             </ModalSelect>
           </ModalField>
-          <ModalField label="Dauer (Min.)">
-            <ModalInput
-              type="number"
-              value={duration}
-              onChange={(e) => setDuration(parseInt(e.target.value) || 60)}
-              min={5}
-              step={5}
-            />
-          </ModalField>
+          {!allDay && (
+            <ModalField label="Dauer (Min.)">
+              <ModalInput
+                type="number"
+                value={duration}
+                onChange={(e) => setDuration(parseInt(e.target.value) || 60)}
+                min={5}
+                step={5}
+              />
+            </ModalField>
+          )}
         </div>
 
-        <ModalField label="Startzeit">
+        <ModalField label={allDay ? 'Datum' : 'Startzeit'}>
           <ModalInput
+            key={allDay ? 'allday' : 'timed'}
             name="startsAt"
-            type="datetime-local"
-            defaultValue={defaultStart(prefilledStart)}
+            type={allDay ? 'date' : 'datetime-local'}
+            defaultValue={allDay ? defaultStart(prefilledStart).slice(0, 10) : defaultStart(prefilledStart)}
             required
           />
         </ModalField>
+
+        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-200">
+          <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+          Ganztägig
+        </label>
 
         <ModalField label="Ort (optional)">
           <ModalInput

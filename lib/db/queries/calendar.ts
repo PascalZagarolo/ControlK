@@ -22,6 +22,7 @@ function toEvent(row: any): CalendarEvent {
     location: row.location ?? undefined,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
+    allDay: row.allDay ?? false,
     linkedCustomerId: row.linkedCustomerId ?? undefined,
     linkedCustomerName: row.customer?.name,
     linkedCustomerInitials: row.customer?.initials,

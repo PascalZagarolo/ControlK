@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { rescheduleEvent, updateCalendarEvent } from '@/lib/actions/calendar';
 import { EventChip } from './event-chip';
+import { KIND_META } from './event-color';
 import { gridStagger } from './_motion';
 import type { CalendarEvent } from '@/lib/types';
 
@@ -19,6 +20,14 @@ type CreateDrag = {
   startHour: number;
   currentHour: number;
 };
+
+/** All-day or multi-day events render in the band, not on the hour grid. */
+export function isBandEvent(e: CalendarEvent): boolean {
+  if (e.allDay) return true;
+  const start = new Date(e.startsAt);
+  const endMinus = new Date(new Date(e.endsAt).getTime() - 1);
+  return start.toDateString() !== endMinus.toDateString();
+}
 
 /** Greedy lane assignment so overlapping events sit side-by-side. */
 function layoutLanes(evs: CalendarEvent[]): Map<string, { lane: number; lanes: number }> {
@@ -97,15 +106,33 @@ export function WeekView({
     [weekStart]
   );
 
+  // Timed events live on the hour grid; all-day / multi-day events go to the
+  // band above it.
   const eventsByDay = useMemo(() => {
     const m = new Map<number, CalendarEvent[]>();
     for (let i = 0; i < 7; i++) m.set(i, []);
     for (const e of events) {
+      if (isBandEvent(e)) continue;
       const s = new Date(e.startsAt);
       const dayIdx = Math.floor((s.getTime() - weekStart.getTime()) / 86_400_000);
       if (dayIdx >= 0 && dayIdx < 7) m.get(dayIdx)!.push(e);
     }
     return m;
+  }, [events, weekStart]);
+
+  // All-day / multi-day events overlapping this week → spanning band bars.
+  const bandEvents = useMemo(() => {
+    const weekEnd = weekStart.getTime() + 7 * 86_400_000;
+    const dayIdx = (t: number) => Math.floor((t - weekStart.getTime()) / 86_400_000);
+    return events
+      .filter((e) => isBandEvent(e))
+      .filter((e) => new Date(e.startsAt).getTime() < weekEnd && new Date(e.endsAt).getTime() > weekStart.getTime())
+      .map((e) => {
+        const startCol = Math.max(0, Math.min(6, dayIdx(new Date(e.startsAt).getTime())));
+        const endCol = Math.max(0, Math.min(6, dayIdx(new Date(e.endsAt).getTime() - 1)));
+        return { e, startCol, endCol };
+      })
+      .sort((a, b) => a.startCol - b.startCol || a.endCol - b.endCol);
   }, [events, weekStart]);
 
   // Per-day occupied-hour sets → drives the diagonal-hatch on empty tiles.
@@ -270,6 +297,42 @@ export function WeekView({
         </div>
         <div style={{ width: AXIS_W }} />
       </div>
+
+      {/* All-day / multi-day band */}
+      {bandEvents.length > 0 && (
+        <div className="flex border-b border-white/[0.05]">
+          <div
+            className="grid flex-1 gap-1 px-1 py-1.5"
+            style={{
+              gridTemplateColumns: 'repeat(7, 1fr)',
+              gridAutoRows: 'minmax(0, auto)',
+            }}
+          >
+            {bandEvents.map(({ e, startCol, endCol }, i) => {
+              const meta = KIND_META[e.kind];
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => onOpen(e.id)}
+                  title={`${meta.label} · ${e.title}`}
+                  className="flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1 text-left text-[11px] text-ink-50 transition-[filter] hover:brightness-110"
+                  style={{
+                    gridColumn: `${startCol + 1} / ${endCol + 2}`,
+                    gridRow: i + 1,
+                    background: `${meta.color}22`,
+                    boxShadow: `inset 2px 0 0 0 ${meta.color}, inset 0 0 0 1px ${meta.color}33`,
+                  }}
+                >
+                  <span aria-hidden style={{ color: meta.color }}>{meta.icon}</span>
+                  <span className="truncate">{e.title}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ width: AXIS_W }} />
+        </div>
+      )}
 
       {/* Body: day columns + right time axis */}
       <div className="flex">

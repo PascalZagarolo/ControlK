@@ -583,6 +583,7 @@ export type CalendarEvent = {
   title: string;
   startsAt: string;
   endsAt: string;
+  allDay?: boolean;
   detail?: string;
   location?: string;
   linkedContractId?: string;

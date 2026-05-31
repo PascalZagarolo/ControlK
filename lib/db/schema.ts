@@ -917,6 +917,9 @@ export const calendarEvents = pgTable(
     detail: text('detail'),
     startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
     endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    // All-day events: rendered in the band above the time grid, not on the
+    // hour scale. startsAt/endsAt still bound the day(s) they cover.
+    allDay: boolean('all_day').notNull().default(false),
     linkedCustomerId: uuid('linked_customer_id').references(() => customers.id),
     linkedContractId: uuid('linked_contract_id').references(() => contracts.id),
     linkedVehicleId: uuid('linked_vehicle_id').references(() => vehicles.id),

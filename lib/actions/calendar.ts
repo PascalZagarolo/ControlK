@@ -52,6 +52,7 @@ export async function createCalendarEvent(input: {
   endsAtIso?: string;
   detail?: string;
   location?: string;
+  allDay?: boolean;
   linkedCustomerId?: string | null;
   linkedContractId?: string | null;
   linkedVehicleId?: string | null;
@@ -71,9 +72,15 @@ export async function createCalendarEvent(input: {
   if (!title) return { ok: false, error: 'Titel erforderlich.' };
   const start = new Date(input.startsAtIso);
   if (Number.isNaN(start.getTime())) return { ok: false, error: 'Ungültige Startzeit.' };
-  const end = input.endsAtIso
+  let end = input.endsAtIso
     ? new Date(input.endsAtIso)
     : new Date(start.getTime() + (input.durationMinutes ?? 60) * 60_000);
+  // All-day: normalize to the full day (midnight → next midnight).
+  const allDay = !!input.allDay;
+  if (allDay) {
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start.getTime() + 24 * 60 * 60_000);
+  }
   if (end <= start) return { ok: false, error: 'Endzeit muss nach Startzeit liegen.' };
 
   if (input.linkedVehicleId && !input.allowConflict) {
@@ -107,6 +114,7 @@ export async function createCalendarEvent(input: {
       location: input.location?.trim() || null,
       startsAt: start,
       endsAt: end,
+      allDay,
       linkedCustomerId: input.linkedCustomerId ?? null,
       linkedContractId: input.linkedContractId ?? null,
       linkedVehicleId: input.linkedVehicleId ?? null,

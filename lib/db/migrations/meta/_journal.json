@@ -302,6 +302,13 @@
       "when": 1781500000000,
       "tag": "0042_workspace_rental_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1781550000000,
+      "tag": "0043_calendar_all_day",
+      "breakpoints": true
     }
   ]
 }
