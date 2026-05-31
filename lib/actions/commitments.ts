@@ -7,7 +7,7 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiAvailable, isTransientAIError } from '@/lib/ai/gateway';
-import { extractCommitmentsFromMail, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
+import { extractCommitmentsFromMail, isNewsletterLike, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listUnscannedSentItems } from '@/lib/db/queries/commitments';
@@ -59,7 +59,9 @@ export async function scanCommitments(
       // Body fetch failed — still mark scanned so we don't loop on it.
     }
 
-    if (bodyText.trim()) {
+    // Skip newsletters / automated sends — never a personal commitment, and
+    // skipping spares an AI call. Item is still marked scanned below.
+    if (bodyText.trim() && !isNewsletterLike({ to, subject: it.subject, body: bodyText })) {
       let candidates: CommitmentCandidate[] = [];
       try {
         candidates = await extractCommitmentsFromMail(user.id, {

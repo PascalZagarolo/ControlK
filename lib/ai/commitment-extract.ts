@@ -31,6 +31,35 @@ export type MailForExtraction = {
   body: string;
 };
 
+// Newsletter / transactional / no-reply markers. A real personal mail almost
+// never carries these — so on SENT mail this filter is high-precision. We skip
+// such mails entirely (no AI call, no commitments): a bulk send isn't a promise.
+const NEWSLETTER_MARKERS: RegExp[] = [
+  /unsubscribe/i,
+  /abmelden|vom newsletter|newsletter abbestellen/i,
+  /view (this )?(e-?mail )?in (your )?browser|im browser (an)?(zeigen|sehen)/i,
+  /you('?re| are) receiving this (e-?mail|message)/i,
+  /diese (e-?mail|nachricht) wurde automatisch/i,
+  /\bno[-_.\s]?reply\b|\bdo[-_.\s]?not[-_.\s]?reply\b/i,
+  /privacy policy|datenschutzerklärung|impressum/i,
+];
+
+/**
+ * Cheap pre-filter: true when a mail looks like a newsletter / automated /
+ * no-reply send rather than genuine 1:1 correspondence. Caller should skip
+ * extraction for these.
+ */
+export function isNewsletterLike(mail: { to: string | null; subject: string | null; body: string }): boolean {
+  const to = (mail.to ?? '').toLowerCase();
+  if (/no[-_.]?reply|do[-_.]?not[-_.]?reply|newsletter|mailer|notifications?@/.test(to)) return true;
+  const hay = `${mail.subject ?? ''}\n${mail.body}`;
+  let hits = 0;
+  for (const re of NEWSLETTER_MARKERS) if (re.test(hay)) hits += 1;
+  // Two independent markers → confidently a bulk/automated mail. One alone
+  // (e.g. a lone "Impressum" in a signature) isn't enough to discard.
+  return hits >= 2;
+}
+
 const SYSTEM_PROMPT =
   'Du extrahierst aus einer vom Nutzer GESENDETEN E-Mail verbindliche Zusagen, die DER ' +
   'NUTZER selbst gemacht hat — Dinge, die er liefern/erledigen wird. Sei STRENG: lieber ' +

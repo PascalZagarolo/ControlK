@@ -3,7 +3,7 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiAvailable, isTransientAIError } from '@/lib/ai/gateway';
-import { extractCommitmentsFromMail, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
+import { extractCommitmentsFromMail, isNewsletterLike, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listRecentSentItems } from '@/lib/db/queries/commitments';
@@ -30,6 +30,7 @@ export type DryRunMail = {
 export type DryRunReport = {
   mailsFetched: number;
   mailsWithBody: number;
+  skippedNewsletter: number;
   mailsWithCandidates: number;
   totalCandidates: number;
   byConfidence: { high: number; medium: number; low: number };
@@ -64,6 +65,7 @@ export async function dryRunCommitmentScan(opts?: {
   const mails: DryRunMail[] = [];
   const byConfidence = { high: 0, medium: 0, low: 0 };
   let mailsWithBody = 0;
+  let skippedNewsletter = 0;
   let totalCandidates = 0;
   let rateLimited = false;
 
@@ -87,6 +89,13 @@ export async function dryRunCommitmentScan(opts?: {
       continue;
     }
     mailsWithBody += 1;
+
+    // Newsletter / automated send → skip extraction entirely (same rule the
+    // production scanner uses), but count it so the measurement stays honest.
+    if (isNewsletterLike({ to, subject: it.subject, body: bodyText })) {
+      skippedNewsletter += 1;
+      continue;
+    }
 
     let candidates: CommitmentCandidate[] = [];
     try {
@@ -120,6 +129,7 @@ export async function dryRunCommitmentScan(opts?: {
     ok: true,
     mailsFetched: mails.length,
     mailsWithBody,
+    skippedNewsletter,
     mailsWithCandidates: mails.filter((m) => m.candidates.length > 0).length,
     totalCandidates,
     byConfidence,

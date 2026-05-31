@@ -107,9 +107,10 @@ export function CommitmentValidationClient() {
 
       {report && (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Stat label="Mails gescannt" value={report.mailsFetched} />
             <Stat label="mit Text" value={report.mailsWithBody} />
+            <Stat label="Newsletter raus" value={report.skippedNewsletter} />
             <Stat label="mit Kandidaten" value={report.mailsWithCandidates} />
             <Stat label="Kandidaten gesamt" value={report.totalCandidates} />
           </div>
