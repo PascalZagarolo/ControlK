@@ -22,10 +22,14 @@ export function InboxCockpit({
   onYou,
   onThem,
   customerCount,
+  commitmentsOpen = 0,
+  commitmentsOverdue = 0,
 }: {
   onYou: AwaitingRow[];
   onThem: AwaitingRow[];
   customerCount: number;
+  commitmentsOpen?: number;
+  commitmentsOverdue?: number;
 }) {
   const [pending, start] = useTransition();
   const [digest, setDigest] = useState<string | null>(null);
@@ -106,6 +110,14 @@ export function InboxCockpit({
           value={customerCount}
           accent="#5ee08a"
         />
+        {commitmentsOpen > 0 && (
+          <Tile
+            label="Deine Zusagen"
+            value={commitmentsOpen}
+            sub={commitmentsOverdue > 0 ? `${commitmentsOverdue} überfällig` : undefined}
+            accent={commitmentsOverdue > 0 ? '#ff8a8a' : '#9c9c9d'}
+          />
+        )}
       </div>
 
       {quiet ? (
@@ -133,17 +145,14 @@ function Tile({
   sub,
   accent,
 }: {
-  href: string;
+  href?: string;
   label: string;
   value: number;
   sub?: string;
   accent: string;
 }) {
-  return (
-    <Link
-      href={href}
-      className="flex flex-col gap-0.5 rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
-    >
+  const inner = (
+    <>
       <span className="flex items-baseline gap-2">
         <span className="text-[22px] font-semibold tabular-nums text-ink-50" style={{ color: value > 0 ? accent : undefined }}>
           {value}
@@ -151,7 +160,15 @@ function Tile({
         {sub && <span className="text-[11px] text-ink-300">{sub}</span>}
       </span>
       <span className="text-[11.5px] text-ink-300">{label}</span>
+    </>
+  );
+  const cls = 'flex flex-col gap-0.5 rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors';
+  return href ? (
+    <Link href={href} className={`${cls} hover:border-white/[0.16] hover:bg-white/[0.04]`}>
+      {inner}
     </Link>
+  ) : (
+    <div className={cls}>{inner}</div>
   );
 }
 

@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { InboxCockpit } from '@/components/inbox/inbox-cockpit';
 import { InboxRangeDigest } from '@/components/inbox/inbox-range-digest';
+import { CommitmentsPanel } from '@/components/inbox/commitments-panel';
+import type { OpenCommitment } from '@/lib/db/queries/commitments';
 import type {
   AwaitingRow,
   AwaitingSplit,
@@ -52,6 +54,7 @@ export function InboxOverviewClient({
   cockpit,
   customerCount = 0,
   range = null,
+  commitments = [],
 }: {
   mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
@@ -65,6 +68,7 @@ export function InboxOverviewClient({
   cockpit?: AwaitingSplit | null;
   customerCount?: number;
   range?: 'today' | 'week' | null;
+  commitments?: OpenCommitment[];
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -130,8 +134,13 @@ export function InboxOverviewClient({
           onYou={cockpit.onYou}
           onThem={cockpit.onThem}
           customerCount={customerCount}
+          commitmentsOpen={commitments.length}
+          commitmentsOverdue={commitments.filter((c) => c.overdueDays != null).length}
         />
       )}
+
+      {/* Promise Tracker — what YOU owe. */}
+      {mode === 'list' && gmailConnected && <CommitmentsPanel commitments={commitments} />}
 
       {/* Module header */}
       <header className="flex flex-col gap-6 pb-6">

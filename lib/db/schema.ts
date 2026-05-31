@@ -2435,6 +2435,9 @@ export const inboxItems = pgTable(
     // the message to a known entity (customer, project, todo).
     relatedEntityType: varchar('related_entity_type', { length: 32 }),
     relatedEntityId: uuid('related_entity_id'),
+    // When this (sent) item was scanned for commitments — so the Promise
+    // Tracker never re-fetches the same Gmail body twice. Null = not scanned.
+    commitmentsScannedAt: timestamp('commitments_scanned_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -2466,6 +2469,38 @@ export const inboxItems = pgTable(
       t.category,
       t.isArchived
     ),
+  })
+);
+
+// ─── Promise Tracker ────────────────────────────────────────────
+// Commitments the user made in their own SENT mails ("schick ich dir bis
+// Freitag das Angebot"), AI-extracted from the sent bodies. Surfaces the
+// inverse of a normal inbox: what YOU owe, not what arrived. Linked to the
+// recipient's customer when resolvable.
+export const commitmentStatusEnum = pgEnum('commitment_status', ['open', 'done', 'dismissed']);
+
+export const inboxCommitments = pgTable(
+  'inbox_commitments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sourceItemId: uuid('source_item_id').references(() => inboxItems.id, { onDelete: 'set null' }),
+    sourceThreadId: text('source_thread_id'),
+    recipientEmail: text('recipient_email'),
+    recipientName: text('recipient_name'),
+    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
+    promiseText: text('promise_text').notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    status: commitmentStatusEnum('status').notNull().default('open'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    openIdx: index('inbox_commitments_open_idx').on(t.workspaceId, t.userId, t.status, t.dueAt),
   })
 );
 

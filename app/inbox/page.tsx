@@ -10,6 +10,7 @@ import {
   type InboxFilter,
 } from '@/lib/db/queries/inbox-overview';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
+import { listOpenCommitments } from '@/lib/db/queries/commitments';
 import { InboxOverviewClient } from './inbox-overview-client';
 
 export const dynamic = 'force-dynamic';
@@ -106,6 +107,8 @@ export default async function Page({
     getInboxCounts(ws.id, user.id).catch(() => null),
   ]);
 
+  const commitments = await listOpenCommitments(ws.id, user.id).catch(() => []);
+
   return (
     <InboxOverviewClient
       mode={effectiveMode}
@@ -120,6 +123,7 @@ export default async function Page({
       cockpit={cockpit}
       customerCount={counts?.byCategory.customer ?? 0}
       range={range}
+      commitments={commitments}
     />
   );
 }
