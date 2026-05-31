@@ -9,7 +9,7 @@ import { useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { extractCommitments, resolveCommitment, dismissCommitment } from '@/lib/actions/commitments';
+import { extractCommitments, resolveCommitment, dismissCommitment, commitmentToTodo } from '@/lib/actions/commitments';
 import { toast } from '@/lib/stores/toast-store';
 import type { OpenCommitment } from '@/lib/db/queries/commitments';
 
@@ -105,6 +105,19 @@ export function CommitmentsPanel({ commitments }: { commitments: OpenCommitment[
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() =>
+                        act(async () => {
+                          const r = await commitmentToTodo(c.id);
+                          toast(r.ok ? 'Als Todo angelegt' : r.error, r.ok ? 'success' : 'danger');
+                        })
+                      }
+                      className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-[#5E9EFF] disabled:opacity-50"
+                    >
+                      → Todo
+                    </button>
                     <button
                       type="button"
                       disabled={pending}
