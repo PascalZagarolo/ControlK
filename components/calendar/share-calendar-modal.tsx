@@ -110,8 +110,15 @@ export function ShareCalendarModal({
                 />
                 <CopyBtn text={icalUrl(token)} copied={copied} setCopied={setCopied} />
               </div>
+              <a
+                href={icalUrl(token).replace(/^https?:\/\//, 'webcal://')}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#5eb6ff] px-3 py-1 text-[12px] font-medium text-black transition-colors hover:bg-[#7cc4ff]"
+              >
+                ↪ In Kalender abonnieren
+              </a>
               <p className="mt-2 text-[11px] leading-[1.45] text-ink-300">
-                In Outlook: „Kalender abonnieren" · in Google Cal: „Über URL hinzufügen".
+                Ein Klick öffnet Apple Kalender / Outlook. Sonst: URL kopieren → „Kalender
+                abonnieren" / „Über URL hinzufügen".
               </p>
             </div>
           </div>

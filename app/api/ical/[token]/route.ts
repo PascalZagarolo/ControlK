@@ -27,6 +27,12 @@ function formatIcalDate(d: Date): string {
   );
 }
 
+// Date-only form (YYYYMMDD) for all-day events.
+function formatIcalDay(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return d.getUTCFullYear().toString() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate());
+}
+
 export async function GET(_: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const db = getDb();
@@ -56,10 +62,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//uRent//Calendar//DE',
+    'PRODID:-//Ctrl K//Calendar//DE',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:uRent',
+    'X-WR-CALNAME:Ctrl K',
     'X-WR-TIMEZONE:Europe/Berlin',
   ];
 
@@ -70,12 +76,20 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     if (e.customer?.name) desc.push(`Kunde: ${e.customer.name}`);
     if (e.vehicle?.plate) desc.push(`Fahrzeug: ${e.vehicle.plate}`);
     const location = e.location ?? '';
+    // All-day events use the date-only iCal form (VALUE=DATE); DTEND is
+    // exclusive (the day after), which our stored endsAt (next midnight)
+    // already represents.
+    const dtLines = e.allDay
+      ? [
+          `DTSTART;VALUE=DATE:${formatIcalDay(e.startsAt)}`,
+          `DTEND;VALUE=DATE:${formatIcalDay(e.endsAt)}`,
+        ]
+      : [`DTSTART:${formatIcalDate(e.startsAt)}`, `DTEND:${formatIcalDate(e.endsAt)}`];
     lines.push(
       'BEGIN:VEVENT',
-      `UID:${e.id}@urent.local`,
+      `UID:${e.id}@ctrlk.de`,
       `DTSTAMP:${formatIcalDate(new Date())}`,
-      `DTSTART:${formatIcalDate(e.startsAt)}`,
-      `DTEND:${formatIcalDate(e.endsAt)}`,
+      ...dtLines,
       `SUMMARY:${escapeICalText(summary)}`,
       `DESCRIPTION:${escapeICalText(desc.join('\\n'))}`,
       `LOCATION:${escapeICalText(location)}`,
