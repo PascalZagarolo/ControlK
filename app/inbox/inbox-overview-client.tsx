@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { InboxCockpit } from '@/components/inbox/inbox-cockpit';
 import { InboxRangeDigest } from '@/components/inbox/inbox-range-digest';
 import { CommitmentsPanel } from '@/components/inbox/commitments-panel';
 import { ChurnPanel } from '@/components/inbox/churn-panel';
+import { createTodoFromInboxItem } from '@/lib/actions/inbox-actions';
+import { toast } from '@/lib/stores/toast-store';
 import type { OpenCommitment } from '@/lib/db/queries/commitments';
 import type { ChurnAlert } from '@/lib/db/queries/churn';
 import type {
@@ -436,15 +438,25 @@ function ListView({
 }
 
 function Row({ row }: { row: InboxOverviewRow }) {
-  // Sender column is a nested Link to /people/[email] when we have an
-  // address. Browsers correctly route the inner click to the inner href.
-  // To make sure the outer Link doesn't swallow that, we use a div with
-  // an onClick wrapping the rest of the row, not a single outer Link.
-  // For simplicity: keep outer as Link, render sender as a separate
-  // <Link> inside; React/Next handles nested anchors via the inner one
-  // winning when clicked (the browser dispatches the deepest target).
+  // Sender column links to /people/[email]; subject + time link to the mail.
+  // The whole row is a <div> (not one outer Link), so the "→ Todo" action can
+  // be a real sibling button rather than an invalid button-inside-anchor.
+  const router = useRouter();
+  const [pending, start] = useTransition();
+
+  const toTodo = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pending) return;
+    start(async () => {
+      const r = await createTodoFromInboxItem(row.id);
+      toast(r.ok ? 'Als Todo angelegt — Mail archiviert' : r.error, r.ok ? 'success' : 'danger');
+      if (r.ok) router.refresh();
+    });
+  };
+
   return (
-    <div className="grid grid-cols-[180px_1fr_72px] items-baseline gap-4 px-1 py-3 transition-colors duration-150 hover:bg-white/[0.025]">
+    <div className="group grid grid-cols-[180px_1fr_72px] items-baseline gap-4 px-1 py-3 transition-colors duration-150 hover:bg-white/[0.025]">
       <div className="min-w-0">
         {row.senderEmail ? (
           <Link
@@ -472,23 +484,33 @@ function Row({ row }: { row: InboxOverviewRow }) {
           />
         )}
       </div>
-      <Link
-        href={`/inbox/${row.id}`}
-        className="min-w-0 cursor-pointer"
-      >
-        <p
-          className={`truncate text-[13.5px] leading-tight ${
-            row.isRead ? 'text-ink-200' : 'text-ink-50'
-          }`}
-        >
-          {row.subject || '(kein Betreff)'}
-        </p>
-        {row.preview && (
-          <p className="mt-0.5 truncate text-[12px] leading-tight text-[#71717A]">
-            {row.preview}
+      {/* Subject column is a relative container so the hover "→ Todo" action
+          sits as a SIBLING of the link (never a button inside an anchor). */}
+      <div className="relative min-w-0">
+        <Link href={`/inbox/${row.id}`} className="block min-w-0 cursor-pointer">
+          <p
+            className={`truncate pr-16 text-[13.5px] leading-tight ${
+              row.isRead ? 'text-ink-200' : 'text-ink-50'
+            }`}
+          >
+            {row.subject || '(kein Betreff)'}
           </p>
-        )}
-      </Link>
+          {row.preview && (
+            <p className="mt-0.5 truncate text-[12px] leading-tight text-[#71717A]">
+              {row.preview}
+            </p>
+          )}
+        </Link>
+        <button
+          type="button"
+          onClick={toTodo}
+          disabled={pending}
+          className="absolute right-0 top-0 rounded-sm bg-[#0E0F11] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.3px] text-[#71717A] opacity-0 transition-all hover:text-[#5E9EFF] focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+          title="Diese Mail als Todo erfassen"
+        >
+          → Todo
+        </button>
+      </div>
       <Link
         href={`/inbox/${row.id}`}
         className="justify-self-end font-mono text-[10.5px] uppercase tracking-[0.06em] text-[#52525B]"
