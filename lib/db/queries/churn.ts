@@ -49,8 +49,10 @@ export async function getChurnAlerts(
     last_at: string | Date;
   }>(sql`
     WITH msgs AS (
-      SELECT c.id AS customer_id, c.name AS customer_name, c.slug AS customer_slug,
-             i.received_at
+      -- DISTINCT so a customer with the same email on multiple contact rows
+      -- doesn't double-count a single inbound mail (which would skew cadence).
+      SELECT DISTINCT c.id AS customer_id, c.name AS customer_name,
+             c.slug AS customer_slug, i.id AS item_id, i.received_at
       FROM ${s.inboxItems} i
       JOIN ${s.customerContacts} cc ON lower(cc.email) = lower(i.sender_email)
       JOIN ${s.customers} c ON c.id = cc.customer_id
