@@ -4,7 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
-import { aiGenerate, AI_MODEL_FAST, aiGatewayConfigured } from '@/lib/ai/gateway';
+import { aiGenerate, AI_MODEL_FAST } from '@/lib/ai/gateway';
 import type { ParsedGmailMessage } from './gmail';
 import { domainOf } from './classify-inbox';
 
@@ -89,7 +89,7 @@ export async function classifyNewDomains(input: {
   // wrapper; fall back to the legacy fetch path for user-BYOK or
   // direct-OpenAI deployments. No key configured → quiet skip; the
   // deterministic A+B classification still works without AI.
-  const useGateway = aiGatewayConfigured();
+  const useGateway = !!process.env.AI_GATEWAY_API_KEY;
   const key = useGateway ? null : await getEffectiveAIKey(userId);
   if (!useGateway && !key) return { classified: 0, skipped: todo.length };
 
@@ -99,7 +99,7 @@ export async function classifyNewDomains(input: {
   let skipped = 0;
   const results = await Promise.all(
     todo.map(async (entry) => {
-      const topic = await classifyOne(entry, key, useGateway).catch(() => null);
+      const topic = await classifyOne(entry, key, useGateway, userId).catch(() => null);
       return { entry, topic };
     })
   );
@@ -134,7 +134,8 @@ export async function classifyNewDomains(input: {
 async function classifyOne(
   entry: DomainSample,
   key: Awaited<ReturnType<typeof getEffectiveAIKey>> | null,
-  useGateway: boolean
+  useGateway: boolean,
+  userId: string
 ): Promise<string | null> {
   const subjectsBlock = entry.recentSubjects.length
     ? `\n\nLetzte Betreffe von dieser Domain:\n${entry.recentSubjects.map((s) => `- ${s}`).join('\n')}`
@@ -146,6 +147,7 @@ async function classifyOne(
     // answer needs almost no tokens.
     try {
       const raw = await aiGenerate({
+        userId,
         model: process.env.TOPIC_AI_MODEL ?? AI_MODEL_FAST,
         system: SYSTEM_PROMPT,
         prompt: userPrompt,

@@ -5,7 +5,7 @@ import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import {
   aiGenerate,
   aiGenerateJSON,
-  aiGatewayConfigured,
+  aiAvailable,
   AI_MODEL_CHAT,
   AI_MODEL_FAST,
 } from '@/lib/ai/gateway';
@@ -24,13 +24,14 @@ function transcript(input: Base): string {
 export async function channelSummary(
   input: Base
 ): Promise<Result<{ summary: string; openItems: string[] }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
   if (input.messages.length === 0) return { ok: false, error: 'Noch keine Nachrichten.' };
 
   try {
     const parsed = await aiGenerateJSON<{ summary?: string; openItems?: string[] }>({
+      userId: user.id,
       model: AI_MODEL_FAST,
       maxOutputTokens: 450,
       system:
@@ -56,12 +57,13 @@ export async function channelSummary(
 export async function channelReplyDraft(
   input: Base & { instruction?: string }
 ): Promise<Result<{ draft: string }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   try {
     const draft = await aiGenerate({
+      userId: user.id,
       model: AI_MODEL_CHAT,
       maxOutputTokens: 350,
       temperature: 0.6,
@@ -84,13 +86,14 @@ export async function channelReplyDraft(
 export async function channelAsk(
   input: Base & { question: string }
 ): Promise<Result<{ answer: string }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
   if (!input.question.trim()) return { ok: false, error: 'Leere Frage.' };
 
   try {
     const answer = await aiGenerate({
+      userId: user.id,
       model: AI_MODEL_CHAT,
       maxOutputTokens: 450,
       temperature: 0.4,

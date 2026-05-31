@@ -1,27 +1,17 @@
 import 'server-only';
 
-import { generateText } from 'ai';
+import { getEffectiveAIKey } from './get-effective-key';
 
-// Vercel AI Gateway model strings. Format: `provider/model-id`.
-// Routing is handled by the gateway when AI_GATEWAY_API_KEY is set —
-// no provider-specific package install needed.
-//
-// Defaults chosen for use-case fit, not "biggest model":
-//   - FAST  : per-domain classification, status tags, summary chips.
-//             Cheap + fast wins; gpt-4o-mini is dialled in for this.
-//   - CHAT  : multi-paragraph reasoning (briefing narrative, follow-up
-//             drafts). Sonnet 4.6 is the latest balanced Claude model.
-//   - PREMIUM: anything that needs slow, careful reasoning. Reserved.
-//
-// Overrideable per call site if a surface has a strong reason; default
-// stays in this file so cost decisions are reviewable.
-// Anthropic model IDs follow the hyphenated convention (claude-sonnet-4-6),
-// not dotted. Vercel AI Gateway expects `provider/exact-model-id`.
+// Model ids. Provider-prefixed forms (anthropic/…, openai/…) are understood
+// by the Vercel AI Gateway. A direct OpenAI/BYOK key only knows OpenAI ids,
+// so for those sources we fall back to the effective key's default model.
 export const AI_MODEL_FAST = 'openai/gpt-4o-mini';
 export const AI_MODEL_CHAT = 'anthropic/claude-sonnet-4-6';
 export const AI_MODEL_PREMIUM = 'anthropic/claude-opus-4-7';
 
 export type AIGenerateOptions = {
+  /** Whose key/endpoint to use (BYOK → gateway → OPENAI_API_KEY). */
+  userId: string;
   model?: string;
   system?: string;
   prompt: string;
@@ -31,55 +21,55 @@ export type AIGenerateOptions = {
   temperature?: number;
 };
 
-export function aiGatewayConfigured(): boolean {
-  return !!process.env.AI_GATEWAY_API_KEY;
+/** True when the user has any usable AI key (BYOK, gateway, or env). */
+export async function aiAvailable(userId: string): Promise<boolean> {
+  return !!(await getEffectiveAIKey(userId));
 }
 
 /**
- * Single-shot text generation through Vercel AI Gateway. Reads
- * AI_GATEWAY_API_KEY automatically from env — the AI SDK picks it up.
+ * Single-shot text generation against the user's effective AI endpoint via
+ * the OpenAI-compatible /chat/completions API (works for BYOK OpenAI, the
+ * Vercel AI Gateway, and OPENAI_API_KEY alike — no provider SDK needed).
  *
- * Returns the raw text. Caller does parsing / shape validation.
- *
- * Throws if AI_GATEWAY_API_KEY is missing — every call site must
- * handle that case (typically by falling back to a deterministic
- * heuristic). We deliberately don't silent-fail: an AI feature that
- * silently returns empty strings is worse than a loud 503.
+ * Throws if no key is configured — every call site handles that (typically
+ * by surfacing "KI nicht konfiguriert").
  */
 export async function aiGenerate(opts: AIGenerateOptions): Promise<string> {
-  if (!aiGatewayConfigured()) {
-    throw new Error('AI Gateway not configured (AI_GATEWAY_API_KEY missing).');
-  }
-  const { text } = await generateText({
-    model: opts.model ?? AI_MODEL_CHAT,
-    system: opts.system,
-    prompt: opts.prompt,
-    maxOutputTokens: opts.maxOutputTokens,
-    temperature: opts.temperature ?? 0.7,
+  const key = await getEffectiveAIKey(opts.userId);
+  if (!key) throw new Error('AI not configured (no key for user).');
+  // Only the gateway understands provider-prefixed model ids; BYOK/OpenAI
+  // get the effective default model instead.
+  const model = key.source === 'gateway' ? opts.model ?? key.defaultModel : key.defaultModel;
+
+  const res = await fetch(`${key.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key.apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        ...(opts.system ? [{ role: 'system', content: opts.system }] : []),
+        { role: 'user', content: opts.prompt },
+      ],
+      temperature: opts.temperature ?? 0.7,
+      max_tokens: opts.maxOutputTokens ?? 800,
+    }),
+    signal: AbortSignal.timeout(30_000),
   });
-  return text;
+  if (!res.ok) throw new Error(`AI request failed (${res.status}).`);
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? '';
 }
 
 /**
- * Convenience: ask for a JSON object. Parses with a best-effort
- * regex-extracted JSON block so a chatty model that wraps the JSON
- * in fences still works. Returns null on parse failure — caller
- * decides whether to retry or fall back.
+ * Convenience: ask for a JSON object. Best-effort parse of a fenced/labelled
+ * JSON block. Returns null on parse failure — caller decides retry/fallback.
  */
-export async function aiGenerateJSON<T = unknown>(
-  opts: AIGenerateOptions
-): Promise<T | null> {
-  const text = await aiGenerate({
-    ...opts,
-    // Lower temperature for structured output — we want valid JSON,
-    // not creative reinterpretations of "subject" and "body".
-    temperature: opts.temperature ?? 0.4,
-  });
+export async function aiGenerateJSON<T = unknown>(opts: AIGenerateOptions): Promise<T | null> {
+  const text = await aiGenerate({ ...opts, temperature: opts.temperature ?? 0.4 });
   return tryParseJSON<T>(text);
 }
 
 function tryParseJSON<T>(raw: string): T | null {
-  // Strip code fences and leading prose if the model added any.
   const cleaned = raw
     .replace(/^[^{[]*([{[])/s, '$1')
     .replace(/([}\]])[^}\]]*$/s, '$1');

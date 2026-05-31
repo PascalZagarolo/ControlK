@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
-import { AI_MODEL_CHAT, aiGenerateJSON, aiGatewayConfigured } from '@/lib/ai/gateway';
+import { AI_MODEL_CHAT, aiGenerateJSON, aiAvailable } from '@/lib/ai/gateway';
 
 export type FollowUpDraft = { subject: string; body: string };
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -55,10 +55,10 @@ export async function generateFollowUpDraft(
 ): Promise<Result<{ draft: FollowUpDraft }>> {
   const user = await requireUser();
 
-  if (!aiGatewayConfigured()) {
+  if (!(await aiAvailable(user.id))) {
     return {
       ok: false,
-      error: 'AI Gateway nicht konfiguriert (AI_GATEWAY_API_KEY fehlt).',
+      error: 'KI ist nicht konfiguriert (kein Schlüssel hinterlegt).',
     };
   }
 
@@ -183,6 +183,7 @@ Regeln:
   const prompt = `${contextBlock}\n\nSchreibe jetzt die Nachfass-Email als JSON.`;
 
   const draft = await aiGenerateJSON<FollowUpDraft>({
+    userId: user.id,
     model: AI_MODEL_CHAT,
     system,
     prompt,

@@ -7,7 +7,7 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { createTodoFromForm } from '@/lib/actions/todos';
-import { aiGenerateJSON, aiGatewayConfigured, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { aiGenerateJSON, aiAvailable, AI_MODEL_FAST } from '@/lib/ai/gateway';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -30,9 +30,9 @@ function flattenDoc(node: any): string {
 export async function extractNoteTodos(
   noteId: string
 ): Promise<Result<{ created: number; items: string[] }>> {
-  await requireUser();
+  const user = await requireUser();
   const ws = await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   const db = getDb();
   const note = await db.query.notes.findFirst({
@@ -47,6 +47,7 @@ export async function extractNoteTodos(
   let items: string[] = [];
   try {
     const parsed = await aiGenerateJSON<{ actions?: string[] }>({
+      userId: user.id,
       model: AI_MODEL_FAST,
       maxOutputTokens: 400,
       system:

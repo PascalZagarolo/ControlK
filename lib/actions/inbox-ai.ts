@@ -2,7 +2,7 @@
 
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { aiGenerate, aiGenerateJSON, aiGatewayConfigured, AI_MODEL_CHAT, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { aiGenerate, aiGenerateJSON, aiAvailable, AI_MODEL_CHAT, AI_MODEL_FAST } from '@/lib/ai/gateway';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -26,12 +26,13 @@ function context(input: EmailInput): string {
 export async function draftInboxReply(
   input: EmailInput & { instruction?: string }
 ): Promise<Result<{ draft: string }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   try {
     const draft = await aiGenerate({
+      userId: user.id,
       model: AI_MODEL_CHAT,
       maxOutputTokens: 500,
       temperature: 0.6,
@@ -58,12 +59,13 @@ export async function draftInboxReply(
 export async function summarizeInboxEmail(
   input: EmailInput
 ): Promise<Result<{ summary: string; actions: string[] }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   try {
     const parsed = await aiGenerateJSON<{ summary?: string; actions?: string[] }>({
+      userId: user.id,
       model: AI_MODEL_FAST,
       maxOutputTokens: 400,
       system:

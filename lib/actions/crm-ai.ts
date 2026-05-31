@@ -9,7 +9,7 @@ import { runTool } from '@/lib/ai/workspace-tools';
 import {
   aiGenerate,
   aiGenerateJSON,
-  aiGatewayConfigured,
+  aiAvailable,
   AI_MODEL_CHAT,
   AI_MODEL_FAST,
 } from '@/lib/ai/gateway';
@@ -32,9 +32,9 @@ async function customerContext(customerId: string) {
 export async function customerInsight(customerId: string): Promise<
   Result<{ summary: string; nextAction: string; risk: { level: string; reason: string } }>
 > {
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
   try {
-    const { data } = await customerContext(customerId);
+    const { data, user } = await customerContext(customerId);
+    if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
     if ((data as any)?.error === 'not-found') return { ok: false, error: 'Kunde nicht gefunden.' };
 
     const parsed = await aiGenerateJSON<{
@@ -42,6 +42,7 @@ export async function customerInsight(customerId: string): Promise<
       nextAction?: string;
       risk?: { level?: string; reason?: string };
     }>({
+      userId: user.id,
       model: AI_MODEL_FAST,
       maxOutputTokens: 400,
       system:
@@ -69,12 +70,13 @@ export async function customerInsight(customerId: string): Promise<
 
 /** A meeting-prep brief for a customer: context + talking points + open items. */
 export async function customerMeetingPrep(customerId: string): Promise<Result<{ brief: string }>> {
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
   try {
-    const { data } = await customerContext(customerId);
+    const { data, user } = await customerContext(customerId);
+    if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
     if ((data as any)?.error === 'not-found') return { ok: false, error: 'Kunde nicht gefunden.' };
 
     const brief = await aiGenerate({
+      userId: user.id,
       model: AI_MODEL_CHAT,
       maxOutputTokens: 500,
       temperature: 0.5,
@@ -95,7 +97,7 @@ export async function customerMeetingPrep(customerId: string): Promise<Result<{ 
 export async function contractRenewalDraft(contractId: string): Promise<Result<{ draft: string }>> {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
-  if (!aiGatewayConfigured()) return { ok: false, error: 'KI ist nicht konfiguriert.' };
+  if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   const db = getDb();
   const contract = await db.query.contracts.findFirst({
@@ -115,6 +117,7 @@ export async function contractRenewalDraft(contractId: string): Promise<Result<{
 
   try {
     const draft = await aiGenerate({
+      userId: user.id,
       model: AI_MODEL_CHAT,
       maxOutputTokens: 450,
       temperature: 0.6,

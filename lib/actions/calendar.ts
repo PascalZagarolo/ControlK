@@ -8,7 +8,7 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { detectConflictForCandidate } from '@/lib/db/queries/calendar';
-import { aiGenerateJSON, aiGatewayConfigured, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { aiGenerateJSON, aiAvailable, AI_MODEL_FAST } from '@/lib/ai/gateway';
 import { triggerEvent } from '@/lib/realtime/pusher-server';
 import type { CalendarEventKind } from '@/lib/types';
 
@@ -235,7 +235,7 @@ export type QuickParsedEvent = {
 export async function parseQuickEvent(
   text: string
 ): Promise<Result<{ draft: QuickParsedEvent; ai: boolean }>> {
-  await requireUser();
+  const user = await requireUser();
   await requireCurrentWorkspace();
   const input = text.trim();
   if (!input) return { ok: false, error: 'Leere Eingabe.' };
@@ -248,7 +248,7 @@ export async function parseQuickEvent(
     return { title: input, kind: 'meeting', startsAtIso: d.toISOString(), durationMinutes: 60 };
   };
 
-  if (!aiGatewayConfigured()) {
+  if (!(await aiAvailable(user.id))) {
     return { ok: true, draft: fallback(), ai: false };
   }
 
@@ -262,6 +262,7 @@ export async function parseQuickEvent(
       location?: string;
       detail?: string;
     }>({
+      userId: user.id,
       model: AI_MODEL_FAST,
       maxOutputTokens: 300,
       system:

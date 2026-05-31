@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { getEffectiveAIKey } from '@/lib/ai/get-effective-key';
-import { aiGenerate, AI_MODEL_FAST, aiGatewayConfigured } from '@/lib/ai/gateway';
+import { aiGenerate, AI_MODEL_FAST } from '@/lib/ai/gateway';
 import { hashSignals, type BriefingSignals } from './briefing-signals';
 
 // Soft TTL — the narrative can re-generate even when signals are
@@ -63,8 +63,8 @@ export async function getOrGenerateBriefing(input: {
   let narrative = '';
   let isFallback = false;
 
-  if (aiGatewayConfigured()) {
-    narrative = await callAIViaGateway(signals).catch(() => '');
+  if (process.env.AI_GATEWAY_API_KEY) {
+    narrative = await callAIViaGateway(userId, signals).catch(() => '');
   } else {
     const ai = await getEffectiveAIKey(userId).catch(() => null);
     if (ai) narrative = await callAI(ai, signals).catch(() => '');
@@ -116,9 +116,10 @@ Stil:
 - Niemals erfinden — wenn ein Signal fehlt, ignoriere es.
 - Schreibe an Pascal in der Du-Form.`;
 
-async function callAIViaGateway(signals: BriefingSignals): Promise<string> {
+async function callAIViaGateway(userId: string, signals: BriefingSignals): Promise<string> {
   const userPrompt = buildUserPrompt(signals);
   const raw = await aiGenerate({
+    userId,
     model: process.env.BRIEFING_MODEL ?? AI_MODEL_FAST,
     system: SYSTEM_PROMPT,
     prompt: userPrompt,
