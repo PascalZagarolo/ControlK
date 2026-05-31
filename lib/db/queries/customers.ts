@@ -27,6 +27,27 @@ export async function listCustomers(workspaceId: string): Promise<Customer[]> {
 }
 
 /**
+ * Minimal customer list for pickers — id/name/initials only, NO relations.
+ * Use this instead of listCustomers() when the caller just needs to render a
+ * chooser; loading every customer's contacts/contracts/activity/tags just to
+ * discard them is a real cost on large workspaces.
+ */
+export async function listCustomersMinimal(
+  workspaceId: string
+): Promise<Array<{ id: string; name: string; initials: string }>> {
+  const db = getDb();
+  return db
+    .select({
+      id: s.customers.id,
+      name: s.customers.name,
+      initials: s.customers.initials,
+    })
+    .from(s.customers)
+    .where(eq(s.customers.workspaceId, workspaceId))
+    .orderBy(asc(s.customers.name));
+}
+
+/**
  * Cursor-paginated customer list. Sort: name asc, id asc tiebreaker.
  * Light shape — caller can fetch detail on click via getCustomerFullBySlug.
  */

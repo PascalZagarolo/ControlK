@@ -7,7 +7,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { listCustomers } from '@/lib/db/queries/customers';
+import { listCustomersMinimal } from '@/lib/db/queries/customers';
 import type { CustomerStatus } from '@/lib/types';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -234,12 +234,29 @@ export async function setCustomerTags(input: {
   if (!row) return { ok: false, error: 'Kunde nicht gefunden.' };
   await db.delete(s.customersToTags).where(eq(s.customersToTags.customerId, input.customerId));
   if (input.tagIds.length) {
-    await db.insert(s.customersToTags).values(
-      input.tagIds.map((tid) => ({ customerId: input.customerId, tagId: tid }))
-    );
+    // Tenancy: only assign tags that belong to THIS workspace. The FK alone
+    // would accept a tag id from another workspace; this filter prevents
+    // cross-workspace tag linkage.
+    const validTagIds = await workspaceTagIds(ws.id, input.tagIds);
+    if (validTagIds.length) {
+      await db.insert(s.customersToTags).values(
+        validTagIds.map((tid) => ({ customerId: input.customerId, tagId: tid }))
+      );
+    }
   }
   paths(row.slug);
   return { ok: true };
+}
+
+/** Filters a tag-id list down to those owned by the given workspace. */
+async function workspaceTagIds(workspaceId: string, tagIds: string[]): Promise<string[]> {
+  if (tagIds.length === 0) return [];
+  const db = getDb();
+  const rows = await db
+    .select({ id: s.customerTags.id })
+    .from(s.customerTags)
+    .where(and(eq(s.customerTags.workspaceId, workspaceId), inArray(s.customerTags.id, tagIds)));
+  return rows.map((r) => r.id);
 }
 
 // ─── Bulk Actions ──────────────────────────────────────────
@@ -272,10 +289,14 @@ export async function bulkUpdateCustomers(input: {
     await db.update(s.customers).set(update).where(inArray(s.customers.id, validIds));
   }
   if (input.addTagIds?.length) {
-    const pairs = validIds.flatMap((cid) =>
-      input.addTagIds!.map((tid) => ({ customerId: cid, tagId: tid }))
-    );
-    await db.insert(s.customersToTags).values(pairs).onConflictDoNothing();
+    // Tenancy: restrict to tags owned by this workspace before linking.
+    const validTagIds = await workspaceTagIds(ws.id, input.addTagIds);
+    if (validTagIds.length) {
+      const pairs = validIds.flatMap((cid) =>
+        validTagIds.map((tid) => ({ customerId: cid, tagId: tid }))
+      );
+      await db.insert(s.customersToTags).values(pairs).onConflictDoNothing();
+    }
   }
   if (input.removeTagIds?.length) {
     await db
@@ -397,8 +418,9 @@ export async function listCustomersForLink(): Promise<
 > {
   await requireUser();
   const ws = await requireCurrentWorkspace();
-  const rows = await listCustomers(ws.id);
-  return rows.map((c) => ({ id: c.id, name: c.name, initials: c.initials }));
+  // Minimal projection — the picker only needs id/name/initials, not the full
+  // customer graph (contacts/contracts/activity/tags).
+  return listCustomersMinimal(ws.id);
 }
 
 export async function linkSenderToCustomer(input: {

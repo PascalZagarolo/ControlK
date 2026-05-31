@@ -76,14 +76,16 @@ export async function buildFoyerData(input: {
         syncedAt: null,
       })),
       // Morgen-Plan signals: triaged mail awaiting + firm commitments owed.
-      getAwaitingSplit(input.workspaceId, input.userId).catch(() => ({
-        onYou: [] as never[],
-        onThem: [] as never[],
-      })),
-      getCommitmentCounts(input.workspaceId, input.userId).catch(() => ({
-        open: 0,
-        overdue: 0,
-      })),
+      // Fallbacks keep the foyer rendering, but we log so a silently-failing
+      // query on the most-hit page still surfaces in the error budget.
+      getAwaitingSplit(input.workspaceId, input.userId).catch((e) => {
+        console.warn('[build-foyer-data] getAwaitingSplit failed:', e);
+        return { onYou: [] as never[], onThem: [] as never[] };
+      }),
+      getCommitmentCounts(input.workspaceId, input.userId).catch((e) => {
+        console.warn('[build-foyer-data] getCommitmentCounts failed:', e);
+        return { open: 0, overdue: 0 };
+      }),
     ]);
 
   // ─── Events ─────────────────────────────────────────────────
