@@ -12,7 +12,6 @@ import {
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import { listOpenCommitments } from '@/lib/db/queries/commitments';
 import { getChurnAlerts } from '@/lib/db/queries/churn';
-import { getSenderReputations } from '@/lib/db/queries/sender-reputation';
 import { InboxOverviewClient } from './inbox-overview-client';
 
 export const dynamic = 'force-dynamic';
@@ -109,13 +108,10 @@ export default async function Page({
     getInboxCounts(ws.id, user.id).catch(() => null),
   ]);
 
-  const [commitments, churnAlerts, senderReputations] = await Promise.all([
+  const [commitments, churnAlerts] = await Promise.all([
     listOpenCommitments(ws.id, user.id).catch(() => []),
     effectiveMode === 'list'
       ? getChurnAlerts(ws.id).catch(() => [])
-      : Promise.resolve([]),
-    effectiveMode === 'list'
-      ? getSenderReputations(ws.id).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -135,7 +131,6 @@ export default async function Page({
       range={range}
       commitments={commitments}
       churnAlerts={churnAlerts}
-      senderReputations={senderReputations}
     />
   );
 }

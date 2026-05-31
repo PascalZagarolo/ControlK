@@ -7,10 +7,8 @@ import { InboxCockpit } from '@/components/inbox/inbox-cockpit';
 import { InboxRangeDigest } from '@/components/inbox/inbox-range-digest';
 import { CommitmentsPanel } from '@/components/inbox/commitments-panel';
 import { ChurnPanel } from '@/components/inbox/churn-panel';
-import { SenderReputationPanel } from '@/components/inbox/sender-reputation-panel';
 import type { OpenCommitment } from '@/lib/db/queries/commitments';
 import type { ChurnAlert } from '@/lib/db/queries/churn';
-import type { SenderReputation } from '@/lib/db/queries/sender-reputation';
 import type {
   AwaitingRow,
   AwaitingSplit,
@@ -60,7 +58,6 @@ export function InboxOverviewClient({
   range = null,
   commitments = [],
   churnAlerts = [],
-  senderReputations = [],
 }: {
   mode: 'list' | 'group' | 'awaiting';
   filter: InboxFilter;
@@ -76,7 +73,6 @@ export function InboxOverviewClient({
   range?: 'today' | 'week' | null;
   commitments?: OpenCommitment[];
   churnAlerts?: ChurnAlert[];
-  senderReputations?: SenderReputation[];
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -151,10 +147,6 @@ export function InboxOverviewClient({
       {mode === 'list' && gmailConnected && <CommitmentsPanel commitments={commitments} />}
 
       {mode === 'list' && gmailConnected && <ChurnPanel alerts={churnAlerts} />}
-
-      {mode === 'list' && gmailConnected && (
-        <SenderReputationPanel senders={senderReputations} />
-      )}
 
       {/* Module header */}
       <header className="flex flex-col gap-6 pb-6">

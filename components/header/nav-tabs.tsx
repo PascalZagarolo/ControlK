@@ -20,7 +20,6 @@ type Tab = {
 const PRIMARY: Tab[] = [
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
-  { label: 'Notizen', href: '/notes' },
   // Channels only make sense once there's more than one person.
   { label: 'Channels', href: '/channels', scopes: ['business'] },
   { label: 'Kalender', href: '/kalender' },
@@ -30,6 +29,9 @@ const PRIMARY: Tab[] = [
 // Contacts are useful for everyone (private: people you track; business:
 // CRM-light); the rental/ops trio is business-only.
 const MORE: Tab[] = [
+  // Notizen demoted from a primary pillar (Schritt 2): notes are a light
+  // capture surface, not a top-level destination. Still reachable here.
+  { label: 'Notizen', href: '/notes' },
   // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },
   // uRent-specific modules — only when the Vermietungs-Pack is enabled.
