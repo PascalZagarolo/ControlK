@@ -1718,6 +1718,10 @@ export const notes = pgTable(
     scope: noteScopeEnum('scope').notNull().default('workspace'),
     shareToken: varchar('share_token', { length: 64 }),
     document: jsonb('document').notNull().default([]),
+    // Plain-text flattening of `document`, maintained on every save. Backs the
+    // full-text search index (GIN tsvector over title + search_text). See
+    // migration 0044 + lib/notes/flatten.ts.
+    searchText: text('search_text'),
     isTemplate: boolean('is_template').notNull().default(false),
     templateKey: text('template_key'),
     position: numeric('position', { precision: 20, scale: 10 }).notNull().default('0'),

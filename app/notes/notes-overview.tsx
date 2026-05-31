@@ -6,6 +6,7 @@ import {
   NoteTemplatesGallery,
   type NoteTemplateMeta,
 } from '@/components/notes/note-templates-gallery';
+import { NoteSearch } from '@/components/notes/note-search';
 
 // Right pane click target — wrapping the preview in a Link means the
 // whole card is clickable to open the editor.
@@ -73,6 +74,7 @@ export function NotesOverview({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <NoteSearch />
           <NoteTemplatesGallery templates={templates} />
           <NewNoteButton />
         </div>

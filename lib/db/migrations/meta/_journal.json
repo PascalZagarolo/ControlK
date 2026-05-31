@@ -309,6 +309,13 @@
       "when": 1781550000000,
       "tag": "0043_calendar_all_day",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1781600000000,
+      "tag": "0044_notes_fulltext",
+      "breakpoints": true
     }
   ]
 }

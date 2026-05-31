@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, asc, desc, eq, isNull, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import type { Note, NoteOverviewItem, NoteTreeItem } from '@/lib/types';
@@ -14,6 +14,49 @@ import type { Note, NoteOverviewItem, NoteTreeItem } from '@/lib/types';
  */
 function notesVisibilityClause(userId: string) {
   return or(ne(s.notes.scope, 'private'), eq(s.notes.createdById, userId))!;
+}
+
+export type NoteSearchHit = { id: string; title: string; icon: string | null; snippet: string };
+
+/**
+ * Full-text note search over title + flattened content (notes.search_text),
+ * German tsvector + GIN index (migration 0044). Visibility-filtered (private
+ * notes only for their creator), ranked, with a highlighted snippet.
+ */
+export async function searchNotes(
+  workspaceId: string,
+  userId: string,
+  query: string
+): Promise<NoteSearchHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const db = getDb();
+  const tsv = sql`to_tsvector('german', coalesce(${s.notes.title}, '') || ' ' || coalesce(${s.notes.searchText}, ''))`;
+  const tsq = sql`plainto_tsquery('german', ${q})`;
+  const rows = await db
+    .select({
+      id: s.notes.id,
+      title: s.notes.title,
+      icon: s.notes.icon,
+      snippet: sql<string>`ts_headline('german', coalesce(${s.notes.searchText}, ''), ${tsq}, 'MaxFragments=1, MaxWords=18, MinWords=5, StartSel=«, StopSel=»')`,
+    })
+    .from(s.notes)
+    .where(
+      and(
+        eq(s.notes.workspaceId, workspaceId),
+        isNull(s.notes.archivedAt),
+        notesVisibilityClause(userId),
+        sql`${tsv} @@ ${tsq}`
+      )
+    )
+    .orderBy(sql`ts_rank(${tsv}, ${tsq}) DESC`)
+    .limit(12);
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    icon: r.icon ?? null,
+    snippet: (r.snippet ?? '').trim(),
+  }));
 }
 
 // Walks a BlockNote document and concatenates inline text. Stops once we

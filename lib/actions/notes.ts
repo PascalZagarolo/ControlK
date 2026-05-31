@@ -8,7 +8,16 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { extractMentions } from '@/lib/notes/extract-mentions';
+import { noteSearchText } from '@/lib/notes/flatten';
+import { searchNotes, type NoteSearchHit } from '@/lib/db/queries/notes';
 import type { NoteScope } from '@/lib/types';
+
+/** Full-text search across the workspace's notes (title + content). */
+export async function searchNotesContent(query: string): Promise<NoteSearchHit[]> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  return searchNotes(ws.id, user.id, query);
+}
 
 const REVISION_GAP_MS = 5 * 60 * 1000; // snapshot at most every 5 min
 
@@ -68,6 +77,7 @@ export async function createNote(input: {
       icon: input.icon || null,
       scope: input.scope ?? 'workspace',
       document: (input.document as any) ?? [],
+      searchText: noteSearchText(input.document ?? []),
       isTemplate: input.isTemplate ?? false,
       templateKey: input.templateKey || null,
       position: String(position) as any,
@@ -165,7 +175,7 @@ export async function saveNoteDocument(id: string, document: unknown): Promise<R
 
   await db
     .update(s.notes)
-    .set({ document: document as any, updatedAt: new Date() })
+    .set({ document: document as any, searchText: noteSearchText(document), updatedAt: new Date() })
     .where(and(eq(s.notes.workspaceId, ws.id), eq(s.notes.id, id)));
 
   // Sync note_mentions — diff against existing rows. Cheap full-replace is
@@ -381,6 +391,7 @@ export async function restoreNoteRevision(
     .set({
       title: rev.title,
       document: rev.document as any,
+      searchText: noteSearchText(rev.document),
       updatedAt: new Date(),
     })
     .where(eq(s.notes.id, noteId));
@@ -426,6 +437,7 @@ export async function duplicateNote(id: string): Promise<Result<{ id: string }>>
       icon: src.icon,
       scope: 'workspace',
       document: src.document as any,
+      searchText: noteSearchText(src.document),
       isTemplate: false,
       templateKey: null,
       position: String(position) as any,
