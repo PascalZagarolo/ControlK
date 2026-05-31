@@ -78,6 +78,11 @@ export async function listOpenCommitments(
 }
 
 /** Count of open commitments + how many are overdue (for the cockpit tile). */
+/**
+ * Counts for the morning plan. Only HIGH-confidence commitments count as real
+ * obligations — tentative ("bitte bestätigen") ones are not asserted as facts,
+ * matching the Promise Tracker UI and the trust model from Schritt 4a.
+ */
 export async function getCommitmentCounts(
   workspaceId: string,
   userId: string
@@ -93,7 +98,8 @@ export async function getCommitmentCounts(
       and(
         eq(s.inboxCommitments.workspaceId, workspaceId),
         eq(s.inboxCommitments.userId, userId),
-        eq(s.inboxCommitments.status, 'open')
+        eq(s.inboxCommitments.status, 'open'),
+        eq(s.inboxCommitments.confidence, 'high')
       )
     );
   return { open: Number(row?.open ?? 0), overdue: Number(row?.overdue ?? 0) };

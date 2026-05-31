@@ -478,6 +478,10 @@ export function FoyerClient(props: FoyerData) {
                 onNavigate={enterDoorway}
                 inboxHasItems={props.unread > 0 || props.mentions > 0 || !!props.latestMessage}
                 channelsActivity={props.channelsActivity ?? null}
+                awaitingOnYou={props.awaitingOnYou ?? 0}
+                awaitingOnThem={props.awaitingOnThem ?? 0}
+                commitmentsOpen={props.commitmentsOpen ?? 0}
+                commitmentsOverdue={props.commitmentsOverdue ?? 0}
               />
             </div>
 
@@ -757,6 +761,10 @@ function DailyBriefing({
   onNavigate,
   inboxHasItems,
   channelsActivity,
+  awaitingOnYou,
+  awaitingOnThem,
+  commitmentsOpen,
+  commitmentsOverdue,
 }: {
   events: FoyerEvent[];
   dueToday: number;
@@ -769,6 +777,11 @@ function DailyBriefing({
   inboxHasItems: boolean;
   /** Channels summary for the third row — null in personal workspaces. */
   channelsActivity: FoyerData['channelsActivity'];
+  /** Morgen-Plan: triaged awaiting counts + firm commitments owed. */
+  awaitingOnYou: number;
+  awaitingOnThem: number;
+  commitmentsOpen: number;
+  commitmentsOverdue: number;
 }) {
   const isEvening = mood === 'evening' || mood === 'night';
 
@@ -808,7 +821,10 @@ function DailyBriefing({
   // personal workspaces channelsActivity is null → allEmpty falls back
   // to the Termine + Todos check, matching the pre-channels behaviour.
   const channelsEmpty = !channelsActivity || channelsActivity.totalUnread === 0;
-  const allEmpty = termineEmpty && todosEmpty && channelsEmpty;
+  const awaitingEmpty = awaitingOnYou === 0 && awaitingOnThem === 0;
+  const commitmentsEmpty = commitmentsOpen === 0;
+  const allEmpty =
+    termineEmpty && todosEmpty && channelsEmpty && awaitingEmpty && commitmentsEmpty;
   if (allEmpty) {
     // Two flavors of empty:
     //  - inbox also empty → italic, gentle: a true rest moment.
@@ -872,8 +888,55 @@ function DailyBriefing({
       })()
     : null;
 
+  // Wartet — the triaged "needs a reply" wedge. Most actionable, so it sits
+  // right under Termine. Only rendered when something is actually waiting.
+  const awaitingRow: BriefingRow | null = awaitingEmpty
+    ? null
+    : {
+        label: 'Wartet',
+        content:
+          awaitingOnYou > 0 ? (
+            <>
+              <Num>{awaitingOnYou}</Num> auf dich
+              {awaitingOnThem > 0 && (
+                <>
+                  {' · '}
+                  <Num>{awaitingOnThem}</Num> du wartest
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <Num>{awaitingOnThem}</Num> du wartest auf Antwort
+            </>
+          ),
+        empty: false,
+        href: '/inbox?mode=awaiting',
+      };
+
+  // Zusagen — firm (high-confidence) promises you owe. Overdue ones highlighted.
+  const commitmentsRow: BriefingRow | null = commitmentsEmpty
+    ? null
+    : {
+        label: 'Zusagen',
+        content:
+          commitmentsOverdue > 0 ? (
+            <>
+              <Num>{commitmentsOpen}</Num> offen · <Num>{commitmentsOverdue}</Num> überfällig
+            </>
+          ) : (
+            <>
+              <Num>{commitmentsOpen}</Num> offen
+            </>
+          ),
+        empty: false,
+        href: '/inbox',
+      };
+
   const rows: BriefingRow[] = [
     { label: 'Termine', content: termineContent, empty: termineEmpty, href: '/kalender' },
+    ...(awaitingRow ? [awaitingRow] : []),
+    ...(commitmentsRow ? [commitmentsRow] : []),
     ...(channelsRow ? [channelsRow] : []),
     { label: 'Todos', content: todosContent, empty: todosEmpty, href: '/todos' },
   ];

@@ -465,7 +465,7 @@ export type InboxGroup = {
 export async function groupInboxBySender(
   workspaceId: string,
   userId: string,
-  opts: { filter?: 'unread' | 'all'; max?: number } = {}
+  opts: { filter?: 'unread' | 'all'; max?: number; customerOnly?: boolean } = {}
 ): Promise<InboxGroup[]> {
   const db = getDb();
   const filter = opts.filter ?? 'all';
@@ -595,7 +595,7 @@ export async function groupInboxBySender(
   }
 
   // 4. Compose groups.
-  return aggregates.map<InboxGroup>((agg) => {
+  const composed = aggregates.map<InboxGroup>((agg) => {
     const emailKey = (agg.senderEmail ?? '').toLowerCase();
     const match = emailKey ? byEmail.get(emailKey) : undefined;
     const items = bucketedItems.get(agg.senderEmail ?? '__nokey__') ?? [];
@@ -625,4 +625,10 @@ export async function groupInboxBySender(
       items,
     };
   });
+
+  // "Von Kunden" view: keep only groups that resolved to a known customer.
+  // Note: the maxGroups cap is applied to aggregates BEFORE this filter, so a
+  // workspace with many non-customer senders may surface few customer groups —
+  // acceptable for V1; a customer-first aggregate query is the later refinement.
+  return opts.customerOnly ? composed.filter((g) => g.customer != null) : composed;
 }

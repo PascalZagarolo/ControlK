@@ -7,6 +7,8 @@ import { listChannels } from '@/lib/db/queries/channels';
 import { listTodos } from '@/lib/db/queries/todos';
 import { listNotifications } from '@/lib/db/queries/notifications';
 import { listFoyerInboxCards, type FoyerInboxCard } from '@/lib/db/queries/inbox';
+import { getAwaitingSplit } from '@/lib/db/queries/inbox-overview';
+import { getCommitmentCounts } from '@/lib/db/queries/commitments';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import { collectBriefingSignals } from '@/lib/foyer/briefing-signals';
 import { getOrGenerateBriefing } from '@/lib/foyer/briefing-ai';
@@ -45,8 +47,18 @@ export async function buildFoyerData(input: {
   const startOfWeekFromToday = new Date(startOfToday.getTime() + 7 * DAY_MS);
 
   // Parallelize the safe queries
-  const [eventRows, channels, todos, notifications, latestMessage, recentNote, inboxCards, gmail] =
-    await Promise.all([
+  const [
+    eventRows,
+    channels,
+    todos,
+    notifications,
+    latestMessage,
+    recentNote,
+    inboxCards,
+    gmail,
+    awaitingSplit,
+    commitmentCounts,
+  ] = await Promise.all([
       listCalendarEvents(input.workspaceId, startOfToday, startOfTomorrow).catch(
         () => [] as Awaited<ReturnType<typeof listCalendarEvents>>
       ),
@@ -62,6 +74,15 @@ export async function buildFoyerData(input: {
       fetchGmailConnectionState(input.userId).catch(() => ({
         connected: false,
         syncedAt: null,
+      })),
+      // Morgen-Plan signals: triaged mail awaiting + firm commitments owed.
+      getAwaitingSplit(input.workspaceId, input.userId).catch(() => ({
+        onYou: [] as never[],
+        onThem: [] as never[],
+      })),
+      getCommitmentCounts(input.workspaceId, input.userId).catch(() => ({
+        open: 0,
+        overdue: 0,
       })),
     ]);
 
@@ -200,6 +221,10 @@ export async function buildFoyerData(input: {
     dueToday,
     dueWeek,
     dueTomorrow,
+    awaitingOnYou: awaitingSplit.onYou.length,
+    awaitingOnThem: awaitingSplit.onThem.length,
+    commitmentsOpen: commitmentCounts.open,
+    commitmentsOverdue: commitmentCounts.overdue,
     jetztSuggestions,
     inboxCards: mergedInboxCards,
     gmail,

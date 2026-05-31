@@ -2,11 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
+import { listCustomers } from '@/lib/db/queries/customers';
 import type { CustomerStatus } from '@/lib/types';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -381,5 +382,64 @@ export async function postContractIntoChannel(input: {
     body,
   });
   revalidatePath(`/channels/${ch.slug}`);
+  return { ok: true };
+}
+
+// ── Manual customer tagging (Schritt 4b) ────────────────────────
+// Link an inbox sender to a customer by adding their email as a contact.
+// Deliberately MANUAL — we never auto-guess who is a customer. Once linked,
+// the sender resolves as that customer everywhere (Von-Kunden view, churn,
+// commitments) via the lower(email) join used across the inbox queries.
+
+/** Lightweight customer list for the "mit Kunde verknüpfen" picker. */
+export async function listCustomersForLink(): Promise<
+  Array<{ id: string; name: string; initials: string }>
+> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const rows = await listCustomers(ws.id);
+  return rows.map((c) => ({ id: c.id, name: c.name, initials: c.initials }));
+}
+
+export async function linkSenderToCustomer(input: {
+  customerId: string;
+  email: string;
+  name?: string | null;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+
+  const email = input.email.trim().toLowerCase();
+  if (!email || !email.includes('@')) return { ok: false, error: 'Ungültige E-Mail.' };
+
+  // Ownership: the customer must belong to this workspace.
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kunde nicht gefunden.' };
+
+  // Dedup in code — customer_contacts has no (customerId,email) unique index.
+  const existing = await db
+    .select({ id: s.customerContacts.id })
+    .from(s.customerContacts)
+    .where(
+      and(
+        eq(s.customerContacts.customerId, input.customerId),
+        sql`lower(${s.customerContacts.email}) = ${email}`
+      )
+    )
+    .limit(1);
+
+  if (existing.length === 0) {
+    await db.insert(s.customerContacts).values({
+      customerId: input.customerId,
+      // name is NOT NULL — fall back to the local-part of the email.
+      name: input.name?.trim() || email.split('@')[0],
+      email,
+    });
+  }
+
+  // Surfaces in the inbox views, foyer commitments and churn — refresh broadly.
+  revalidatePath('/inbox');
+  paths(customer.slug);
   return { ok: true };
 }

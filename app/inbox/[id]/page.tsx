@@ -89,6 +89,7 @@ export default async function Page({
             preview: item.preview,
           }}
           body={body}
+          alreadyCustomer={context.customer != null}
           threadStrip={
             threadRows.length > 1 ? (
               <ThreadStrip rows={threadRows} threadId={item.sourceThreadId ?? null} />

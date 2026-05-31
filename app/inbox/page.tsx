@@ -57,9 +57,10 @@ function parseFilter(raw: string | undefined): InboxFilter {
   return 'unread';
 }
 
-function parseMode(raw: string | undefined): 'list' | 'group' | 'awaiting' {
+function parseMode(raw: string | undefined): 'list' | 'group' | 'awaiting' | 'von_kunden' {
   if (raw === 'group') return 'group';
   if (raw === 'awaiting') return 'awaiting';
+  if (raw === 'von_kunden') return 'von_kunden';
   return 'list';
 }
 
@@ -93,9 +94,10 @@ export default async function Page({
     effectiveMode === 'list'
       ? listInboxItemsPaginated(ws.id, user.id, { filter, page, category, topic, range })
       : Promise.resolve(null),
-    effectiveMode === 'group'
+    effectiveMode === 'group' || effectiveMode === 'von_kunden'
       ? groupInboxBySender(ws.id, user.id, {
           filter: filter === 'unread' ? 'unread' : 'all',
+          customerOnly: effectiveMode === 'von_kunden',
         })
       : Promise.resolve(null),
     // Always load the awaiting split — powers both the "awaiting" mode and

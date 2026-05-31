@@ -11,6 +11,7 @@ import {
 } from '@/lib/actions/inbox-actions';
 import { toast } from '@/lib/stores/toast-store';
 import { InboxAiPanel } from '@/components/inbox/inbox-ai-panel';
+import { LinkCustomerButton } from '@/components/inbox/link-customer-button';
 import type { GmailFullBody } from '@/lib/google/gmail';
 
 type ItemSummary = {
@@ -29,11 +30,15 @@ export function InboxDetailClient({
   item,
   body,
   threadStrip,
+  alreadyCustomer = false,
 }: {
   item: ItemSummary;
   body: GmailFullBody | null;
   /** Pre-rendered server component (or null when thread has only this message). */
   threadStrip?: React.ReactNode;
+  /** True when this sender already resolves to a customer — hides the
+   *  manual "mit Kunde verknüpfen" action (Schritt 4b). */
+  alreadyCustomer?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -125,6 +130,12 @@ export function InboxDetailClient({
               In Gmail
               <span aria-hidden className="text-[10px]">↗</span>
             </a>
+          )}
+
+          {/* Manual customer tagging (Schritt 4b) — only when this sender
+              isn't already a known customer and we have an address to link. */}
+          {item.senderEmail && !alreadyCustomer && (
+            <LinkCustomerButton senderEmail={item.senderEmail} senderName={item.senderName} />
           )}
 
           {snoozeOpen && (

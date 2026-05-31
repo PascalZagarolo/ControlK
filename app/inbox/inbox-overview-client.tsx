@@ -61,7 +61,7 @@ export function InboxOverviewClient({
   commitments = [],
   churnAlerts = [],
 }: {
-  mode: 'list' | 'group' | 'awaiting';
+  mode: 'list' | 'group' | 'awaiting' | 'von_kunden';
   filter: InboxFilter;
   category: InboxCategoryKey | null;
   topic: string | null;
@@ -204,7 +204,9 @@ export function InboxOverviewClient({
 
       {/* Content */}
       {mode === 'list' && pageData && <ListView page={pageData} setQuery={setQuery} />}
-      {mode === 'group' && groups && <GroupedView groups={groups} />}
+      {(mode === 'group' || mode === 'von_kunden') && groups && (
+        <GroupedView groups={groups} customerOnly={mode === 'von_kunden'} />
+      )}
       {mode === 'awaiting' && awaiting && <AwaitingView split={awaiting} />}
       </div>
     </div>
@@ -375,17 +377,18 @@ function ViewToggle({
   mode,
   onChange,
 }: {
-  mode: 'list' | 'group' | 'awaiting';
-  onChange: (next: 'list' | 'group' | 'awaiting') => void;
+  mode: 'list' | 'group' | 'awaiting' | 'von_kunden';
+  onChange: (next: 'list' | 'group' | 'awaiting' | 'von_kunden') => void;
 }) {
   const labels = {
     list: 'Chronologisch',
     group: 'Nach Kunde',
+    von_kunden: 'Von Kunden',
     awaiting: 'Wartet',
   } as const;
   return (
     <div className="flex items-center gap-0.5 rounded-full border border-white/[0.06] bg-white/[0.02] p-0.5">
-      {(['list', 'group', 'awaiting'] as const).map((m) => (
+      {(['list', 'group', 'von_kunden', 'awaiting'] as const).map((m) => (
         <button
           key={m}
           type="button"
@@ -576,8 +579,26 @@ function PageBtn({
 
 // ── Group mode ───────────────────────────────────────────────────
 
-function GroupedView({ groups }: { groups: InboxGroup[] }) {
+function GroupedView({
+  groups,
+  customerOnly = false,
+}: {
+  groups: InboxGroup[];
+  customerOnly?: boolean;
+}) {
   if (groups.length === 0) {
+    if (customerOnly) {
+      return (
+        <div className="mt-12 text-center text-[13px] text-[#A1A1AA]">
+          Keine Mails von bekannten Kunden.
+          <br />
+          <span className="text-[12px] text-[#52525B]">
+            Verknüpfe Absender mit Kunden (in einer Mail → „Mit Kunde verknüpfen"),
+            um sie hier zu sammeln.
+          </span>
+        </div>
+      );
+    }
     return <EmptyState filter="unread" />;
   }
   return (
