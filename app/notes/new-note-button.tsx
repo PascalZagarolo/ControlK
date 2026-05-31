@@ -1,9 +1,27 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useRef, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createNote } from '@/lib/actions/notes';
+import { markFreshNote } from '@/lib/notes/optimistic-notes';
 import { toast } from '@/lib/stores/toast-store';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The insert runs in the background; a transient failure shouldn't strand the
+// note. Retry a few times before giving up.
+async function createNoteWithRetry(id: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await createNote({ id, title: '' });
+      if (res.ok) return true;
+    } catch {
+      // network/transient — fall through to retry
+    }
+    await sleep(200 * (attempt + 1));
+  }
+  return false;
+}
 
 /**
  * Inline trigger that creates an empty note and navigates straight into
@@ -19,22 +37,38 @@ export function NewNoteButton({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // Synchronous guard: `pending` from useTransition updates asynchronously, so
+  // a fast double-click could otherwise mint two ids and create two notes.
+  const creating = useRef(false);
 
   const onClick = () => {
-    if (pending) return;
+    if (creating.current) return;
+    creating.current = true;
     // Optimistic: mint the id on the client and navigate into the editor
     // immediately. The insert runs in the background against that same id, so
     // the page render and the DB write overlap instead of stacking up.
     const id = crypto.randomUUID();
+    // Tell the destination page this id is brand new → it opens the editor
+    // instantly with empty defaults instead of waiting on a server render.
+    markFreshNote(id);
     start(() => {
       router.push(`/notes/${id}`);
     });
-    createNote({ id, title: '' }).then((res) => {
-      if (!res.ok) {
-        toast(res.error || 'Notiz konnte nicht angelegt werden.', 'danger');
-        router.push('/notes');
-      }
-    });
+    createNoteWithRetry(id)
+      .then((ok) => {
+        if (!ok) {
+          // Don't redirect away — the user may have already typed, and that
+          // text lives in the editor + IndexedDB. Yanking them to /notes would
+          // orphan it. Keep them in place with an honest message instead.
+          toast(
+            'Notiz konnte nicht gespeichert werden — dein Text bleibt im Editor. Bitte später erneut versuchen oder Inhalt kopieren.',
+            'danger'
+          );
+        }
+      })
+      .finally(() => {
+        creating.current = false;
+      });
   };
 
   const baseClass =
