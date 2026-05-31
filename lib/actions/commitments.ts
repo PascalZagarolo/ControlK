@@ -6,7 +6,7 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
-import { aiAvailable, aiGenerateJSON, AI_MODEL_FAST } from '@/lib/ai/gateway';
+import { aiAvailable, aiGenerateJSON, isTransientAIError, AI_MODEL_FAST } from '@/lib/ai/gateway';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listUnscannedSentItems } from '@/lib/db/queries/commitments';
@@ -15,6 +15,10 @@ import { createTodo } from '@/lib/actions/todos';
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
 const SCAN_BATCH = 12;
+// Spacing between per-item AI calls — smooths the burst so we glide under
+// the provider's rate limit instead of slamming into it.
+const SCAN_THROTTLE_MS = 250;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Session-free core: scans recently-sent mails (not yet processed) for
@@ -37,6 +41,7 @@ export async function scanCommitments(
   const ws = { id: workspaceId };
   const user = { id: userId };
   let found = 0;
+  let processed = 0;
   for (const it of items) {
     let bodyText = '';
     let to = it.recipientEmail;
@@ -53,8 +58,9 @@ export async function scanCommitments(
     }
 
     if (bodyText.trim()) {
+      let parsed: { commitments?: { promise?: string; dueIso?: string | null }[] } | null;
       try {
-        const parsed = await aiGenerateJSON<{
+        parsed = await aiGenerateJSON<{
           commitments?: { promise?: string; dueIso?: string | null }[];
         }>({
           userId: user.id,
@@ -73,57 +79,67 @@ export async function scanCommitments(
             `Betreff: ${it.subject ?? ''}\n\n` +
             `Text:\n${bodyText.slice(0, 4000)}`,
         });
-        const commitments = (parsed?.commitments ?? [])
-          .filter((c) => c?.promise?.trim())
-          .slice(0, 5);
-
-        if (commitments.length > 0) {
-          let customerId: string | null = null;
-          if (to) {
-            const [match] = await db
-              .select({ customerId: s.customers.id })
-              .from(s.customerContacts)
-              .innerJoin(s.customers, eq(s.customers.id, s.customerContacts.customerId))
-              .where(
-                and(
-                  eq(s.customers.workspaceId, ws.id),
-                  sql`lower(${s.customerContacts.email}) = ${to.toLowerCase()}`
-                )
-              )
-              .limit(1);
-            customerId = match?.customerId ?? null;
-          }
-          await db.insert(s.inboxCommitments).values(
-            commitments.map((c) => {
-              const due = c.dueIso ? new Date(c.dueIso) : null;
-              return {
-                workspaceId: ws.id,
-                userId: user.id,
-                sourceItemId: it.id,
-                sourceThreadId: it.sourceThreadId,
-                recipientEmail: to,
-                recipientName: to ? to.split('@')[0] : null,
-                customerId,
-                promiseText: c.promise!.trim().slice(0, 400),
-                dueAt: due && !Number.isNaN(due.getTime()) ? due : null,
-                status: 'open' as const,
-              };
-            })
-          );
-          found += commitments.length;
-        }
       } catch (e) {
+        // Transient (rate-limit / timeout): leave this item UNSCANNED so a
+        // later run retries it — a 429 must never silently drop a commitment
+        // — and stop the batch to avoid hammering the limit further.
+        if (isTransientAIError(e)) break;
         console.error('[commitments] parse failed', e);
+        parsed = null;
       }
+
+      const commitments = (parsed?.commitments ?? [])
+        .filter((c) => c?.promise?.trim())
+        .slice(0, 5);
+
+      if (commitments.length > 0) {
+        let customerId: string | null = null;
+        if (to) {
+          const [match] = await db
+            .select({ customerId: s.customers.id })
+            .from(s.customerContacts)
+            .innerJoin(s.customers, eq(s.customers.id, s.customerContacts.customerId))
+            .where(
+              and(
+                eq(s.customers.workspaceId, ws.id),
+                sql`lower(${s.customerContacts.email}) = ${to.toLowerCase()}`
+              )
+            )
+            .limit(1);
+          customerId = match?.customerId ?? null;
+        }
+        await db.insert(s.inboxCommitments).values(
+          commitments.map((c) => {
+            const due = c.dueIso ? new Date(c.dueIso) : null;
+            return {
+              workspaceId: ws.id,
+              userId: user.id,
+              sourceItemId: it.id,
+              sourceThreadId: it.sourceThreadId,
+              recipientEmail: to,
+              recipientName: to ? to.split('@')[0] : null,
+              customerId,
+              promiseText: c.promise!.trim().slice(0, 400),
+              dueAt: due && !Number.isNaN(due.getTime()) ? due : null,
+              status: 'open' as const,
+            };
+          })
+        );
+        found += commitments.length;
+      }
+
+      // Gentle throttle between AI calls to stay under burst limits.
+      await sleep(SCAN_THROTTLE_MS);
     }
 
     await db
       .update(s.inboxItems)
       .set({ commitmentsScannedAt: new Date() })
       .where(eq(s.inboxItems.id, it.id));
+    processed += 1;
   }
 
-  return { scanned: items.length, found };
+  return { scanned: processed, found };
 }
 
 /** On-demand wrapper for the "Gesendete Mails scannen" button. */
