@@ -3,6 +3,8 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 
+export type CommitmentConfidence = 'high' | 'medium' | 'low';
+
 export type OpenCommitment = {
   id: string;
   promiseText: string;
@@ -13,6 +15,10 @@ export type OpenCommitment = {
   customerId: string | null;
   customerName: string | null;
   sourceItemId: string | null;
+  /** Verbatim source sentence — explainability ("warum ist das hier"). */
+  sourceQuote: string | null;
+  /** Only 'high' is shown as a hard "fällig"; lower → "bitte bestätigen". */
+  confidence: CommitmentConfidence;
 };
 
 /** Open commitments (promises the user made), soonest/overdue first. */
@@ -30,6 +36,8 @@ export async function listOpenCommitments(
       recipientEmail: s.inboxCommitments.recipientEmail,
       customerId: s.inboxCommitments.customerId,
       sourceItemId: s.inboxCommitments.sourceItemId,
+      sourceQuote: s.inboxCommitments.sourceQuote,
+      confidence: s.inboxCommitments.confidence,
       customerName: s.customers.name,
     })
     .from(s.inboxCommitments)
@@ -41,8 +49,13 @@ export async function listOpenCommitments(
         eq(s.inboxCommitments.status, 'open')
       )
     )
-    // Overdue + soonest first; undated commitments last.
-    .orderBy(sql`${s.inboxCommitments.dueAt} ASC NULLS LAST`, asc(s.inboxCommitments.createdAt))
+    // High-confidence first (the hard "fällig" items lead), then overdue +
+    // soonest; undated last. Lower-confidence "bitte bestätigen" sinks below.
+    .orderBy(
+      sql`case ${s.inboxCommitments.confidence} when 'high' then 0 when 'medium' then 1 else 2 end`,
+      sql`${s.inboxCommitments.dueAt} ASC NULLS LAST`,
+      asc(s.inboxCommitments.createdAt)
+    )
     .limit(50);
 
   const now = Date.now();
@@ -58,6 +71,8 @@ export async function listOpenCommitments(
       customerId: r.customerId,
       customerName: r.customerName ?? null,
       sourceItemId: r.sourceItemId,
+      sourceQuote: r.sourceQuote ?? null,
+      confidence: (r.confidence ?? 'medium') as CommitmentConfidence,
     };
   });
 }

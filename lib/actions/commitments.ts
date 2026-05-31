@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
@@ -107,6 +107,9 @@ export async function scanCommitments(
             recipientName: to ? to.split('@')[0] : null,
             customerId,
             promiseText: c.promise,
+            // Persist explainability + threshold signal (Schritt 4a).
+            sourceQuote: c.quote || null,
+            confidence: c.confidence,
             dueAt: c.dueIso ? new Date(c.dueIso) : null,
             status: 'open' as const,
           }))
@@ -125,7 +128,84 @@ export async function scanCommitments(
     processed += 1;
   }
 
+  // After scanning, sweep for commitments the user has likely already kept.
+  await autoResolveFollowedUpCommitments(userId, workspaceId);
+
   return { scanned: processed, found, rateLimited };
+}
+
+/**
+ * Auto-mark a commitment done when the user demonstrably followed up: a LATER
+ * sent mail exists in the same thread, distinct from the promise mail itself.
+ *
+ * Deliberately conservative — the review flagged that a vague "melde mich"
+ * follow-up doesn't fulfil a promise. We accept that false-positive risk only
+ * for commitments WITHOUT a deadline OR already past their deadline (where a
+ * later send is strong evidence the thread moved on); commitments still within
+ * their due window are left alone so we never silently clear something the user
+ * is actively working toward. Stamped with autoDoneAt so it's auditable.
+ */
+export async function autoResolveFollowedUpCommitments(
+  userId: string,
+  workspaceId: string
+): Promise<number> {
+  const db = getDb();
+  const open = await db
+    .select({
+      id: s.inboxCommitments.id,
+      sourceItemId: s.inboxCommitments.sourceItemId,
+      sourceThreadId: s.inboxCommitments.sourceThreadId,
+      dueAt: s.inboxCommitments.dueAt,
+      createdAt: s.inboxCommitments.createdAt,
+    })
+    .from(s.inboxCommitments)
+    .where(
+      and(
+        eq(s.inboxCommitments.workspaceId, workspaceId),
+        eq(s.inboxCommitments.userId, userId),
+        eq(s.inboxCommitments.status, 'open')
+      )
+    );
+
+  const now = Date.now();
+  let resolved = 0;
+  for (const c of open) {
+    if (!c.sourceThreadId || !c.sourceItemId) continue;
+    // Only consider commitments that are undated or already overdue.
+    if (c.dueAt && new Date(c.dueAt).getTime() > now) continue;
+
+    // The anchor: when the promise was made (the source mail's receivedAt).
+    const [anchor] = await db
+      .select({ receivedAt: s.inboxItems.receivedAt })
+      .from(s.inboxItems)
+      .where(eq(s.inboxItems.id, c.sourceItemId))
+      .limit(1);
+    if (!anchor) continue;
+
+    const [laterSend] = await db
+      .select({ id: s.inboxItems.id })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
+          eq(s.inboxItems.direction, 'sent'),
+          eq(s.inboxItems.sourceThreadId, c.sourceThreadId),
+          ne(s.inboxItems.id, c.sourceItemId),
+          sql`${s.inboxItems.receivedAt} > ${anchor.receivedAt}`
+        )
+      )
+      .limit(1);
+
+    if (laterSend) {
+      await db
+        .update(s.inboxCommitments)
+        .set({ status: 'done', autoDoneAt: new Date() })
+        .where(eq(s.inboxCommitments.id, c.id));
+      resolved += 1;
+    }
+  }
+  return resolved;
 }
 
 /** On-demand wrapper for the "Gesendete Mails scannen" button. */
@@ -164,6 +244,29 @@ export async function resolveCommitment(id: string): Promise<Result> {
 }
 export async function dismissCommitment(id: string): Promise<Result> {
   return setStatus(id, 'dismissed');
+}
+
+/**
+ * User confirms a tentative (medium/low) commitment is a real promise →
+ * promote it to 'high' so it moves from "bitte bestätigen" into the firm
+ * "fällig" list. The manual override the confidence threshold is built around.
+ */
+export async function confirmCommitment(id: string): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  await db
+    .update(s.inboxCommitments)
+    .set({ confidence: 'high' })
+    .where(
+      and(
+        eq(s.inboxCommitments.id, id),
+        eq(s.inboxCommitments.workspaceId, ws.id),
+        eq(s.inboxCommitments.userId, user.id)
+      )
+    );
+  revalidatePath('/inbox');
+  return { ok: true };
 }
 
 /**

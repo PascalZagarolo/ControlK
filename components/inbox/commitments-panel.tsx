@@ -4,12 +4,23 @@
  * Promise Tracker surface — "Offene Zusagen". What YOU promised in your sent
  * mails, AI-extracted, with deadlines and overdue highlighting. The inverse
  * of a normal inbox: not what arrived, but what you owe.
+ *
+ * Trust-UX (Schritt 4a): only HIGH-confidence promises are asserted as hard
+ * "fällig". Lower-confidence ones are framed as "mögliche Zusage — bestätigen?"
+ * and never counted as fact. Every item can reveal its source sentence ("warum
+ * ist das hier") so the AI shows its evidence instead of just claiming.
  */
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { extractCommitments, resolveCommitment, dismissCommitment, commitmentToTodo } from '@/lib/actions/commitments';
+import {
+  extractCommitments,
+  resolveCommitment,
+  dismissCommitment,
+  commitmentToTodo,
+  confirmCommitment,
+} from '@/lib/actions/commitments';
 import { toast } from '@/lib/stores/toast-store';
 import type { OpenCommitment } from '@/lib/db/queries/commitments';
 
@@ -59,13 +70,18 @@ export function CommitmentsPanel({ commitments }: { commitments: OpenCommitment[
       router.refresh();
     });
 
+  // Split by confidence threshold: 'high' is asserted; everything else needs
+  // confirmation before it's treated as a real obligation.
+  const firm = commitments.filter((c) => c.confidence === 'high');
+  const tentative = commitments.filter((c) => c.confidence !== 'high');
+
   return (
     <section className="mb-6 rounded-[16px] border border-white/[0.06] bg-white/[0.015] shadow-panel">
       <header className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
         <div className="flex items-center gap-2">
           <span aria-hidden className="text-[13px]">🤝</span>
           <h3 className="font-mono text-[10.5px] uppercase tracking-[0.4px] text-ink-200">
-            Offene Zusagen{commitments.length > 0 ? ` · ${commitments.length}` : ''}
+            Offene Zusagen{firm.length > 0 ? ` · ${firm.length}` : ''}
           </h3>
         </div>
         <button
@@ -87,69 +103,132 @@ export function CommitmentsPanel({ commitments }: { commitments: OpenCommitment[
       ) : (
         <AnimatePresence initial={false}>
           <ul className="flex flex-col divide-y divide-white/[0.04]">
-            {commitments.map((c) => {
-              const due = dueLabel(c);
-              return (
-                <motion.li
-                  key={c.id}
-                  layout
-                  exit={{ opacity: 0, height: 0 }}
-                  className="group flex items-center gap-3 px-4 py-2.5"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] text-ink-50">{c.promiseText}</span>
-                    <span className="mt-0.5 flex items-center gap-2 text-[11.5px] text-ink-300">
-                      {c.customerId && c.customerName ? (
-                        <Link
-                          href={`/kunden/${c.customerId}`}
-                          className="truncate text-[#5ee08a] hover:underline"
-                        >
-                          {c.customerName}
-                        </Link>
-                      ) : (
-                        <span className="truncate">{c.recipientName ?? c.recipientEmail ?? '—'}</span>
-                      )}
-                      <span aria-hidden className="text-ink-300/60">·</span>
-                      <span style={{ color: due.color }}>{due.text}</span>
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        act(async () => {
-                          const r = await commitmentToTodo(c.id);
-                          toast(r.ok ? 'Als Todo angelegt' : r.error, r.ok ? 'success' : 'danger');
-                        })
-                      }
-                      className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-[#5E9EFF] disabled:opacity-50"
-                    >
-                      → Todo
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => act(() => resolveCommitment(c.id))}
-                      className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-[#5ee08a] disabled:opacity-50"
-                    >
-                      Erledigt
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => act(() => dismissCommitment(c.id))}
-                      className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-ink-50 disabled:opacity-50"
-                    >
-                      Verwerfen
-                    </button>
-                  </span>
-                </motion.li>
-              );
-            })}
+            {firm.map((c) => (
+              <CommitmentRow key={c.id} c={c} pending={pending} act={act} tentative={false} />
+            ))}
           </ul>
+
+          {tentative.length > 0 && (
+            <>
+              <div className="flex items-center gap-2 px-4 pb-1.5 pt-3">
+                <span aria-hidden className="text-[11px]">❓</span>
+                <span className="font-mono text-[9.5px] uppercase tracking-[0.4px] text-ink-300">
+                  Mögliche Zusagen · bitte bestätigen
+                </span>
+              </div>
+              <ul className="flex flex-col divide-y divide-white/[0.04]">
+                {tentative.map((c) => (
+                  <CommitmentRow key={c.id} c={c} pending={pending} act={act} tentative />
+                ))}
+              </ul>
+            </>
+          )}
         </AnimatePresence>
       )}
     </section>
+  );
+}
+
+function CommitmentRow({
+  c,
+  pending,
+  act,
+  tentative,
+}: {
+  c: OpenCommitment;
+  pending: boolean;
+  act: (fn: () => Promise<unknown>) => void;
+  tentative: boolean;
+}) {
+  const [showWhy, setShowWhy] = useState(false);
+  const due = dueLabel(c);
+
+  return (
+    <motion.li
+      layout
+      exit={{ opacity: 0, height: 0 }}
+      className="group flex flex-col gap-1 px-4 py-2.5"
+      style={tentative ? { opacity: 0.82 } : undefined}
+    >
+      <div className="flex items-center gap-3">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] text-ink-50">{c.promiseText}</span>
+          <span className="mt-0.5 flex items-center gap-2 text-[11.5px] text-ink-300">
+            {c.customerId && c.customerName ? (
+              <Link href={`/kunden/${c.customerId}`} className="truncate text-[#5ee08a] hover:underline">
+                {c.customerName}
+              </Link>
+            ) : (
+              <span className="truncate">{c.recipientName ?? c.recipientEmail ?? '—'}</span>
+            )}
+            {!tentative && (
+              <>
+                <span aria-hidden className="text-ink-300/60">·</span>
+                <span style={{ color: due.color }}>{due.text}</span>
+              </>
+            )}
+            {c.sourceQuote && (
+              <>
+                <span aria-hidden className="text-ink-300/60">·</span>
+                <button
+                  type="button"
+                  onClick={() => setShowWhy((v) => !v)}
+                  className="text-ink-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-ink-100"
+                >
+                  warum?
+                </button>
+              </>
+            )}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+          {tentative && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => act(() => confirmCommitment(c.id))}
+              className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#E8B86D] transition-colors hover:text-[#F0C079] disabled:opacity-50"
+            >
+              Ist Zusage
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              act(async () => {
+                const r = await commitmentToTodo(c.id);
+                toast(r.ok ? 'Als Todo angelegt' : r.error, r.ok ? 'success' : 'danger');
+              })
+            }
+            className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-[#5E9EFF] disabled:opacity-50"
+          >
+            → Todo
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => act(() => resolveCommitment(c.id))}
+            className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-[#5ee08a] disabled:opacity-50"
+          >
+            Erledigt
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => act(() => dismissCommitment(c.id))}
+            className="font-mono text-[10px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:text-ink-50 disabled:opacity-50"
+          >
+            Verwerfen
+          </button>
+        </span>
+      </div>
+
+      {showWhy && c.sourceQuote && (
+        <p className="ml-0 mt-1 border-l-2 border-white/10 pl-2.5 font-mono text-[11px] italic leading-relaxed text-ink-300">
+          „{c.sourceQuote}"
+        </p>
+      )}
+    </motion.li>
   );
 }

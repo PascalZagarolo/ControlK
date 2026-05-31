@@ -2478,6 +2478,7 @@ export const inboxItems = pgTable(
 // inverse of a normal inbox: what YOU owe, not what arrived. Linked to the
 // recipient's customer when resolvable.
 export const commitmentStatusEnum = pgEnum('commitment_status', ['open', 'done', 'dismissed']);
+export const commitmentConfidenceEnum = pgEnum('commitment_confidence', ['high', 'medium', 'low']);
 
 export const inboxCommitments = pgTable(
   'inbox_commitments',
@@ -2495,12 +2496,26 @@ export const inboxCommitments = pgTable(
     recipientName: text('recipient_name'),
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
     promiseText: text('promise_text').notNull(),
+    // Verbatim source sentence — powers explainability ("warum ist das hier").
+    sourceQuote: text('source_quote'),
+    // Extraction confidence. Only 'high' is asserted as a hard "fällig"; lower
+    // is surfaced as "mögliche Zusage — bestätigen?". Existing rows default to
+    // 'medium' (conservative — a wrong "fällig" costs more trust than a soft one).
+    confidence: commitmentConfidenceEnum('confidence').notNull().default('medium'),
     dueAt: timestamp('due_at', { withTimezone: true }),
     status: commitmentStatusEnum('status').notNull().default('open'),
+    // Set when a follow-up SENT mail in the thread auto-resolved this.
+    autoDoneAt: timestamp('auto_done_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     openIdx: index('inbox_commitments_open_idx').on(t.workspaceId, t.userId, t.status, t.dueAt),
+    confidenceIdx: index('inbox_commitments_confidence_idx').on(
+      t.workspaceId,
+      t.userId,
+      t.status,
+      t.confidence
+    ),
   })
 );
 
