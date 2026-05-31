@@ -37,6 +37,12 @@ const OVERDUE_GRACE_HOURS = 1;
 const AWAITING_LIMIT = 5;
 const TODOS_LIMIT = 5;
 
+// Triage hard-rule (Schritt 1): only genuine 1:1 mail (primary, customer)
+// counts toward the morning brief. Marketing/order-status/social/list noise
+// (promo, updates, social, shipping, forums) must not pad "auf dich wartet"
+// or the unread count — otherwise the plan reads as garbage.
+const briefingMailCategoryClause = sql`${s.inboxItems.category} in ('primary','customer')`;
+
 export async function collectBriefingSignals(input: {
   workspaceId: string;
   userId: string;
@@ -63,6 +69,7 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false),
+          briefingMailCategoryClause,
           or(
             isNull(s.inboxItems.snoozedUntil),
             sql`${s.inboxItems.snoozedUntil} <= now()`
@@ -87,6 +94,7 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxItems.direction, 'sent'),
           eq(s.inboxItems.awaitsTheirReply, true),
           eq(s.inboxItems.isArchived, false),
+          briefingMailCategoryClause,
           sql`${s.inboxItems.receivedAt} < now() - interval '3 days'`
         )
       )
@@ -116,7 +124,8 @@ export async function collectBriefingSignals(input: {
       )
       .orderBy(asc(s.todos.dueAt))
       .limit(TODOS_LIMIT),
-    // Unread inbox count — one COUNT, cheap.
+    // Unread inbox count — one COUNT, cheap. Same triage rule: only count
+    // mail that actually wants attention, not newsletters/order updates.
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(s.inboxItems)
@@ -126,7 +135,8 @@ export async function collectBriefingSignals(input: {
           eq(s.inboxItems.userId, userId),
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
-          eq(s.inboxItems.isArchived, false)
+          eq(s.inboxItems.isArchived, false),
+          briefingMailCategoryClause
         )
       ),
     db

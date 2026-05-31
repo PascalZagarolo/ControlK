@@ -325,6 +325,12 @@ export type AwaitingSplit = {
  */
 const AWAITING_GRACE_DAYS = 3;
 
+// Triage hard-rule (Schritt 1, "Chrono24-Problem"): only genuine 1:1
+// correspondence counts as "needs a reply". Marketing/order-status/social/
+// list mail (promo, updates, social, shipping, forums) is informational and
+// must never inflate the morning plan's "auf dich wartet" count.
+const awaitingCategoryClause = sql`${s.inboxItems.category} in ('primary','customer')`;
+
 export async function getAwaitingSplit(
   workspaceId: string,
   userId: string
@@ -359,6 +365,7 @@ export async function getAwaitingSplit(
           eq(s.inboxItems.direction, 'inbox'),
           eq(s.inboxItems.isRead, false),
           eq(s.inboxItems.isArchived, false),
+          awaitingCategoryClause,
           visibleClause
         )
       )
@@ -385,6 +392,7 @@ export async function getAwaitingSplit(
           eq(s.inboxItems.direction, 'sent'),
           eq(s.inboxItems.awaitsTheirReply, true),
           eq(s.inboxItems.isArchived, false),
+          awaitingCategoryClause,
           visibleClause,
           // Grace period — brand-new sends aren't overdue yet.
           sql`${s.inboxItems.receivedAt} < now() - interval '${sql.raw(String(AWAITING_GRACE_DAYS))} days'`
