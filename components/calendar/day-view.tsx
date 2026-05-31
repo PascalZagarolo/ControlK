@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { EventChip } from './event-chip';
 import { NowLine } from './now-line';
 import { gridStagger } from './_motion';
+import { updateCalendarEvent } from '@/lib/actions/calendar';
 import type { CalendarEvent } from '@/lib/types';
+
+type Resize = { id: string; startHour: number; endHour: number };
 
 const HOUR_H = 48;
 const START_H = 6;
@@ -25,6 +29,9 @@ export function DayView({
   onCreateAt?: (startIso: string, durationMinutes: number) => void;
 }) {
   const [createDrag, setCreateDrag] = useState<CreateDrag | null>(null);
+  const [resize, setResize] = useState<Resize | null>(null);
+  const router = useRouter();
+  const [, startTx] = useTransition();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const dayStart = useMemo(() => {
@@ -86,6 +93,40 @@ export function DayView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createDrag?.startHour, onCreateAt, dayStart]);
+
+  // Drag-to-resize: drag an event's bottom handle to change its end time.
+  useEffect(() => {
+    if (!resize) return;
+    const onMove = (e: MouseEvent) => {
+      const hr = hourFromY(e.clientY);
+      setResize((prev) =>
+        prev ? { ...prev, endHour: Math.max(prev.startHour + 0.25, Math.min(END_H, hr)) } : null
+      );
+    };
+    const onUp = () => {
+      setResize((cur) => {
+        if (cur) {
+          const end = new Date(dayStart);
+          const h = Math.floor(cur.endHour);
+          const m = Math.round((cur.endHour - h) * 60);
+          end.setHours(h, m, 0, 0);
+          const iso = end.toISOString();
+          startTx(async () => {
+            await updateCalendarEvent({ eventId: cur.id, patch: { endsAtIso: iso } });
+            router.refresh();
+          });
+        }
+        return null;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resize?.id, dayStart]);
 
   const hours = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
   const totalH = (END_H - START_H) * HOUR_H;
@@ -162,8 +203,10 @@ export function DayView({
             const s = new Date(e.startsAt);
             const en = new Date(e.endsAt);
             const startHour = Math.max(START_H, s.getHours() + s.getMinutes() / 60);
-            const endHour = Math.min(END_H, en.getHours() + en.getMinutes() / 60);
+            let endHour = Math.min(END_H, en.getHours() + en.getMinutes() / 60);
             if (endHour <= START_H || startHour >= END_H) return null;
+            const isInternal = (e.source ?? 'internal') === 'internal';
+            if (resize?.id === e.id) endHour = resize.endHour;
             const top = (startHour - START_H) * HOUR_H;
             const height = (endHour - startHour) * HOUR_H;
             return (
@@ -177,6 +220,11 @@ export function DayView({
                   onOpen(e.id);
                 }}
                 onMouseDown={(ev) => ev.stopPropagation()}
+                onResizeStart={
+                  isInternal
+                    ? () => setResize({ id: e.id, startHour, endHour })
+                    : undefined
+                }
               />
             );
           })}

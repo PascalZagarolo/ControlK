@@ -24,6 +24,7 @@ export function EventChip({
   leftPct,
   widthPct,
   dragged = false,
+  onResizeStart,
   ...rest
 }: {
   event: CalendarEvent;
@@ -33,6 +34,8 @@ export function EventChip({
   leftPct?: number;
   widthPct?: number;
   dragged?: boolean;
+  /** When provided, renders a bottom drag-handle to resize the duration. */
+  onResizeStart?: (e: React.MouseEvent) => void;
 } & MotionButtonProps) {
   const meta = KIND_META[event.kind];
   const h = Math.max(22, height);
@@ -120,6 +123,21 @@ export function EventChip({
               +{overflow}
             </span>
           )}
+        </span>
+      )}
+      {onResizeStart && (
+        <span
+          role="separator"
+          aria-label="Dauer anpassen"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onResizeStart(e);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-x-0 bottom-0 z-30 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover/chip:opacity-100"
+        >
+          <span className="mb-[2px] h-[2px] w-5 rounded-full bg-white/40" />
         </span>
       )}
     </motion.button>

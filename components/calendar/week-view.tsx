@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { rescheduleEvent } from '@/lib/actions/calendar';
+import { rescheduleEvent, updateCalendarEvent } from '@/lib/actions/calendar';
 import { EventChip } from './event-chip';
 import { gridStagger } from './_motion';
 import type { CalendarEvent } from '@/lib/types';
@@ -74,6 +74,8 @@ export function WeekView({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [hoverSlot, setHoverSlot] = useState<{ dow: number; hour: number } | null>(null);
   const [createDrag, setCreateDrag] = useState<CreateDrag | null>(null);
+  const [resize, setResize] = useState<{ id: string; dow: number; startHour: number; endHour: number } | null>(null);
+  const resizingRef = useRef(false);
   const [now, setNow] = useState<Date>(() => new Date());
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -192,6 +194,41 @@ export function WeekView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createDrag?.dow, createDrag?.startHour, onCreateAt, weekStart]);
+
+  // Drag-to-resize an event's end time. dow stays fixed; only the end moves.
+  useEffect(() => {
+    if (!resize) return;
+    const onMove = (e: MouseEvent) => {
+      const hr = hourFromY(e.clientY);
+      setResize((prev) =>
+        prev ? { ...prev, endHour: Math.max(prev.startHour + 0.25, Math.min(END_H, hr)) } : null
+      );
+    };
+    const onUp = () => {
+      setResize((cur) => {
+        if (cur) {
+          const end = new Date(weekStart.getTime() + cur.dow * 86_400_000);
+          const h = Math.floor(cur.endHour);
+          const m = Math.round((cur.endHour - h) * 60);
+          end.setHours(h, m, 0, 0);
+          const iso = end.toISOString();
+          start(async () => {
+            await updateCalendarEvent({ eventId: cur.id, patch: { endsAtIso: iso } });
+            router.refresh();
+          });
+        }
+        resizingRef.current = false;
+        return null;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resize?.id, weekStart]);
 
   const nowFloat = now.getHours() + now.getMinutes() / 60;
   const nowVisible = nowFloat >= START_H && nowFloat <= END_H;
@@ -325,10 +362,12 @@ export function WeekView({
                   const s = new Date(e.startsAt);
                   const en = new Date(e.endsAt);
                   const sh = s.getHours() + s.getMinutes() / 60;
-                  const eh = en.getHours() + en.getMinutes() / 60;
+                  let eh = en.getHours() + en.getMinutes() / 60;
                   if (eh <= START_H || sh >= END_H) return null;
-                  const top = (Math.max(START_H, sh) - START_H) * HOUR_H;
-                  const height = (Math.min(END_H, eh) - Math.max(START_H, sh)) * HOUR_H;
+                  const clampedStart = Math.max(START_H, sh);
+                  if (resize?.id === e.id) eh = resize.endHour;
+                  const top = (clampedStart - START_H) * HOUR_H;
+                  const height = (Math.min(END_H, eh) - clampedStart) * HOUR_H;
                   const lane = lanes.get(e.id) ?? { lane: 0, lanes: 1 };
                   const isInternal = (e.source ?? 'internal') === 'internal';
                   return (
@@ -346,8 +385,26 @@ export function WeekView({
                       }}
                       onMouseDown={(ev) => ev.stopPropagation()}
                       draggable={isInternal}
-                      onDragStart={isInternal ? () => setDraggedId(e.id) : undefined}
+                      onDragStart={
+                        isInternal
+                          ? (ev) => {
+                              if (resizingRef.current) {
+                                ev.preventDefault();
+                                return;
+                              }
+                              setDraggedId(e.id);
+                            }
+                          : undefined
+                      }
                       onDragEnd={isInternal ? () => setDraggedId(null) : undefined}
+                      onResizeStart={
+                        isInternal
+                          ? () => {
+                              resizingRef.current = true;
+                              setResize({ id: e.id, dow, startHour: clampedStart, endHour: Math.min(END_H, eh) });
+                            }
+                          : undefined
+                      }
                     />
                   );
                 })}

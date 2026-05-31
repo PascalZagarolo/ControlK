@@ -223,6 +223,37 @@ export function KalenderClient({
     setCursor(next);
   };
 
+  // Keyboard shortcuts: view switch (d/w/m/a/y), today (t), new (n), nav (←/→).
+  // Ignored while typing or when a modal/drawer/palette is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (createOpen || recurringOpen || templatesOpen || shareOpen || slotFinderOpen || drawerEvent) return;
+      switch (e.key.toLowerCase()) {
+        case 'd': setView('Tag'); break;
+        case 'w': setView('Woche'); break;
+        case 'm': setView('Monat'); break;
+        case 'a': setView('Agenda'); break;
+        case 'y': setView('Jahr'); break;
+        case 't': setCursor(new Date()); break;
+        case 'n':
+          e.preventDefault();
+          resetPrefill();
+          setCreateOpen(true);
+          break;
+        case 'arrowleft': navigate(-1); break;
+        case 'arrowright': navigate(1); break;
+        default: return;
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, cursor, createOpen, recurringOpen, templatesOpen, shareOpen, slotFinderOpen, drawerEvent]);
+
   return (
     <div className="mx-auto flex w-full max-w-[1720px] gap-6 px-4 pb-32 pt-28 md:px-6">
       <CalendarSidebar
