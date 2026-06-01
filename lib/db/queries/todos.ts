@@ -136,6 +136,11 @@ function toTodo(row: any): Todo {
     subtaskDone: subtasks.filter((t) => t.done).length,
     energy: row.energy ?? undefined,
     estimateMinutes: row.estimateMinutes ?? undefined,
+    scheduledTime: row.scheduledTime ?? undefined,
+    isFlow: row.isFlow ?? undefined,
+    flowParentId: row.flowParentId ?? undefined,
+    stepOrder: row.stepOrder ?? undefined,
+    dependsOn: row.dependsOn ?? undefined,
     context: row._context,
     blockers: row._blockers,
     forecastImpact: row._forecastImpact,
@@ -311,6 +316,9 @@ export type TodoFilter = {
   vehicleId?: string;
   channelId?: string;
   groupId?: string | 'none';
+  /** Include flow STEP todos (those with a flow_parent_id). Default false so
+   *  steps stay nested inside their flow and never clutter normal lists. */
+  includeFlowSteps?: boolean;
 };
 
 export async function listTodos(
@@ -349,6 +357,9 @@ export async function listTodos(
   else if (filter.groupId) conditions.push(eq(s.todos.groupId, filter.groupId));
   if (filter.dueBefore) conditions.push(lte(s.todos.dueAt, filter.dueBefore));
   if (filter.dueAfter) conditions.push(gte(s.todos.dueAt, filter.dueAfter));
+  // Flow steps are nested under their flow — keep them out of flat lists
+  // unless explicitly requested.
+  if (!filter.includeFlowSteps) conditions.push(isNull(s.todos.flowParentId));
 
   const rows = await db.query.todos.findMany({
     where: and(...conditions),
@@ -429,6 +440,9 @@ export async function listTodosPage(
   else if (filter.groupId) conditions.push(eq(s.todos.groupId, filter.groupId));
   if (filter.dueBefore) conditions.push(lte(s.todos.dueAt, filter.dueBefore));
   if (filter.dueAfter) conditions.push(gte(s.todos.dueAt, filter.dueAfter));
+  // Flow steps are nested under their flow — keep them out of flat lists
+  // unless explicitly requested.
+  if (!filter.includeFlowSteps) conditions.push(isNull(s.todos.flowParentId));
 
   // Cursor: (createdAtIso, id) — sort by createdAt desc, id desc as tiebreaker.
   // We use createdAt as the cursor key (not dueAt) because dueAt is nullable

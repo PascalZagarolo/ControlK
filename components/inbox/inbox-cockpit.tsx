@@ -18,6 +18,15 @@ function ageColor(d: number): string {
   return '#9c9c9d';
 }
 
+// Spells out the provenance of an awaiting row (R1 — origin in words):
+//  - "braucht Antwort" side → the sender's mail has been waiting on YOU.
+//  - "du wartest" side      → no reply from THEM since you sent.
+function whyLabel(r: AwaitingRow, waiting?: boolean): string {
+  const days = r.ageDays;
+  const since = days <= 0 ? 'heute' : `seit ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
+  return waiting ? `keine Antwort ${since}` : `wartet ${since} auf dich`;
+}
+
 export function InboxCockpit({
   onYou,
   onThem,
@@ -189,8 +198,9 @@ function MiniList({ title, rows, waiting }: { title: string; rows: AwaitingRow[]
                 <span className="block truncate text-[13px] text-ink-50">
                   {waiting ? r.awaitingRecipient ?? r.senderName : r.senderName}
                 </span>
+                {/* Explainability (R1): say WHY this is here, in words. */}
                 <span className="block truncate text-[11.5px] text-ink-300">
-                  {r.subject ?? '(kein Betreff)'}
+                  {whyLabel(r, waiting)} · {r.subject ?? '(kein Betreff)'}
                 </span>
               </span>
               <span

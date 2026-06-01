@@ -190,6 +190,14 @@ export type ParsedGmailMessage = {
    * Gmail bucket is a strong signal).
    */
   gmailCategory: 'promo' | 'social' | 'updates' | 'forums' | null;
+  // ── RFC822 signal headers for noise triage (lib/triage) ──
+  // Bulk/automated mail almost always carries one of these; a genuine
+  // 1:1 mail almost never does. Null when the header is absent.
+  listUnsubscribe: string | null;
+  listId: string | null;
+  precedence: string | null;
+  autoSubmitted: string | null;
+  returnPath: string | null;
 };
 
 export async function getMessageMetadata(
@@ -205,6 +213,15 @@ export async function getMessageMetadata(
   params.append('metadataHeaders', 'From');
   params.append('metadataHeaders', 'To');
   params.append('metadataHeaders', 'Subject');
+  // Noise-triage signal headers (Stufe 1). Still format=metadata, same
+  // scope — just a few more header lines per message. Used by
+  // classifyMessage to catch bulk/automated mail Gmail's CATEGORY_*
+  // labels miss.
+  params.append('metadataHeaders', 'List-Unsubscribe');
+  params.append('metadataHeaders', 'List-Id');
+  params.append('metadataHeaders', 'Precedence');
+  params.append('metadataHeaders', 'Auto-Submitted');
+  params.append('metadataHeaders', 'Return-Path');
   let detail: GmailMessageDetail;
   try {
     detail = await gfetch<GmailMessageDetail>(
@@ -218,6 +235,8 @@ export async function getMessageMetadata(
   }
 
   const headers = detail.payload?.headers ?? [];
+  const headerVal = (name: string): string | null =>
+    headers.find((h) => h.name.toLowerCase() === name)?.value?.trim() || null;
   const fromRaw =
     headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
   const toRaw =
@@ -249,6 +268,11 @@ export async function getMessageMetadata(
     isRead: !labelIds.includes('UNREAD'),
     direction: labelIds.includes('SENT') ? 'sent' : 'inbox',
     gmailCategory: gmailCategoryFromLabels(labelIds),
+    listUnsubscribe: headerVal('list-unsubscribe'),
+    listId: headerVal('list-id'),
+    precedence: headerVal('precedence'),
+    autoSubmitted: headerVal('auto-submitted'),
+    returnPath: headerVal('return-path'),
   };
 }
 

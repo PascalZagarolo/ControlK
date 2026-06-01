@@ -12,7 +12,7 @@ export const ENERGY_META: Record<
   light: { icon: '💡', label: 'Light', color: '#5eb6ff', description: 'Leichte Arbeit, jederzeit machbar' },
   call: { icon: '☎', label: 'Call', color: '#5ee08a', description: 'Telefonat / Video-Call' },
   admin: { icon: '📋', label: 'Admin', color: '#ffd96a', description: 'Verwaltung, Mails, Klein-Kram' },
-  quick: { icon: '⚡', label: 'Quick', color: '#ff8a8a', description: 'Unter 5 min, sofort erledigen' },
+  quick: { icon: '⚡', label: 'Quick', color: '#ff8a8a', description: 'Unter 5 min, schnell dazwischen' },
 };
 
 const ALL: TodoEnergy[] = ['deep', 'light', 'call', 'admin', 'quick'];

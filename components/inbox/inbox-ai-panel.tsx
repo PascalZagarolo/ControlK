@@ -8,7 +8,7 @@
  */
 import { useState, useTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { draftInboxReply, summarizeInboxEmail } from '@/lib/actions/inbox-ai';
+import { draftInboxReply, summarizeInboxEmail, type SuggestedAction } from '@/lib/actions/inbox-ai';
 import { createTodoFromForm } from '@/lib/actions/todos';
 import { toast } from '@/lib/stores/toast-store';
 
@@ -23,10 +23,12 @@ export function InboxAiPanel({
 }) {
   const [pending, start] = useTransition();
   const [active, setActive] = useState<'summary' | 'draft' | null>(null);
-  const [summary, setSummary] = useState<{ summary: string; actions: string[] } | null>(null);
+  const [summary, setSummary] = useState<{ summary: string; actions: SuggestedAction[] } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addedTodos, setAddedTodos] = useState<Set<number>>(new Set());
+  // One-tap dismiss per suggested action (R3) — same gesture as everywhere.
+  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
 
   const addTodo = (index: number, title: string) => {
     start(async () => {
@@ -107,30 +109,60 @@ export function InboxAiPanel({
           >
             <div className="mt-3 rounded-[8px] bg-black/20 p-3">
               <p className="text-[13px] leading-relaxed text-ink-100">{summary.summary}</p>
-              {summary.actions.length > 0 && (
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {summary.actions.map((a, i) => {
-                    const added = addedTodos.has(i);
-                    return (
-                      <li key={i} className="group flex items-start gap-2 text-[12.5px] text-ink-200">
-                        <span aria-hidden className="mt-0.5 text-[#5E9EFF]">▪</span>
-                        <span className="min-w-0 flex-1">{a}</span>
-                        <button
-                          type="button"
-                          onClick={() => !added && addTodo(i, a)}
-                          disabled={pending || added}
-                          className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.3px] transition-colors ${
-                            added
-                              ? 'text-[#5ee08a]'
-                              : 'text-ink-300 hover:bg-white/[0.06] hover:text-ink-50 disabled:opacity-50'
-                          }`}
-                        >
-                          {added ? '✓ Todo' : '→ Todo'}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+              {summary.actions.some((_, i) => !dismissed.has(i)) && (
+                <>
+                  <p className="mt-3 font-mono text-[9.5px] uppercase tracking-[0.3px] text-ink-300">
+                    Vorgeschlagene Aufgaben · du entscheidest
+                  </p>
+                  <ul className="mt-1.5 flex flex-col gap-2">
+                    {summary.actions.map((a, i) => {
+                      if (dismissed.has(i)) return null;
+                      const added = addedTodos.has(i);
+                      // R2 — high = assertion, medium/low = question framing.
+                      const isQuestion = a.confidence !== 'high';
+                      return (
+                        <li key={i} className="group flex flex-col gap-1 text-[12.5px]">
+                          <div className="flex items-start gap-2">
+                            <span aria-hidden className="mt-0.5 text-[#5E9EFF]">▪</span>
+                            <span className={`min-w-0 flex-1 ${isQuestion ? 'text-[#E8C99A]' : 'text-ink-100'}`}>
+                              {isQuestion ? `Aufgabe? „${a.title}" — übernehmen?` : a.title}
+                            </span>
+                            <span className="flex shrink-0 items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => !added && addTodo(i, a.title)}
+                                disabled={pending || added}
+                                className={`rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.3px] transition-colors ${
+                                  added
+                                    ? 'text-[#5ee08a]'
+                                    : 'text-ink-300 hover:bg-white/[0.06] hover:text-ink-50 disabled:opacity-50'
+                                }`}
+                              >
+                                {added ? '✓ Todo' : '→ Todo'}
+                              </button>
+                              {!added && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDismissed((s) => new Set(s).add(i))}
+                                  className="rounded-full px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.3px] text-ink-300 transition-colors hover:bg-white/[0.06] hover:text-ink-50"
+                                  title="Vorschlag verwerfen"
+                                >
+                                  Verwerfen
+                                </button>
+                              )}
+                            </span>
+                          </div>
+                          {/* R1 — the mail sentence this action was derived from. */}
+                          {a.quote && (
+                            <p className="ml-6 border-l-2 border-white/10 pl-2 font-mono text-[11px] italic leading-relaxed text-ink-300">
+                              „{a.quote}"
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
             </div>
           </motion.div>

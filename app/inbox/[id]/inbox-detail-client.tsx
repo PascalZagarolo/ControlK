@@ -12,6 +12,7 @@ import {
 import { toast } from '@/lib/stores/toast-store';
 import { InboxAiPanel } from '@/components/inbox/inbox-ai-panel';
 import { LinkCustomerButton } from '@/components/inbox/link-customer-button';
+import { TagClientButton } from '@/components/inbox/tag-client-button';
 import type { GmailFullBody } from '@/lib/google/gmail';
 
 type ItemSummary = {
@@ -31,6 +32,7 @@ export function InboxDetailClient({
   body,
   threadStrip,
   alreadyCustomer = false,
+  senderTagged = false,
 }: {
   item: ItemSummary;
   body: GmailFullBody | null;
@@ -39,6 +41,9 @@ export function InboxDetailClient({
   /** True when this sender already resolves to a customer — hides the
    *  manual "mit Kunde verknüpfen" action (Schritt 4b). */
   alreadyCustomer?: boolean;
+  /** True when this sender is already a lightweight client-tag OR CRM
+   *  customer — sets the "als Kunde markieren" toggle's initial state. */
+  senderTagged?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -132,8 +137,18 @@ export function InboxDetailClient({
             </a>
           )}
 
-          {/* Manual customer tagging (Schritt 4b) — only when this sender
-              isn't already a known customer and we have an address to link. */}
+          {/* Lightweight client tagging (Schritt 5) — one tap, no CRM record
+              needed; tags this address or the whole domain per-user. */}
+          {item.senderEmail && (
+            <TagClientButton
+              senderEmail={item.senderEmail}
+              senderName={item.senderName}
+              initiallyTagged={senderTagged || alreadyCustomer}
+            />
+          )}
+
+          {/* Manual CRM link (Schritt 4b) — only when this sender isn't
+              already a known CRM customer and we have an address to link. */}
           {item.senderEmail && !alreadyCustomer && (
             <LinkCustomerButton senderEmail={item.senderEmail} senderName={item.senderName} />
           )}

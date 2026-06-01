@@ -4,6 +4,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import type { ParsedGmailMessage } from './gmail';
+import { triageMessage } from '@/lib/triage/classify';
+import { noiseToInboxCategory } from '@/lib/triage/inbox-mapping';
+import type { TriageInput } from '@/lib/triage/types';
 
 // Domains that always classify as "shipping" regardless of Gmail's
 // own label. Covers the German top-five carriers + Amazon's logistics
@@ -39,22 +42,50 @@ export type InboxCategory =
  *
  *   1. Customer match — most confident (DB-backed relationship).
  *   2. Shipping domain — strong, deterministic dictionary.
- *   3. Gmail's CATEGORY_* — Gmail's own ML, mostly accurate.
- *   4. 'primary' — the catch-all.
+ *   3. Noise triage — header/sender/domain rules (lib/triage). Catches
+ *      the bulk/automated mail Gmail's own labels miss (Chrono24, GitHub
+ *      notifications, CI runs, ASOS, …) BEFORE it falls through to the
+ *      answer-required 'primary' bucket. Header signals outrank Gmail's
+ *      ML label, so this runs first.
+ *   4. Gmail's CATEGORY_* — Gmail's own ML, useful when present.
+ *   5. 'primary' — the catch-all (answer-required).
  *
- * Customer beats Promo intentionally: a customer's marketing newsletter
- * is still customer-relevant, and surfacing it in the wrong bucket
- * costs more than a few extra customer-row clicks.
+ * Customer beats everything intentionally: a customer's marketing
+ * newsletter is still customer-relevant, and surfacing it in the wrong
+ * bucket costs more than a few extra customer-row clicks. (Customer match
+ * is by exact contact email, so bulk senders never match it anyway.)
  */
 export function classifyMessage(
   message: ParsedGmailMessage,
   isCustomerSender: boolean
 ): InboxCategory {
   if (isCustomerSender) return 'customer';
+
   const domain = domainOf(message.senderEmail);
   if (domain && SHIPPING_DOMAINS.has(domain)) return 'shipping';
+
+  const triage = triageMessage(toTriageInput(message));
+  if (triage.isNoise) return noiseToInboxCategory(triage.category);
+
   if (message.gmailCategory) return message.gmailCategory;
   return 'primary';
+}
+
+// Maps the synced message onto the minimal slice the triage pipeline
+// needs (incl. the RFC822 signal headers now captured by getMessageMetadata).
+function toTriageInput(message: ParsedGmailMessage): TriageInput {
+  return {
+    senderEmail: message.senderEmail,
+    senderName: message.senderName,
+    subject: message.subject,
+    headers: {
+      listUnsubscribe: message.listUnsubscribe,
+      listId: message.listId,
+      precedence: message.precedence,
+      autoSubmitted: message.autoSubmitted,
+      returnPath: message.returnPath,
+    },
+  };
 }
 
 export function domainOf(email: string | null): string | null {

@@ -236,11 +236,13 @@ export async function listTodoOverviewGroups(
 /**
  * Produces the one-line italic "living status" string for a group card.
  * Rules of thumb (priority order):
- *   - empty group               → "Noch keine Items"
+ *   - empty group               → "Bereit für die erste Aufgabe" (constructive,
+ *                                   not a graveyard "Noch keine Items")
  *   - all done                  → "Alle Items abgeschlossen — Glückwunsch"
  *   - very recent activity      → "<Name> arbeitet aktiv daran" (< 30 min)
  *   - recent activity           → "Zuletzt: <Name>, vor 2h"
- *   - stale                     → "Ruht seit 5 Tagen"
+ *   - older                     → neutral "Zuletzt aktiv vor 5 Tagen" (no
+ *                                   judgemental "Ruht seit …" framing)
  */
 function buildLivingStatus(input: {
   totalCount: number;
@@ -249,7 +251,8 @@ function buildLivingStatus(input: {
   latestActor: string | null;
   latestActorAt: Date | null;
 }): string {
-  if (input.totalCount === 0) return 'Noch keine Items';
+  // Empty isn't a tombstone — point at the next action instead.
+  if (input.totalCount === 0) return 'Bereit für die erste Aufgabe';
   if (input.openCount === 0) return 'Alle Items abgeschlossen — Glückwunsch';
 
   const sourceAt = input.latestActorAt ?? input.lastActivityAt;
@@ -264,7 +267,8 @@ function buildLivingStatus(input: {
     const h = Math.floor(minAgo / 60);
     return actor ? `Zuletzt: ${actor}, vor ${h}h` : `Zuletzt aktiv vor ${h}h`;
   }
+  // Neutral "last active" wording rather than the dormant "Ruht seit …".
   const d = Math.floor(minAgo / (60 * 24));
-  if (d <= 14) return `Ruht seit ${d} ${d === 1 ? 'Tag' : 'Tagen'}`;
-  return `Ruht seit ${Math.floor(d / 7)} Wochen`;
+  if (d <= 14) return `Zuletzt aktiv vor ${d} ${d === 1 ? 'Tag' : 'Tagen'}`;
+  return `Zuletzt aktiv vor ${Math.floor(d / 7)} Wochen`;
 }

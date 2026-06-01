@@ -13,6 +13,7 @@ import {
   type GmailFullBody,
   type GmailThreadMessage,
 } from '@/lib/google/gmail';
+import { isSenderTaggedForUser } from '@/lib/db/queries/clients';
 import { InboxDetailClient } from './inbox-detail-client';
 import { InboxContextRail } from './inbox-context-rail';
 import { ThreadStrip, type ThreadRow } from './thread-strip';
@@ -45,12 +46,13 @@ export default async function Page({
   // thread metadata. Body is the slow path (~200-400ms); context and
   // thread land in <50ms each. Promise.all keeps TTFB at the body
   // fetch's latency, not the sum.
-  const [body, context, threadMessages] = await Promise.all([
+  const [body, context, threadMessages, senderTagged] = await Promise.all([
     fetchBody(user.id, item.sourceType, item.sourceId).catch(() => null),
     loadInboxDetailContext(ws.id, user.id, item.id, item.senderEmail),
     fetchThread(user.id, item.sourceType, item.sourceThreadId).catch(
       () => [] as GmailThreadMessage[]
     ),
+    isSenderTaggedForUser(ws.id, user.id, item.senderEmail).catch(() => false),
   ]);
 
   // Resolve thread message ids to local inbox rows so each row can
@@ -90,6 +92,7 @@ export default async function Page({
           }}
           body={body}
           alreadyCustomer={context.customer != null}
+          senderTagged={senderTagged}
           threadStrip={
             threadRows.length > 1 ? (
               <ThreadStrip rows={threadRows} threadId={item.sourceThreadId ?? null} />

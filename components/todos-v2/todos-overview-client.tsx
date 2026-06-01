@@ -18,19 +18,24 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { createTodoGroup } from '@/lib/actions/todo-groups';
 import { createProject } from '@/lib/actions/projects';
+import { createFlow } from '@/lib/actions/flows';
+import { toast } from '@/lib/stores/toast-store';
 import type { Project } from '@/lib/db/queries/projects';
 import type { TodoOverviewGroup } from '@/lib/db/queries/todo-overview';
+import type { FlowSummary } from '@/lib/db/queries/flows';
 
 type Stats = { groups: number; open: number; dueWeek: number };
 
 export function TodosOverviewClient({
   projects,
   groups,
+  flows = [],
   activeProjectSlug,
   stats,
 }: {
   projects: Project[];
   groups: TodoOverviewGroup[];
+  flows?: FlowSummary[];
   activeProjectSlug: string | null;
   stats: Stats;
 }) {
@@ -86,8 +91,121 @@ export function TodosOverviewClient({
         ) : (
           <GroupGrid groups={groups} />
         )}
+
+        {/* Flows — sequenzielle Abläufe ohne Termin (Liste ⇄ Graph). */}
+        <FlowsSection flows={flows} />
       </div>
     </main>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Flows section — list existing flows + create a new one
+// ───────────────────────────────────────────────────────────────
+
+function FlowsSection({ flows }: { flows: FlowSummary[] }) {
+  const router = useRouter();
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [pending, start] = useTransition();
+
+  const submit = () => {
+    const t = title.trim();
+    if (!t) return;
+    start(async () => {
+      const r = await createFlow({ title: t });
+      if (r.ok) {
+        setTitle('');
+        setCreating(false);
+        router.push(`/todos/flow/${r.id}`);
+      } else {
+        toast(r.error ?? 'Fehler', 'danger');
+      }
+    });
+  };
+
+  return (
+    <section className="mt-10 border-t border-[#1F1F23] pt-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-medium text-[#FAFAFA]">Flows</h2>
+          <p className="mt-0.5 text-[12.5px] text-[#A1A1AA]">
+            Sequenzielle Abläufe ohne Termin — erst A, dann B, dann C.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreating((v) => !v)}
+          className="shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors"
+          style={{ borderColor: '#8B7FFF40', background: 'rgba(139,127,255,0.08)', color: '#8B7FFF' }}
+        >
+          {creating ? '× Abbrechen' : '+ Neuer Flow'}
+        </button>
+      </div>
+
+      {creating && (
+        <div className="mt-3 flex items-center gap-2 rounded-[10px] border border-[#1F1F23] bg-white/[0.015] px-3 py-2.5">
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submit();
+              } else if (e.key === 'Escape') setCreating(false);
+            }}
+            placeholder="Flow-Name (z.B. Landing-Page erstellen)"
+            disabled={pending}
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-[#FAFAFA] outline-none placeholder:text-[#52525B] disabled:opacity-60"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={pending}
+            className="shrink-0 rounded px-2.5 py-1 text-[12.5px] font-medium disabled:opacity-50"
+            style={{ color: '#8B7FFF' }}
+          >
+            Anlegen
+          </button>
+        </div>
+      )}
+
+      {flows.length > 0 && (
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {flows.map((f) => {
+            const pct = f.totalCount > 0 ? Math.round((f.doneCount / f.totalCount) * 100) : 0;
+            return (
+              <li key={f.id}>
+                <Link
+                  href={`/todos/flow/${f.id}`}
+                  className="group flex flex-col gap-2 rounded-[12px] border border-[#1F1F23] bg-white/[0.015] p-4 transition-colors hover:border-[#8B7FFF]/40"
+                >
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden style={{ color: '#8B7FFF' }}>⇢</span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-[#FAFAFA]">{f.title}</span>
+                  </div>
+                  <p className="text-[12px] text-[#A1A1AA]">
+                    {f.totalCount === 0
+                      ? 'Noch keine Schritte'
+                      : f.complete
+                        ? `Abgeschlossen · ${f.totalCount} Schritte`
+                        : f.activeStepTitle
+                          ? `Jetzt: ${f.activeStepTitle}`
+                          : `${f.doneCount}/${f.totalCount} erledigt`}
+                  </p>
+                  {f.totalCount > 0 && (
+                    <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#8B7FFF' }} />
+                    </div>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

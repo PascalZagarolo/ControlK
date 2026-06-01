@@ -60,6 +60,7 @@ export async function createTodo(input: {
   groupId?: string | null;
   subtasks?: string[];
   onDoneTemplate?: string | null;
+  scheduledTime?: string | null;
 }): Promise<Result<{ id: string }>> {
   const user = await requireUser();
   const ws = await requireCurrentWorkspace();
@@ -110,6 +111,10 @@ export async function createTodo(input: {
       groupId: input.groupId || null,
       projectId: projectId as any,
       onDoneTemplate: input.onDoneTemplate || null,
+      scheduledTime:
+        input.scheduledTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(input.scheduledTime.trim())
+          ? input.scheduledTime.trim()
+          : null,
     })
     .returning();
 
@@ -358,6 +363,54 @@ export async function updateTodoTitle(todoId: string, title: string): Promise<Re
   if (next.length > 280) return { ok: false, error: 'Titel zu lang.' };
   if (next === row.title) return { ok: true };
   await db.update(s.todos).set({ title: next, updatedAt: new Date() }).where(eq(s.todos.id, todoId));
+  await notifyTodoChange(ws.id, todoId, 'todo.updated');
+  paths();
+  return { ok: true };
+}
+
+/** Edit the longer body text (Absätze) of a todo. Empty → clears it. */
+export async function setTodoDescription(
+  todoId: string,
+  description: string | null
+): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  const row = await findGuarded(todoId, ws.id);
+  if (!row) return { ok: false, error: 'Todo nicht gefunden.' };
+  const next = (description ?? '').trim();
+  if (next.length > 10_000) return { ok: false, error: 'Text zu lang.' };
+  const value = next || null;
+  if (value === (row.description ?? null)) return { ok: true };
+  await db.update(s.todos).set({ description: value, updatedAt: new Date() }).where(eq(s.todos.id, todoId));
+  await notifyTodoChange(ws.id, todoId, 'todo.updated');
+  paths();
+  return { ok: true };
+}
+
+/**
+ * Set a planned wall-clock time "HH:MM" on a todo (or null to clear). Pure
+ * data + display attribute — deliberately NOT linked to the calendar /
+ * morning plan (out of scope for this prompt).
+ */
+export async function setTodoScheduledTime(
+  todoId: string,
+  time: string | null
+): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  const row = await findGuarded(todoId, ws.id);
+  if (!row) return { ok: false, error: 'Todo nicht gefunden.' };
+  let value: string | null = null;
+  if (time) {
+    const t = time.trim();
+    // Accept strictly "HH:MM" (00:00–23:59) — a normalized, parseable shape.
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return { ok: false, error: 'Ungültige Uhrzeit (HH:MM).' };
+    value = t;
+  }
+  if (value === ((row as any).scheduledTime ?? null)) return { ok: true };
+  await db.update(s.todos).set({ scheduledTime: value, updatedAt: new Date() }).where(eq(s.todos.id, todoId));
   await notifyTodoChange(ws.id, todoId, 'todo.updated');
   paths();
   return { ok: true };

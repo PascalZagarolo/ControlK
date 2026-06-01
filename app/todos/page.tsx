@@ -3,6 +3,7 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { listProjects } from '@/lib/db/queries/projects';
 import { listTodoOverviewGroups } from '@/lib/db/queries/todo-overview';
+import { listFlows } from '@/lib/db/queries/flows';
 import { TodosOverviewClient } from '@/components/todos-v2/todos-overview-client';
 
 export const dynamic = 'force-dynamic';
@@ -17,9 +18,10 @@ export default async function Page({
   const ws = await requireCurrentWorkspace();
   const sp = await searchParams;
 
-  const [projects, allGroups] = await Promise.all([
+  const [projects, allGroups, flows] = await Promise.all([
     listProjects(ws.id),
     listTodoOverviewGroups(ws.id),
+    listFlows(ws.id).catch(() => []),
   ]);
 
   // Resolve the active project filter from the slug.
@@ -48,6 +50,7 @@ export default async function Page({
     <TodosOverviewClient
       projects={projects}
       groups={groups}
+      flows={flows}
       activeProjectSlug={activeProjectSlug}
       stats={{
         groups: totalGroups,

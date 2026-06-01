@@ -3,7 +3,7 @@
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiAvailable, isTransientAIError } from '@/lib/ai/gateway';
-import { extractCommitmentsFromMail, isNewsletterLike, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
+import { extractCommitmentsFromMail, shouldSkipExtraction, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listRecentSentItems } from '@/lib/db/queries/commitments';
@@ -90,9 +90,10 @@ export async function dryRunCommitmentScan(opts?: {
     }
     mailsWithBody += 1;
 
-    // Newsletter / automated send → skip extraction entirely (same rule the
-    // production scanner uses), but count it so the measurement stays honest.
-    if (isNewsletterLike({ to, subject: it.subject, body: bodyText })) {
+    // Stufe 1 — same deterministic pre-filter the production scanner uses
+    // (newsletter/automated OR low-signal send). Counted so the measurement
+    // stays honest about how many mails the AI step actually saw.
+    if (shouldSkipExtraction({ to, subject: it.subject, body: bodyText })) {
       skippedNewsletter += 1;
       continue;
     }

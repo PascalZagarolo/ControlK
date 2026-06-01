@@ -42,3 +42,7 @@ coverage
 
 # graphify knowledge graph output (generated)
 graphify-out/
+
+# Commitment eval — local real-data sets (private mail, never commit)
+lib/commitments/eval/*.local.json
+*.local.json

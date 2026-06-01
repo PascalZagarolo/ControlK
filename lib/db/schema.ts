@@ -1136,6 +1136,26 @@ export const todos = pgTable(
     // Sprint 3 — energy / time-block
     energy: todoEnergyEnum('energy'),
     estimateMinutes: integer('estimate_minutes'),
+    // Eingeplante Uhrzeit als reines "HH:MM"-Datenfeld (lokale Wanduhr,
+    // kein Zeitzonen-Anker). Bewusst NICHT mit Kalender/Morgen-Plan
+    // gekoppelt — nur Feld + Anzeige (Prompt: Todo-Verbesserung).
+    scheduledTime: text('scheduled_time'),
+    // ── Todo-Flows (sequenzielle Abläufe ohne Termin) ──
+    // Ein Flow ist ein Todo mit `isFlow = true`; seine SCHRITTE sind ganz
+    // normale Todos mit `flowParentId` → dem Flow. Eine Datenquelle, zwei
+    // Ansichten (Liste + Graph). "aktiv" wird NICHT gespeichert, sondern aus
+    // der Reihenfolge berechnet (erster offener Schritt) — siehe lib/flows.
+    isFlow: boolean('is_flow').notNull().default(false),
+    flowParentId: uuid('flow_parent_id').references((): AnyPgColumn => todos.id, {
+      onDelete: 'cascade',
+    }),
+    // Reihenfolge eines Schritts innerhalb seines Flows (0-basiert, dicht).
+    stepOrder: integer('step_order'),
+    // Vorgänger-Schritt: für eine lineare Kette genügt stepOrder; dieses Feld
+    // ist schon angelegt, damit spätere Verzweigung das Schema nicht bricht.
+    dependsOn: uuid('depends_on').references((): AnyPgColumn => todos.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1151,6 +1171,8 @@ export const todos = pgTable(
     vehicleIdx: index('todos_vehicle_idx').on(t.vehicleId),
     channelIdx: index('todos_channel_idx').on(t.channelId),
     groupIdx: index('todos_group_idx').on(t.groupId, t.status),
+    // Steps of a flow, in order — powers the list + graph queries.
+    flowIdx: index('todos_flow_idx').on(t.flowParentId, t.stepOrder),
   })
 );
 
@@ -2497,7 +2519,13 @@ export const inboxCommitments = pgTable(
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
     promiseText: text('promise_text').notNull(),
     // Verbatim source sentence — powers explainability ("warum ist das hier").
+    // REQUIRED at display time: a commitment without this is never shown
+    // (Halluzinations-Schutz), even though the column is nullable for legacy rows.
     sourceQuote: text('source_quote'),
+    // due_date_basis — the verbatim deadline phrase the due date came from
+    // (e.g. "bis Freitag"), resolved relative to the mail's send date.
+    // Explainability for the deadline; null when no deadline was stated.
+    dueBasis: text('due_basis'),
     // Extraction confidence. Only 'high' is asserted as a hard "fällig"; lower
     // is surfaced as "mögliche Zusage — bestätigen?". Existing rows default to
     // 'medium' (conservative — a wrong "fällig" costs more trust than a soft one).
@@ -2518,6 +2546,59 @@ export const inboxCommitments = pgTable(
     ),
   })
 );
+
+// ─── Contact tags — lightweight, manual "this sender is a client" ───
+//
+// Schritt 5: a low-friction, PER-USER way to mark an email address OR a
+// whole domain as a client, optionally with a display name ("Müller GmbH").
+//
+// Why a separate table rather than the existing customers/customerContacts
+// CRM: that CRM is workspace-shared, email-only, and requires a pre-created
+// customer record before a sender can be linked. This tag is intentionally
+// lighter — per-user, record-free, and supports DOMAIN-level tagging — so a
+// user can mark a client straight from a mail without any CRM setup. The
+// customer-centric inbox views resolve a sender as a "client" if EITHER a
+// tag here OR a CRM contact matches (see lib/db/queries/clients.ts).
+//
+// Strictly MANUAL — we never auto-guess who's a client (a wrong guess
+// destroys trust; cf. the removed "Wichtige Absender" logic from Schritt 2).
+// TODO: optionale Auto-Kunden-Erkennung später (separates Feature, bewusst
+// hier ausgeklammert).
+export const contactTagKindEnum = pgEnum('contact_tag_kind', ['email', 'domain']);
+
+export const contactTags = pgTable(
+  'contact_tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    // Per-user: tags are a personal lens on the inbox, not shared CRM data.
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // 'email' → identifier is a full address; 'domain' → bare domain.
+    kind: contactTagKindEnum('kind').notNull(),
+    // Lowercased email or domain. The matching key.
+    identifier: text('identifier').notNull(),
+    // Optional friendly label ("Müller GmbH"); falls back to the identifier.
+    displayName: text('display_name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // One tag per (user, identifier) — re-tagging updates, never duplicates.
+    uniq: uniqueIndex('contact_tags_user_identifier_idx').on(t.userId, t.identifier),
+    lookupIdx: index('contact_tags_lookup_idx').on(t.workspaceId, t.userId, t.kind),
+  })
+);
+
+export const contactTagsRelations = relations(contactTags, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [contactTags.workspaceId],
+    references: [workspaces.id],
+  }),
+  user: one(users, { fields: [contactTags.userId], references: [users.id] }),
+}));
 
 // Per-domain topic cache. The AI classifier asks Claude once per
 // previously-unseen domain ("asos.com → Fashion") and stores here so

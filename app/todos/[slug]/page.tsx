@@ -92,6 +92,8 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
         priority: t.priority,
         dueAt: t.dueAt ?? null,
         description: t.description ?? undefined,
+        scheduledTime: t.scheduledTime ?? null,
+        subtasks: t.subtasks.map((st) => ({ id: st.id, title: st.title, done: st.done })),
       }))}
       doneTodos={done.map((t) => ({
         id: t.id,
@@ -99,6 +101,8 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
         status: t.status,
         priority: t.priority,
         dueAt: t.dueAt ?? null,
+        scheduledTime: t.scheduledTime ?? null,
+        subtasks: t.subtasks.map((st) => ({ id: st.id, title: st.title, done: st.done })),
       }))}
       stats={{
         open: open.length,

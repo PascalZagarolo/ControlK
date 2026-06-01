@@ -165,14 +165,23 @@ export function InboxOverviewClient({
               {filter === 'archived' && ' archiviert'}
             </p>
           </div>
-          {!gmailConnected && (
+          <div className="flex items-center gap-2">
+            {/* Schritt 5 — entry to the client-centric lenses (additive). */}
             <Link
-              href="/settings/integrations"
-              className="rounded-md border border-[#E8B86D]/30 bg-[#E8B86D]/[0.06] px-3 py-1.5 text-[12px] text-[#E8B86D] transition-colors hover:bg-[#E8B86D]/[0.12]"
+              href="/inbox/clients"
+              className="rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12px] text-ink-200 transition-colors hover:bg-white/[0.05] hover:text-ink-50"
             >
-              Mit Gmail verbinden →
+              ◉ Kunden-Inbox →
             </Link>
-          )}
+            {!gmailConnected && (
+              <Link
+                href="/settings/integrations"
+                className="rounded-md border border-[#E8B86D]/30 bg-[#E8B86D]/[0.06] px-3 py-1.5 text-[12px] text-[#E8B86D] transition-colors hover:bg-[#E8B86D]/[0.12]"
+              >
+                Mit Gmail verbinden →
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Filter row + view toggle */}

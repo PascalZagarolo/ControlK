@@ -9,14 +9,20 @@ export type OpenCommitment = {
   id: string;
   promiseText: string;
   dueAt: string | null;
+  /** Verbatim deadline phrase the due date was derived from ("bis Freitag"). */
+  dueBasis: string | null;
   overdueDays: number | null;
   recipientName: string | null;
   recipientEmail: string | null;
   customerId: string | null;
   customerName: string | null;
   sourceItemId: string | null;
-  /** Verbatim source sentence — explainability ("warum ist das hier"). */
-  sourceQuote: string | null;
+  /**
+   * Verbatim source sentence — explainability ("warum ist das hier") AND the
+   * hallucination guard: rows without it are never returned (see the
+   * NOT NULL filter below), so the UI can render every row's evidence.
+   */
+  sourceQuote: string;
   /** Only 'high' is shown as a hard "fällig"; lower → "bitte bestätigen". */
   confidence: CommitmentConfidence;
 };
@@ -32,6 +38,7 @@ export async function listOpenCommitments(
       id: s.inboxCommitments.id,
       promiseText: s.inboxCommitments.promiseText,
       dueAt: s.inboxCommitments.dueAt,
+      dueBasis: s.inboxCommitments.dueBasis,
       recipientName: s.inboxCommitments.recipientName,
       recipientEmail: s.inboxCommitments.recipientEmail,
       customerId: s.inboxCommitments.customerId,
@@ -46,7 +53,12 @@ export async function listOpenCommitments(
       and(
         eq(s.inboxCommitments.workspaceId, workspaceId),
         eq(s.inboxCommitments.userId, userId),
-        eq(s.inboxCommitments.status, 'open')
+        eq(s.inboxCommitments.status, 'open'),
+        // Hallucination guard: never surface a commitment without its
+        // verbatim source sentence. Legacy rows lacking one are hidden
+        // rather than asserted. (Matches the "nie ohne source_sentence
+        // anzeigen" rule.)
+        sql`${s.inboxCommitments.sourceQuote} is not null and length(trim(${s.inboxCommitments.sourceQuote})) > 0`
       )
     )
     // High-confidence first (the hard "fällig" items lead), then overdue +
@@ -65,13 +77,15 @@ export async function listOpenCommitments(
       id: r.id,
       promiseText: r.promiseText,
       dueAt: r.dueAt ? new Date(r.dueAt).toISOString() : null,
+      dueBasis: r.dueBasis ?? null,
       overdueDays: due != null && due < now ? Math.floor((now - due) / 86_400_000) : null,
       recipientName: r.recipientName,
       recipientEmail: r.recipientEmail,
       customerId: r.customerId,
       customerName: r.customerName ?? null,
       sourceItemId: r.sourceItemId,
-      sourceQuote: r.sourceQuote ?? null,
+      // Non-null by construction (filtered in the WHERE above).
+      sourceQuote: r.sourceQuote as string,
       confidence: (r.confidence ?? 'medium') as CommitmentConfidence,
     };
   });
@@ -99,7 +113,10 @@ export async function getCommitmentCounts(
         eq(s.inboxCommitments.workspaceId, workspaceId),
         eq(s.inboxCommitments.userId, userId),
         eq(s.inboxCommitments.status, 'open'),
-        eq(s.inboxCommitments.confidence, 'high')
+        eq(s.inboxCommitments.confidence, 'high'),
+        // Same hallucination guard as listOpenCommitments — a quote-less
+        // row must not inflate the morning-plan counts either.
+        sql`${s.inboxCommitments.sourceQuote} is not null and length(trim(${s.inboxCommitments.sourceQuote})) > 0`
       )
     );
   return { open: Number(row?.open ?? 0), overdue: Number(row?.overdue ?? 0) };
@@ -139,11 +156,20 @@ export async function listRecentSentItems(
     .limit(limit);
 }
 
+// Default look-back for the incremental scan. Configurable via env so the
+// first scan after connecting doesn't crawl the entire mailbox, and so ops
+// can widen/narrow it without a deploy. Clamped to a sane range.
+export const DEFAULT_SCAN_WINDOW_DAYS = (() => {
+  const n = Number(process.env.COMMITMENT_SCAN_WINDOW_DAYS);
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.max(Math.floor(n), 1), 120) : 30;
+})();
+
 /** Sent inbox items not yet scanned for commitments (most recent first). */
 export async function listUnscannedSentItems(
   workspaceId: string,
   userId: string,
-  limit: number
+  limit: number,
+  windowDays: number = DEFAULT_SCAN_WINDOW_DAYS
 ): Promise<{ id: string; sourceId: string; sourceThreadId: string | null; recipientEmail: string | null; subject: string | null; receivedAt: Date }[]> {
   const db = getDb();
   return db
@@ -163,7 +189,7 @@ export async function listUnscannedSentItems(
         eq(s.inboxItems.direction, 'sent'),
         eq(s.inboxItems.sourceType, 'email_gmail'),
         isNull(s.inboxItems.commitmentsScannedAt),
-        sql`${s.inboxItems.receivedAt} >= now() - interval '21 days'`
+        sql`${s.inboxItems.receivedAt} >= now() - make_interval(days => ${windowDays})`
       )
     )
     .orderBy(sql`${s.inboxItems.receivedAt} DESC`)

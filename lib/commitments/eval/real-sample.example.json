@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Beispiel — Zusage mit Frist",
+    "sendDateIso": "2026-05-18T09:00:00.000Z",
+    "to": "kunde@example.com",
+    "subject": "Re: Angebot",
+    "body": "Hallo,\n\nich schicke dir den Entwurf bis Freitag.\n\nGruß",
+    "expected": [
+      { "match": "Entwurf", "dueDate": "2026-05-22", "confidenceIn": ["high"] }
+    ],
+    "modelJson": "{\"commitments\":[{\"promise\":\"Entwurf schicken\",\"quote\":\"ich schicke dir den Entwurf bis Freitag.\",\"dueBasis\":\"bis Freitag\",\"dueIso\":null,\"confidence\":\"high\"}]}"
+  },
+  {
+    "name": "Beispiel — Höflichkeit, keine Zusage",
+    "sendDateIso": "2026-05-18T09:00:00.000Z",
+    "to": "kunde@example.com",
+    "subject": "Re: Danke",
+    "body": "Melde dich gern jederzeit. Schönes Wochenende!",
+    "expected": [],
+    "modelJson": "{\"commitments\":[]}"
+  }
+]

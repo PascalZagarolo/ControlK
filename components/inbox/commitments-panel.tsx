@@ -230,9 +230,16 @@ function CommitmentRow({
       </div>
 
       {showWhy && c.sourceQuote && (
-        <p className="ml-0 mt-1 border-l-2 border-white/10 pl-2.5 font-mono text-[11px] italic leading-relaxed text-ink-300">
-          „{c.sourceQuote}"
-        </p>
+        <div className="ml-0 mt-1 border-l-2 border-white/10 pl-2.5">
+          <p className="font-mono text-[11px] italic leading-relaxed text-ink-300">
+            „{c.sourceQuote}"
+          </p>
+          {c.dueBasis && (
+            <p className="mt-0.5 font-mono text-[10.5px] leading-relaxed text-ink-300/80">
+              Frist aus: „{c.dueBasis}" (relativ zum Sendedatum)
+            </p>
+          )}
+        </div>
       )}
     </motion.li>
   );

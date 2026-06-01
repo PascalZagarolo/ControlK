@@ -958,6 +958,17 @@ export type Todo = {
   subtaskDone: number;
   energy?: TodoEnergy;
   estimateMinutes?: number;
+  /** Eingeplante Uhrzeit "HH:MM" — reines Anzeigefeld, keine Kalender-Kopplung. */
+  scheduledTime?: string;
+  // ── Todo-Flows ──
+  /** true → this todo is a Flow container (its steps are child todos). */
+  isFlow?: boolean;
+  /** When set, this todo is a STEP of the flow with this id. */
+  flowParentId?: string;
+  /** Order within the flow (0-based). */
+  stepOrder?: number;
+  /** Predecessor step id (branch-ready; linear flows use stepOrder). */
+  dependsOn?: string;
   context?: TodoContextStrip;
   blockers?: TodoBlocker[];
   forecastImpact?: TodoForecastImpact;

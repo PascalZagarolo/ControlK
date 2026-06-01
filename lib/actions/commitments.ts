@@ -7,7 +7,7 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { aiAvailable, isTransientAIError } from '@/lib/ai/gateway';
-import { extractCommitmentsFromMail, isNewsletterLike, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
+import { extractCommitmentsFromMail, shouldSkipExtraction, type CommitmentCandidate } from '@/lib/ai/commitment-extract';
 import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
 import { getFullMessage } from '@/lib/google/gmail';
 import { listUnscannedSentItems } from '@/lib/db/queries/commitments';
@@ -59,9 +59,11 @@ export async function scanCommitments(
       // Body fetch failed — still mark scanned so we don't loop on it.
     }
 
-    // Skip newsletters / automated sends — never a personal commitment, and
-    // skipping spares an AI call. Item is still marked scanned below.
-    if (bodyText.trim() && !isNewsletterLike({ to, subject: it.subject, body: bodyText })) {
+    // Stufe 1 — deterministic pre-filter: skip newsletters/automated sends
+    // AND low-signal sends (pure forwards, one-word acks, empty bodies).
+    // Never a personal commitment, and skipping spares an AI call. Item is
+    // still marked scanned below.
+    if (!shouldSkipExtraction({ to, subject: it.subject, body: bodyText })) {
       let candidates: CommitmentCandidate[] = [];
       try {
         candidates = await extractCommitmentsFromMail(user.id, {
@@ -107,8 +109,12 @@ export async function scanCommitments(
             recipientName: to ? to.split('@')[0] : null,
             customerId,
             promiseText: c.promise,
-            // Persist explainability + threshold signal (Schritt 4a).
+            // Persist explainability + threshold signal (Schritt 4a). The
+            // parser guarantees a non-empty quote, but `|| null` is kept as a
+            // defensive belt — a quote-less row would be hidden by the
+            // display-layer guard anyway.
             sourceQuote: c.quote || null,
+            dueBasis: c.dueBasis || null,
             confidence: c.confidence,
             dueAt: c.dueIso ? new Date(c.dueIso) : null,
             status: 'open' as const,

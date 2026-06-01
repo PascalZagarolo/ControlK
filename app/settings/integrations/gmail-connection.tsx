@@ -33,8 +33,10 @@ export function GmailConnection({
             Gmail
           </h2>
           <p className="mt-0.5 text-[12.5px] leading-[1.55] text-ink-300">
-            Verknüpft deine Inbox mit dem Foyer. Nur Lese-Zugriff,
-            Tokens verschlüsselt gespeichert.
+            Ctrl K liest deinen <span className="text-ink-100">Posteingang</span> für die
+            Triage und deine <span className="text-ink-100">gesendeten Mails</span>, um deine
+            Zusagen zu erkennen. Es <span className="text-ink-100">versendet nichts ohne
+            deine Bestätigung</span> und gibt nichts weiter.
           </p>
         </div>
         <StatusBadge

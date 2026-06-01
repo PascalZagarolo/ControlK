@@ -330,6 +330,34 @@
       "when": 1781700000000,
       "tag": "0046_commitment_confidence_quote",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1781750000000,
+      "tag": "0047_commitment_due_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1781800000000,
+      "tag": "0048_contact_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1781850000000,
+      "tag": "0049_todo_scheduled_time",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1781900000000,
+      "tag": "0050_todo_flows",
+      "breakpoints": true
     }
   ]
 }

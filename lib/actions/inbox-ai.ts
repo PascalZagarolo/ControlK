@@ -152,31 +152,76 @@ export async function draftInboxReply(
 }
 
 /**
+ * A suggested action extracted from a mail (Mail→Todo C2). Each carries a
+ * confidence + the verbatim mail sentence it was derived from — the same
+ * trust contract as commitments (Prompt 3): high = assertion, medium/low =
+ * question, and never a suggestion without a source reference.
+ */
+export type SuggestedAction = {
+  title: string;
+  confidence: 'high' | 'medium' | 'low';
+  /** Verbatim sentence from the mail this action is grounded in (R1). */
+  quote: string;
+};
+
+const ACTION_CONF = new Set(['high', 'medium', 'low']);
+
+/**
  * Summarizes an inbox email into a one-paragraph gist plus concrete action
- * items (so the user can decide fast / turn items into todos).
+ * items (so the user can decide fast / turn items into todos). Each action
+ * is confidence-graded and source-grounded so the UI can frame uncertain
+ * ones as questions and show their evidence (trust unification, Prompt 6).
  */
 export async function summarizeInboxEmail(
   input: EmailInput
-): Promise<Result<{ summary: string; actions: string[] }>> {
+): Promise<Result<{ summary: string; actions: SuggestedAction[] }>> {
   const user = await requireUser();
   await requireCurrentWorkspace();
   if (!(await aiAvailable(user.id))) return { ok: false, error: 'KI ist nicht konfiguriert.' };
 
   try {
-    const parsed = await aiGenerateJSON<{ summary?: string; actions?: string[] }>({
+    const parsed = await aiGenerateJSON<{
+      summary?: string;
+      actions?: Array<{ title?: string; confidence?: string; quote?: string } | string>;
+    }>({
       userId: user.id,
       model: AI_MODEL_FAST,
-      maxOutputTokens: 400,
+      maxOutputTokens: 500,
       system:
-        'Du fasst E-Mails auf Deutsch zusammen. Antworte NUR mit JSON: ' +
-        '{ "summary": string (1-2 Sätze, worum es geht), "actions": string[] (konkrete ToDos für den Empfänger, leer wenn keine) }.',
+        'Du fasst E-Mails auf Deutsch zusammen und schlägst konkrete Aufgaben für den ' +
+        'EMPFÄNGER vor. Sei streng: lieber keine Aufgabe als eine erfundene. Antworte NUR ' +
+        'mit JSON: { "summary": string (1-2 Sätze, worum es geht), "actions": [{ ' +
+        '"title": string (kurze Aufgabe), "quote": string (der WÖRTLICHE Satz aus der Mail, ' +
+        'der die Aufgabe belegt — PFLICHT, ohne Beleg keine Aufgabe), "confidence": ' +
+        '"high"|"medium"|"low" (high = explizit erbeten/zugesagt; medium = wahrscheinlich; ' +
+        'low = vage) }] (leer wenn keine echte Aufgabe) }.',
       prompt: context(input),
     });
     if (!parsed) return { ok: false, error: 'Zusammenfassung fehlgeschlagen.' };
+
+    const haystack = (input.bodyText ?? '').toLowerCase().replace(/\s+/g, ' ');
+    const actions: SuggestedAction[] = (Array.isArray(parsed.actions) ? parsed.actions : [])
+      .map((a) => {
+        // Tolerate the old string[] shape too, but those have no evidence →
+        // they get dropped by the quote guard below (no hallucinated todos).
+        if (typeof a === 'string') return { title: a.trim(), confidence: 'medium' as const, quote: '' };
+        const conf = (a?.confidence ?? '').toLowerCase();
+        return {
+          title: (a?.title ?? '').trim(),
+          confidence: (ACTION_CONF.has(conf) ? conf : 'medium') as SuggestedAction['confidence'],
+          quote: (a?.quote ?? '').trim(),
+        };
+      })
+      // Hallucination guard (R1): an action must have a title AND a verbatim
+      // quote that actually occurs in the mail body. No source → not shown.
+      .filter((a) => a.title.length > 0 && a.quote.length > 0)
+      .filter((a) => !haystack || haystack.includes(a.quote.toLowerCase().replace(/\s+/g, ' ').slice(0, 50)))
+      .slice(0, 6);
+
     return {
       ok: true,
       summary: (parsed.summary ?? '').trim() || 'Keine Zusammenfassung möglich.',
-      actions: Array.isArray(parsed.actions) ? parsed.actions.filter((a) => typeof a === 'string').slice(0, 6) : [],
+      actions,
     };
   } catch (e) {
     console.error('[inbox-ai] summarize failed', e);

@@ -16,7 +16,13 @@ const PUBLIC_PREFIXES = [
 // Bare paths that always render landing content, regardless of host —
 // reachable in dev as localhost:3000/impressum and in prod as
 // ctrlk.de/impressum. The page source lives at /landing/impressum.
-const LANDING_BARE_PATHS = new Set(['/impressum', '/datenschutz', '/danke']);
+const LANDING_BARE_PATHS = new Set([
+  '/impressum',
+  '/datenschutz',
+  '/danke',
+  '/warum',
+  '/pricing',
+]);
 
 const COOKIE = 'urent_session';
 

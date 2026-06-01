@@ -18,6 +18,10 @@ type Tab = {
 // Primary tabs sit inline in the header pill. Kept lean so the pill never
 // overflows; everything else lives behind the "Mehr" menu.
 const PRIMARY: Tab[] = [
+  // Plan leads: the synthesis surface the day starts from. Inbox/Todos/
+  // Kalender are its inputs (Prompt 4) — they stay reachable as their own
+  // views, but the Plan is where the priorities are computed.
+  { label: 'Plan', href: '/plan' },
   { label: 'Inbox', href: '/inbox' },
   { label: 'Todos', href: '/todos' },
   // Channels only make sense once there's more than one person.
@@ -30,7 +34,9 @@ const PRIMARY: Tab[] = [
 // CRM-light); the rental/ops trio is business-only.
 const MORE: Tab[] = [
   // Notizen demoted from a primary pillar (Schritt 2): notes are a light
-  // capture surface, not a top-level destination. Still reachable here.
+  // capture surface, not a top-level destination. Still reachable here in
+  // "Mehr"; the /notes route and all note data stay untouched.
+  // TODO: Notizen in Morgen-Plan integrieren — siehe Prompt 4.
   { label: 'Notizen', href: '/notes' },
   // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },

@@ -3,18 +3,14 @@
 /**
  * Group-detail page for /todos/[slug] — the work surface.
  *
- * This is dense and functional: rapid item creation, status toggle, inline
- * expansion for edit. The page chrome stays out of the way so the items
- * are the visual subject.
- *
- * - Compact breadcrumb (sentence case, bullets)
- * - 20px group header with ⋯ context menu
- * - 44px slim input, ⏎ glyph only on focus, no inline tip
- * - Conditional section headers: hidden when ≤5 open items
- * - Priority + due-date as visual indicators, not raw words
+ * Dense + functional: rapid multiline capture, status toggle, inline expand
+ * for full editing (Titel, Textkörper, Subtasks, Fälligkeit, Uhrzeit,
+ * Priorität, Löschen mit Confirm). Plus search over titles and a list
+ * view-toggle (kompakt / ausführlich). Writes into the EXISTING todo
+ * structure + actions — no parallel store.
  */
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,6 +20,12 @@ import {
   deleteTodo,
   setTodoDue,
   setTodoPriority,
+  updateTodoTitle,
+  setTodoDescription,
+  setTodoScheduledTime,
+  addSubtask,
+  toggleSubtask,
+  deleteSubtask,
 } from '@/lib/actions/todos';
 import { setTodoGroupParent } from '@/lib/actions/todo-groups';
 import { parseTodoInput } from '@/lib/todos/parse-quick-syntax';
@@ -42,14 +44,10 @@ type DetailGroup = {
   parentSlug?: string;
 };
 
-type Subgroup = {
-  slug: string;
-  name: string;
-  emoji?: string;
-  openCount: number;
-};
-
+type Subgroup = { slug: string; name: string; emoji?: string; openCount: number };
 type ParentOption = { slug: string; name: string };
+
+type DetailSubtask = { id: string; title: string; done: boolean };
 
 type DetailTodo = {
   id: string;
@@ -58,9 +56,12 @@ type DetailTodo = {
   priority: TodoPriority;
   dueAt: string | null;
   description?: string;
+  scheduledTime?: string | null;
+  subtasks?: DetailSubtask[];
 };
 
 type Stats = { open: number; done: number; dueToday: number };
+type ListView = 'kompakt' | 'ausführlich';
 
 const OPEN_HEADER_THRESHOLD = 5; // hide "OFFEN (N)" header below this count
 
@@ -75,7 +76,7 @@ export function TodoGroupDetailClient({
 }: {
   group: DetailGroup;
   openTodos: DetailTodo[];
-  doneTodos: Omit<DetailTodo, 'description'>[];
+  doneTodos: DetailTodo[];
   stats: Stats;
   subgroups?: Subgroup[];
   parentOptions?: ParentOption[];
@@ -84,8 +85,16 @@ export function TodoGroupDetailClient({
   const router = useRouter();
   const [doneOpen, setDoneOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [view, setView] = useState<ListView>('kompakt');
 
-  const showOpenHeader = openTodos.length > OPEN_HEADER_THRESHOLD;
+  // Title search — case-insensitive over open + done. Empty query = no filter.
+  const q = query.trim().toLowerCase();
+  const matches = (t: DetailTodo) => !q || t.title.toLowerCase().includes(q);
+  const openFiltered = useMemo(() => openTodos.filter(matches), [openTodos, q]);
+  const doneFiltered = useMemo(() => doneTodos.filter(matches), [doneTodos, q]);
+
+  const showOpenHeader = openFiltered.length > OPEN_HEADER_THRESHOLD;
 
   const metaLine = [
     group.description,
@@ -137,28 +146,34 @@ export function TodoGroupDetailClient({
           </section>
         )}
 
-        {/* Continuous list: the input is the top row, the items are the
-            rows below. They share divide-y separators so input and items
-            feel like part of one column, not two sections. */}
-        <div className="mt-8 flex flex-col divide-y divide-[#1F1F23]">
+        {/* Toolbar — search + view toggle. Only when there's something to act on. */}
+        {(openTodos.length > 0 || doneTodos.length > 0) && (
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <SearchInput value={query} onChange={setQuery} />
+            <ViewToggle view={view} onChange={setView} />
+          </div>
+        )}
+
+        {/* Continuous list: the input is the top row, items below share the
+            divide-y separators so input + items feel like one column. */}
+        <div className="mt-6 flex flex-col divide-y divide-[#1F1F23]">
           <QuickInput
             groupId={group.id}
             projectId={group.projectId}
             onCreated={() => router.refresh()}
           />
 
-          {showOpenHeader && openTodos.length > 0 && (
-            <SectionLabel className="px-1 pt-4 pb-2">
-              Offen ({openTodos.length})
-            </SectionLabel>
+          {showOpenHeader && openFiltered.length > 0 && (
+            <SectionLabel className="px-1 pt-4 pb-2">Offen ({openFiltered.length})</SectionLabel>
           )}
 
-          {openTodos.length > 0 && (
+          {openFiltered.length > 0 && (
             <AnimatePresence initial={false}>
-              {openTodos.map((todo) => (
+              {openFiltered.map((todo) => (
                 <TodoRow
                   key={todo.id}
                   todo={todo}
+                  view={view}
                   expanded={expandedId === todo.id}
                   onToggleExpand={() =>
                     setExpandedId((id) => (id === todo.id ? null : todo.id))
@@ -176,7 +191,13 @@ export function TodoGroupDetailClient({
           </p>
         )}
 
-        {doneTodos.length > 0 && (
+        {q && openFiltered.length === 0 && doneFiltered.length === 0 && (openTodos.length > 0 || doneTodos.length > 0) && (
+          <p className="mt-6 text-center text-[13px] text-[#52525B]">
+            Kein Todo passt zu „{query.trim()}".
+          </p>
+        )}
+
+        {doneFiltered.length > 0 && (
           <div className="mt-6">
             <button
               type="button"
@@ -184,7 +205,7 @@ export function TodoGroupDetailClient({
               className="flex items-center gap-2 text-[12px] text-[#52525B] transition-colors duration-150 hover:text-[#A1A1AA]"
             >
               <span aria-hidden>{doneOpen ? '▾' : '▸'}</span>
-              Erledigt ({doneTodos.length})
+              Erledigt ({doneFiltered.length})
             </button>
             <AnimatePresence initial={false}>
               {doneOpen && (
@@ -195,10 +216,11 @@ export function TodoGroupDetailClient({
                   transition={{ duration: 0.24, ease: 'easeOut' }}
                   className="mt-3 flex flex-col divide-y divide-[#1F1F23] overflow-hidden"
                 >
-                  {doneTodos.map((todo) => (
+                  {doneFiltered.map((todo) => (
                     <TodoRow
                       key={todo.id}
-                      todo={{ ...todo, description: undefined }}
+                      todo={todo}
+                      view="kompakt"
                       expanded={false}
                       onToggleExpand={() => {}}
                       onChanged={() => router.refresh()}
@@ -215,7 +237,7 @@ export function TodoGroupDetailClient({
 }
 
 // ───────────────────────────────────────────────────────────────
-// Breadcrumb — 13px regular, bullets, sentence case
+// Breadcrumb
 // ───────────────────────────────────────────────────────────────
 
 function Breadcrumb({ group }: { group: DetailGroup }) {
@@ -234,10 +256,7 @@ function Breadcrumb({ group }: { group: DetailGroup }) {
       {group.projectName && group.projectSlug && (
         <>
           <span aria-hidden className="text-[#3a3a3f]">·</span>
-          <Link
-            href={`/todos?project=${group.projectSlug}`}
-            className="transition-colors duration-150 hover:text-[#A1A1AA]"
-          >
+          <Link href={`/todos?project=${group.projectSlug}`} className="transition-colors duration-150 hover:text-[#A1A1AA]">
             {group.projectName}
           </Link>
         </>
@@ -245,10 +264,7 @@ function Breadcrumb({ group }: { group: DetailGroup }) {
       {group.parentName && group.parentSlug && (
         <>
           <span aria-hidden className="text-[#3a3a3f]">·</span>
-          <Link
-            href={`/todos/${group.parentSlug}`}
-            className="transition-colors duration-150 hover:text-[#A1A1AA]"
-          >
+          <Link href={`/todos/${group.parentSlug}`} className="transition-colors duration-150 hover:text-[#A1A1AA]">
             {group.parentName}
           </Link>
         </>
@@ -256,6 +272,52 @@ function Breadcrumb({ group }: { group: DetailGroup }) {
       <span aria-hidden className="text-[#3a3a3f]">·</span>
       <span className="text-[#FAFAFA]">{group.name}</span>
     </nav>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Search + view toggle
+// ───────────────────────────────────────────────────────────────
+
+function SearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex h-9 min-w-[200px] flex-1 items-center gap-2 rounded-md border border-[#1F1F23] bg-white/[0.015] px-2.5 transition-colors focus-within:border-[#2A2A30]">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-[#52525B]">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m21 21-4.3-4.3" />
+      </svg>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Todos durchsuchen …"
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-[#FAFAFA] outline-none placeholder:text-[#52525B]"
+      />
+      {value && (
+        <button type="button" onClick={() => onChange('')} aria-label="Suche leeren" className="shrink-0 text-[13px] text-[#52525B] hover:text-[#A1A1AA]">
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }: { view: ListView; onChange: (v: ListView) => void }) {
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-[#1F1F23] bg-white/[0.015] p-0.5">
+      {(['kompakt', 'ausführlich'] as ListView[]).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          className={`rounded px-2.5 py-1 text-[12px] capitalize transition-colors duration-150 ${
+            view === v ? 'bg-white/[0.06] text-[#FAFAFA]' : 'text-[#52525B] hover:text-[#A1A1AA]'
+          }`}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -291,7 +353,6 @@ function GroupMenu({
     });
   };
 
-  // Click-outside / Escape
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
@@ -318,19 +379,13 @@ function GroupMenu({
     if (!confirm(`„${group.name}" archivieren?`)) return;
     setOpen(false);
     start(async () => {
-      // Soft archive via the existing updateTodoGroup action, which sets
-      // archivedAt — but until we wire it here, fall back to a simple
-      // call. For now we treat archive same as a redirect; real archive
-      // action ship-when-context-menu-system is fully built.
       router.push('/todos');
     });
   };
 
   const onDelete = () => {
-    if (!confirm(`„${group.name}" wirklich löschen? Alle Todos darin gehen verloren.`))
-      return;
+    if (!confirm(`„${group.name}" wirklich löschen? Alle Todos darin gehen verloren.`)) return;
     setOpen(false);
-    // Hard delete is a sensitive action; defer wiring to a follow-up.
     alert('Löschen kommt in einem späteren Sprint — vorerst archivieren.');
   };
 
@@ -350,20 +405,13 @@ function GroupMenu({
         </svg>
       </button>
       {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-9 z-50 min-w-[200px] rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 backdrop-blur-md"
-        >
+        <div role="menu" className="absolute right-0 top-9 z-50 min-w-[200px] rounded-md border border-[#1F1F23] bg-[rgba(20,21,23,0.96)] p-1 backdrop-blur-md">
           {!moveOpen ? (
             <>
-              {/* Nesting: a group with its own subgroups can't be nested
-                  (one-level limit). Such a group only offers "move out". */}
               {canNest && parentOptions.length > 0 && (
                 <MenuItem label="In Übergruppe verschieben…" onClick={() => setMoveOpen(true)} />
               )}
-              {group.parentSlug && (
-                <MenuItem label="Aus Übergruppe lösen" onClick={() => moveTo(null)} />
-              )}
+              {group.parentSlug && <MenuItem label="Aus Übergruppe lösen" onClick={() => moveTo(null)} />}
               <MenuItem label="Archivieren" onClick={onArchive} />
               <MenuItem label="Löschen" tone="danger" onClick={onDelete} />
             </>
@@ -391,15 +439,7 @@ function GroupMenu({
   );
 }
 
-function MenuItem({
-  label,
-  onClick,
-  tone = 'default',
-}: {
-  label: string;
-  onClick: () => void;
-  tone?: 'default' | 'danger';
-}) {
+function MenuItem({ label, onClick, tone = 'default' }: { label: string; onClick: () => void; tone?: 'default' | 'danger' }) {
   return (
     <button
       type="button"
@@ -417,7 +457,7 @@ function MenuItem({
 }
 
 // ───────────────────────────────────────────────────────────────
-// Quick input — 44px slim
+// Quick input — multiline textarea, auto-grow, refocus after add
 // ───────────────────────────────────────────────────────────────
 
 function QuickInput({
@@ -429,18 +469,33 @@ function QuickInput({
   projectId: string | null;
   onCreated: () => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-grow so multiline input is fully visible, not clipped.
+  const grow = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  };
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+  useEffect(() => {
+    grow();
+  }, [value]);
 
   const submit = () => {
-    const parsed = parseTodoInput(value);
+    // First line = title, the rest = description body (Absätze).
+    const lines = value.split('\n');
+    const rawTitle = lines[0] ?? '';
+    const body = lines.slice(1).join('\n').trim();
+    const parsed = parseTodoInput(rawTitle);
     if (!parsed.title) return;
     setError(null);
     start(async () => {
@@ -448,10 +503,13 @@ function QuickInput({
       fd.set('title', parsed.title);
       fd.set('groupId', groupId);
       if (projectId) fd.set('projectId', projectId);
+      if (body) fd.set('description', body);
       if (parsed.dueAt) fd.set('dueAt', parsed.dueAt.toISOString());
       const res = await createTodoFromForm(fd);
       if (res.ok) {
         setValue('');
+        // Refocus for rapid back-to-back capture.
+        requestAnimationFrame(() => inputRef.current?.focus());
         onCreated();
       } else {
         setError(res.error ?? 'Fehler beim Anlegen');
@@ -459,38 +517,33 @@ function QuickInput({
     });
   };
 
-  // Input is rendered as a list-row (no own box), so it shares the
-  // divide-y separator with the items below it. Background lifts only
-  // very subtly on focus — the row appearance carries the boundary, not
-  // a box border.
   return (
     <div>
       <div
-        className="flex h-11 items-center gap-2.5 px-1 transition-colors duration-150"
-        style={{
-          background: focused ? 'rgba(255, 255, 255, 0.025)' : 'rgba(255, 255, 255, 0.015)',
-        }}
+        className="flex items-start gap-2.5 px-1 py-2.5 transition-colors duration-150"
+        style={{ background: focused ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.015)' }}
       >
-        <PlusIcon className="shrink-0 text-[#52525B]" />
-        <input
+        <PlusIcon className="mt-1 shrink-0 text-[#52525B]" />
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={1}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
+            // Enter submits; Shift+Enter inserts a newline (body paragraph).
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               submit();
             }
           }}
-          placeholder="Neues Todo …"
+          placeholder="Neues Todo … (Shift+⏎ für Absatz)"
           disabled={pending}
-          className="flex-1 bg-transparent text-[14px] text-[#FAFAFA] outline-none placeholder:text-[#52525B] disabled:opacity-60"
+          className="flex-1 resize-none bg-transparent text-[14px] leading-[1.5] text-[#FAFAFA] outline-none placeholder:text-[#52525B] disabled:opacity-60"
         />
         <span
-          className="font-mono text-[10px] uppercase tracking-[0.3px] text-[#52525B] transition-opacity duration-150"
+          className="mt-1 shrink-0 font-mono text-[10px] uppercase tracking-[0.3px] text-[#52525B] transition-opacity duration-150"
           style={{ opacity: focused ? 1 : 0 }}
           aria-hidden
         >
@@ -510,10 +563,6 @@ function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-// ───────────────────────────────────────────────────────────────
-// Section label (conditional)
-// ───────────────────────────────────────────────────────────────
-
 function SectionLabel({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
     <p className={`font-mono text-[10.5px] uppercase tracking-[0.5px] text-[#52525B] ${className ?? ''}`}>
@@ -523,22 +572,27 @@ function SectionLabel({ className, children }: { className?: string; children: R
 }
 
 // ───────────────────────────────────────────────────────────────
-// Todo row — checkbox-sibling + priority pill + due-date pill
+// Todo row — checkbox + title + indicators; expand = full editor
 // ───────────────────────────────────────────────────────────────
 
 function TodoRow({
   todo,
+  view,
   expanded,
   onToggleExpand,
   onChanged,
 }: {
   todo: DetailTodo;
+  view: ListView;
   expanded: boolean;
   onToggleExpand: () => void;
   onChanged: () => void;
 }) {
   const [, start] = useTransition();
   const done = todo.status === 'erledigt' || todo.status === 'abgebrochen';
+  const subtaskTotal = todo.subtasks?.length ?? 0;
+  const subtaskDone = todo.subtasks?.filter((s) => s.done).length ?? 0;
+  const detailed = view === 'ausführlich' && !done;
 
   const onToggleDone = () => {
     start(async () => {
@@ -555,20 +609,6 @@ function TodoRow({
     });
   };
 
-  const onSetDue = (date: string | null) => {
-    start(async () => {
-      await setTodoDue(todo.id, date);
-      onChanged();
-    });
-  };
-
-  const onSetPriority = (priority: TodoPriority) => {
-    start(async () => {
-      await setTodoPriority(todo.id, priority);
-      onChanged();
-    });
-  };
-
   return (
     <motion.div
       layout
@@ -578,7 +618,7 @@ function TodoRow({
       transition={{ duration: 0.18, ease: 'easeOut' }}
       className="group"
     >
-      <div className="flex h-11 w-full items-center gap-3 px-1 transition-colors duration-150 group-hover:bg-white/[0.015]">
+      <div className="flex min-h-11 w-full items-center gap-3 px-1 py-1.5 transition-colors duration-150 group-hover:bg-white/[0.015]">
         <button
           type="button"
           onClick={onToggleDone}
@@ -592,17 +632,33 @@ function TodoRow({
           onClick={onToggleExpand}
           aria-expanded={expanded}
           aria-label={expanded ? 'Details schließen' : 'Details öffnen'}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 py-0.5 text-left"
         >
-          <span
-            className={`min-w-0 flex-1 truncate text-[14px] transition-colors duration-300 ${
-              done ? 'text-[#52525B] line-through decoration-[#52525B]/40' : 'text-[#FAFAFA]'
-            }`}
-          >
-            {todo.title}
+          <span className="flex items-center gap-3">
+            <span
+              className={`min-w-0 flex-1 truncate text-[14px] transition-colors duration-300 ${
+                done ? 'text-[#52525B] line-through decoration-[#52525B]/40' : 'text-[#FAFAFA]'
+              }`}
+            >
+              {todo.title}
+            </span>
+            {!done && subtaskTotal > 0 && (
+              <span className="shrink-0 font-mono text-[10px] text-[#52525B]">
+                ☑ {subtaskDone}/{subtaskTotal}
+              </span>
+            )}
+            {!done && <PriorityChip priority={todo.priority} />}
+            {!done && todo.scheduledTime && (
+              <span className="shrink-0 font-mono text-[10.5px] text-[#52525B]">{todo.scheduledTime}</span>
+            )}
+            {!done && todo.dueAt && <DueChip iso={todo.dueAt} />}
           </span>
-          {!done && <PriorityChip priority={todo.priority} />}
-          {!done && todo.dueAt && <DueChip iso={todo.dueAt} />}
+          {/* Ausführlich: show a body preview inline, without expanding. */}
+          {detailed && todo.description && (
+            <span className="line-clamp-2 whitespace-pre-wrap pr-6 text-[12px] leading-[1.5] text-[#A1A1AA]">
+              {todo.description}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -623,24 +679,7 @@ function TodoRow({
             transition={{ duration: 0.24, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            <div className="ml-7 mb-3 mt-1 rounded-md border border-[#1F1F23] bg-[#0E0E11] p-3 text-[12.5px] text-[#A1A1AA]">
-              {todo.description ? (
-                <p className="whitespace-pre-wrap">{todo.description}</p>
-              ) : (
-                <p className="italic text-[#52525B]">Keine Beschreibung.</p>
-              )}
-              <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px]">
-                <DueInput value={todo.dueAt} onChange={onSetDue} />
-                <PrioritySelect value={todo.priority} onChange={onSetPriority} />
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  className="ml-auto text-[#52525B] transition-colors hover:text-[#ff8a8a]"
-                >
-                  Löschen
-                </button>
-              </div>
-            </div>
+            <TodoEditor todo={todo} onChanged={onChanged} onDelete={onDelete} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -648,29 +687,213 @@ function TodoRow({
   );
 }
 
-function Checkbox({ done }: { done: boolean }) {
+// ───────────────────────────────────────────────────────────────
+// Inline editor — title, body, subtasks, due, time, priority, delete
+// ───────────────────────────────────────────────────────────────
+
+function TodoEditor({
+  todo,
+  onChanged,
+  onDelete,
+}: {
+  todo: DetailTodo;
+  onChanged: () => void;
+  onDelete: () => void;
+}) {
+  const [, start] = useTransition();
+  const [title, setTitle] = useState(todo.title);
+  const [desc, setDesc] = useState(todo.description ?? '');
+  const [newSub, setNewSub] = useState('');
+
+  const saveTitle = () => {
+    const next = title.trim();
+    if (!next || next === todo.title) return;
+    start(async () => {
+      await updateTodoTitle(todo.id, next);
+      onChanged();
+    });
+  };
+
+  const saveDesc = () => {
+    if ((desc.trim() || '') === (todo.description ?? '')) return;
+    start(async () => {
+      await setTodoDescription(todo.id, desc);
+      onChanged();
+    });
+  };
+
+  const addSub = () => {
+    const t = newSub.trim();
+    if (!t) return;
+    start(async () => {
+      await addSubtask(todo.id, t);
+      setNewSub('');
+      onChanged();
+    });
+  };
+
+  const onSetDue = (date: string | null) =>
+    start(async () => {
+      await setTodoDue(todo.id, date);
+      onChanged();
+    });
+
+  const onSetTime = (time: string | null) =>
+    start(async () => {
+      await setTodoScheduledTime(todo.id, time);
+      onChanged();
+    });
+
+  const onSetPriority = (priority: TodoPriority) =>
+    start(async () => {
+      await setTodoPriority(todo.id, priority);
+      onChanged();
+    });
+
+  return (
+    <div className="ml-7 mb-3 mt-1 flex flex-col gap-3 rounded-md border border-[#1F1F23] bg-[#0E0E11] p-3">
+      {/* Editable title */}
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={saveTitle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        className="w-full rounded border border-transparent bg-transparent text-[14px] font-medium text-[#FAFAFA] outline-none focus:border-[#2A2A30] focus:bg-[#0A0A0C] focus:px-2 focus:py-1"
+        aria-label="Titel bearbeiten"
+      />
+
+      {/* Editable body (Absätze / zweite Ebene) */}
+      <AutoTextarea
+        value={desc}
+        onChange={setDesc}
+        onBlur={saveDesc}
+        placeholder="Notizen, Absätze, Kontext … (optional)"
+      />
+
+      {/* Subtasks (Untergruppen) */}
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Subtasks</SectionLabel>
+        {todo.subtasks && todo.subtasks.length > 0 && (
+          <ul className="flex flex-col">
+            {todo.subtasks.map((st) => (
+              <li key={st.id} className="group/sub flex items-center gap-2 py-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    start(async () => {
+                      await toggleSubtask(st.id);
+                      onChanged();
+                    })
+                  }
+                  aria-label={st.done ? 'Wieder öffnen' : 'Erledigt'}
+                  className="shrink-0 text-[#52525B] transition-colors hover:text-[#FAFAFA]"
+                >
+                  <Checkbox done={st.done} small />
+                </button>
+                <span className={`min-w-0 flex-1 truncate text-[12.5px] ${st.done ? 'text-[#52525B] line-through decoration-[#52525B]/40' : 'text-[#D4D4D8]'}`}>
+                  {st.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    start(async () => {
+                      await deleteSubtask(st.id);
+                      onChanged();
+                    })
+                  }
+                  aria-label="Subtask löschen"
+                  className="shrink-0 px-1 text-[12px] text-[#3a3a3f] opacity-0 transition-opacity hover:text-[#ff8a8a] group-hover/sub:opacity-100"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex items-center gap-2 py-1">
+          <span aria-hidden className="shrink-0 text-[12px] text-[#52525B]">+</span>
+          <input
+            value={newSub}
+            onChange={(e) => setNewSub(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addSub();
+              }
+            }}
+            placeholder="Subtask hinzufügen …"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-[#FAFAFA] outline-none placeholder:text-[#52525B]"
+          />
+        </div>
+      </div>
+
+      {/* Due-date + time + priority controls */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1F1F23] pt-3 text-[12px]">
+        <DueControl value={todo.dueAt} onChange={onSetDue} />
+        <TimeControl value={todo.scheduledTime ?? null} onChange={onSetTime} />
+        <PrioritySelect value={todo.priority} onChange={onSetPriority} />
+        <button type="button" onClick={onDelete} className="ml-auto text-[#52525B] transition-colors hover:text-[#ff8a8a]">
+          Löschen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AutoTextarea({
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur: () => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      className="w-full resize-none rounded border border-[#1F1F23] bg-[#0A0A0C] px-2 py-1.5 text-[12.5px] leading-[1.6] text-[#D4D4D8] outline-none focus:border-[#2A2A30]"
+    />
+  );
+}
+
+function Checkbox({ done, small }: { done: boolean; small?: boolean }) {
+  const size = small ? 13 : 16;
   if (done) {
     return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fillOpacity="0.05" />
         <polyline points="9 12 11 14 15 9" />
       </svg>
     );
   }
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="3" y="3" width="18" height="18" rx="3" />
     </svg>
   );
 }
 
-// ───────────────────────────────────────────────────────────────
-// Priority chip — dot + uppercase label
-// ───────────────────────────────────────────────────────────────
-
 function PriorityChip({ priority }: { priority: TodoPriority }) {
-  // 'mittel' is the implicit default — no chip. Renders only for explicit
-  // priority signals.
   if (priority === 'mittel') return null;
   const palette: Record<Exclude<TodoPriority, 'mittel'>, { color: string; label: string }> = {
     urgent: { color: '#E8B86D', label: 'urgent' },
@@ -680,23 +903,12 @@ function PriorityChip({ priority }: { priority: TodoPriority }) {
   const tone = palette[priority as Exclude<TodoPriority, 'mittel'>] ?? null;
   if (!tone) return null;
   return (
-    <span
-      className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.4px]"
-      style={{ color: tone.color }}
-    >
-      <span
-        aria-hidden
-        className="inline-block h-1.5 w-1.5 rounded-full"
-        style={{ background: tone.color }}
-      />
+    <span className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.4px]" style={{ color: tone.color }}>
+      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: tone.color }} />
       {tone.label}
     </span>
   );
 }
-
-// ───────────────────────────────────────────────────────────────
-// Due-date chip
-// ───────────────────────────────────────────────────────────────
 
 function DueChip({ iso }: { iso: string }) {
   const d = new Date(iso);
@@ -724,20 +936,38 @@ function DueChip({ iso }: { iso: string }) {
 }
 
 // ───────────────────────────────────────────────────────────────
-// Inline edit controls
+// Due control — heute / morgen / Datum / kein Datum
 // ───────────────────────────────────────────────────────────────
 
-function DueInput({
-  value,
-  onChange,
-}: {
-  value: string | null;
-  onChange: (date: string | null) => void;
-}) {
+function DueControl({ value, onChange }: { value: string | null; onChange: (date: string | null) => void }) {
   const local = value ? new Date(value).toISOString().slice(0, 10) : '';
+
+  const setRelative = (offsetDays: number) => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + offsetDays);
+    onChange(d.toISOString());
+  };
+
+  const todayActive = (() => {
+    if (!value) return false;
+    const d = new Date(value);
+    const n = new Date();
+    return d.toDateString() === n.toDateString();
+  })();
+  const tomorrowActive = (() => {
+    if (!value) return false;
+    const d = new Date(value);
+    const n = new Date();
+    n.setDate(n.getDate() + 1);
+    return d.toDateString() === n.toDateString();
+  })();
+
   return (
-    <label className="flex items-center gap-2 text-[#52525B]">
+    <div className="flex flex-wrap items-center gap-1.5 text-[#52525B]">
       <span>Fällig:</span>
+      <Pill active={todayActive} onClick={() => setRelative(0)}>Heute</Pill>
+      <Pill active={tomorrowActive} onClick={() => setRelative(1)}>Morgen</Pill>
       <input
         type="date"
         value={local}
@@ -751,13 +981,30 @@ function DueInput({
           }
         }}
         className="rounded border border-[#1F1F23] bg-[#0A0A0C] px-2 py-1 text-[12px] text-[#A1A1AA] outline-none focus:border-[#2A2A30]"
+        aria-label="Datum wählen"
+      />
+      <Pill active={!value} onClick={() => onChange(null)}>Kein Datum</Pill>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────
+// Time control — pure data field "HH:MM" (no calendar coupling)
+// ───────────────────────────────────────────────────────────────
+
+function TimeControl({ value, onChange }: { value: string | null; onChange: (time: string | null) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-[#52525B]">
+      <span>Uhrzeit:</span>
+      <input
+        type="time"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || null)}
+        className="rounded border border-[#1F1F23] bg-[#0A0A0C] px-2 py-1 text-[12px] text-[#A1A1AA] outline-none focus:border-[#2A2A30]"
+        aria-label="Eingeplante Uhrzeit"
       />
       {value && (
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="text-[#52525B] hover:text-[#A1A1AA]"
-        >
+        <button type="button" onClick={() => onChange(null)} className="text-[#52525B] hover:text-[#A1A1AA]" aria-label="Uhrzeit entfernen">
           ×
         </button>
       )}
@@ -765,13 +1012,7 @@ function DueInput({
   );
 }
 
-function PrioritySelect({
-  value,
-  onChange,
-}: {
-  value: TodoPriority;
-  onChange: (p: TodoPriority) => void;
-}) {
+function PrioritySelect({ value, onChange }: { value: TodoPriority; onChange: (p: TodoPriority) => void }) {
   return (
     <label className="flex items-center gap-2 text-[#52525B]">
       <span>Priorität:</span>
@@ -786,5 +1027,19 @@ function PrioritySelect({
         <option value="urgent">Urgent</option>
       </select>
     </label>
+  );
+}
+
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-2 py-0.5 text-[11.5px] transition-colors duration-150 ${
+        active ? 'bg-white/[0.08] text-[#FAFAFA]' : 'text-[#A1A1AA] hover:bg-white/[0.04] hover:text-[#FAFAFA]'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
