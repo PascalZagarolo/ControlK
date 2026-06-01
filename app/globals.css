@@ -83,3 +83,29 @@ body {
   animation: replyFlash 1.4s ease-out;
   border-radius: 6px;
 }
+
+/* React Flow (@xyflow) zoom controls — dark-mode them. The library's default
+   button bg is #fefefe with `inherit` icon colour, which renders white-on-
+   white on our dark canvas (the +/− glyphs vanished). Override the exposed
+   CSS variables so the +/−/fit buttons match the app's dark palette. */
+.react-flow__controls {
+  --xy-controls-button-background-color-default: #1b1c1e; /* grey-600 */
+  --xy-controls-button-background-color-hover-default: #2f3031; /* grey-500 */
+  --xy-controls-button-color-default: #cdcece; /* grey-100 — visible glyphs */
+  --xy-controls-button-color-hover-default: #ffffff;
+  --xy-controls-button-border-color-default: rgba(255, 255, 255, 0.08);
+}
+.react-flow__controls-button {
+  background-color: var(--xy-controls-button-background-color-default);
+  color: var(--xy-controls-button-color-default);
+  border-bottom: 1px solid var(--xy-controls-button-border-color-default);
+}
+.react-flow__controls-button:hover {
+  background-color: var(--xy-controls-button-background-color-hover-default);
+  color: var(--xy-controls-button-color-hover-default);
+}
+/* The glyphs are inline SVGs that fill with currentColor — make sure they
+   follow the button colour rather than the default near-black fill. */
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
