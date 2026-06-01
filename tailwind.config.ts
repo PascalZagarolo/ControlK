@@ -14,10 +14,23 @@ const config: Config = {
           900: '#07080a',
         },
         line: 'hsl(195,5%,15%)',
+        // Marketing landing accents (Ctrl+K brand). Indigo-violet is the
+        // primary accent; yellow is reserved for a single highlight detail.
+        accent: {
+          DEFAULT: '#8B7FFF',
+          soft: 'rgba(139,127,255,0.12)',
+          line: 'rgba(139,127,255,0.28)',
+        },
+        'accent-yellow': '#FFD84D',
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-jetbrains-mono)', 'ui-monospace', 'Menlo', 'monospace'],
+        // Landing typography: Inter Tight for headlines, Geist for body.
+        // Variables are applied on the marketing page wrapper, so these
+        // tokens only resolve there and never affect the app shell.
+        display: ['var(--font-inter-tight)', 'var(--font-inter)', 'system-ui', 'sans-serif'],
+        body: ['var(--font-geist-sans)', 'var(--font-inter)', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         panel:
