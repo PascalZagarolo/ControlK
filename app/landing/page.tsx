@@ -8,6 +8,7 @@ import { Problem } from '@/components/marketing/problem';
 import { WedgeCommitments } from '@/components/marketing/wedge-commitments';
 import { WedgeInbox } from '@/components/marketing/wedge-inbox';
 import { WedgeMorningPlan } from '@/components/marketing/wedge-morning-plan';
+import { WedgeFlowDemo } from '@/components/marketing/wedge-flow-demo';
 import { HowItWorks } from '@/components/marketing/how-it-works';
 import { Trust } from '@/components/marketing/trust';
 import { PricingTeaser } from '@/components/marketing/pricing-teaser';
@@ -60,6 +61,7 @@ export default function LandingPage() {
         <WedgeCommitments />
         <WedgeInbox />
         <WedgeMorningPlan />
+        <WedgeFlowDemo />
         <HowItWorks />
         <Trust />
         <PricingTeaser />
