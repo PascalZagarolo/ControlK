@@ -12,10 +12,14 @@ import { getCommitmentCounts } from '@/lib/db/queries/commitments';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import { collectBriefingSignals } from '@/lib/foyer/briefing-signals';
 import { getOrGenerateBriefing } from '@/lib/foyer/briefing-ai';
+import { buildMorningPlan } from '@/lib/morning-plan/build';
+import type { PlanItem } from '@/lib/morning-plan/types';
 import type {
   FoyerData,
   FoyerEvent,
   FoyerLatestMessage,
+  FoyerMorningPlan,
+  FoyerPlanItem,
   FoyerSuggestion,
 } from '@/components/foyer/foyer-client';
 
@@ -58,6 +62,7 @@ export async function buildFoyerData(input: {
     gmail,
     awaitingSplit,
     commitmentCounts,
+    morningPlanRaw,
   ] = await Promise.all([
       listCalendarEvents(input.workspaceId, startOfToday, startOfTomorrow).catch(
         () => [] as Awaited<ReturnType<typeof listCalendarEvents>>
@@ -85,6 +90,13 @@ export async function buildFoyerData(input: {
       getCommitmentCounts(input.workspaceId, input.userId).catch((e) => {
         console.warn('[build-foyer-data] getCommitmentCounts failed:', e);
         return { open: 0, overdue: 0 };
+      }),
+      // Morgen-Plan-Synthese (Prompt 4) — deterministisch, ohne LLM-Summary
+      // (der Foyer rendert die berechneten Items selbst). Liefert die Spitze,
+      // die "Heute"-Agenda und Kollisionen aus echten, Prompt-1-gegateten Daten.
+      buildMorningPlan(input.workspaceId, input.userId, { withSummary: false }).catch((e) => {
+        console.warn('[build-foyer-data] buildMorningPlan failed:', e);
+        return null;
       }),
     ]);
 
@@ -210,6 +222,8 @@ export async function buildFoyerData(input: {
     .sort((a, b) => a.minAgo - b.minAgo)
     .slice(0, 8); // matches NotificationStack render cap + headroom
 
+  const morningPlan = morningPlanRaw ? toFoyerMorningPlan(morningPlanRaw) : undefined;
+
   return {
     userName: input.userName,
     workspaceName: input.workspaceName,
@@ -232,6 +246,7 @@ export async function buildFoyerData(input: {
     gmail,
     briefing,
     channelsActivity,
+    morningPlan,
   };
 }
 
@@ -475,4 +490,69 @@ function getMood(d: Date): 'morning' | 'midday' | 'afternoon' | 'evening' | 'nig
   if (h >= 13 && h < 17) return 'afternoon';
   if (h >= 17 && h < 22) return 'evening';
   return 'night';
+}
+
+// ───────────────────────────────────────────────────────────────
+// Morgen-Plan → Foyer mapping
+// ───────────────────────────────────────────────────────────────
+
+// Locked-caps kicker per item kind (matches the inbox/plan vocabulary).
+const PLAN_KICKER: Record<PlanItem['kind'], string> = {
+  commitment_overdue: 'Zusage · überfällig',
+  commitment_due_today: 'Zusage · heute fällig',
+  commitment_open: 'Zusage',
+  reply_waiting: 'Braucht Antwort',
+  event_today: 'Termin',
+  todo_overdue: 'Todo · überfällig',
+  todo_due_today: 'Todo · heute',
+};
+
+// Real theme tokens — sand/gold ONLY for the due/active signal, red for
+// overdue, calm greys/blue/green otherwise. No new colours.
+function planAccent(kind: PlanItem['kind']): string {
+  switch (kind) {
+    case 'commitment_overdue':
+    case 'todo_overdue':
+      return '#ff8a8a';
+    case 'commitment_due_today':
+      return '#E8B86D'; // sand/gold — the one "fällig" highlight
+    case 'reply_waiting':
+      return '#5E9EFF';
+    case 'event_today':
+      return '#5ee08a';
+    default:
+      return '#9c9c9d';
+  }
+}
+
+function toFoyerPlanItem(item: PlanItem): FoyerPlanItem {
+  return {
+    key: item.key,
+    kicker: PLAN_KICKER[item.kind] ?? 'Heute',
+    title: item.title,
+    reason: item.reason,
+    isQuestion: item.isQuestion,
+    accent: planAccent(item.kind),
+    href: item.href,
+  };
+}
+
+// Maps the deterministic plan (Prompt 4) into the slim foyer slice: the most
+// urgent item is the gold spike, the rest is the "Heute"-agenda, plus at most
+// one collision insight. The plan's items are already prioritised + gated.
+function toFoyerMorningPlan(plan: Awaited<ReturnType<typeof buildMorningPlan>>): FoyerMorningPlan {
+  const mapped = plan.items.map(toFoyerPlanItem);
+  // The spike is the single most urgent NON-question item (a tentative
+  // "maybe a promise?" must never be asserted as the day's headline). Fall
+  // back to the first item only if everything is a question.
+  const spikeIdx = mapped.findIndex((m) => !m.isQuestion);
+  const topIndex = spikeIdx >= 0 ? spikeIdx : mapped.length > 0 ? 0 : -1;
+  const top = topIndex >= 0 ? mapped[topIndex] : null;
+  const items = mapped.filter((_, i) => i !== topIndex);
+  return {
+    top,
+    items,
+    collision: plan.collisions[0]?.message ?? null,
+    isCalm: plan.isCalm,
+  };
 }

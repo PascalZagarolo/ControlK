@@ -42,6 +42,33 @@ export type FoyerSuggestion = {
   href: string;
 };
 
+/** One agenda entry in the foyer's "Heute" list (mapped from a PlanItem). */
+export type FoyerPlanItem = {
+  key: string;
+  /** Short kind label, e.g. "Zusage · überfällig", "Braucht Antwort". */
+  kicker: string;
+  title: string;
+  /** Sub-line: waiting time / due / customer context. Origin shown here. */
+  reason: string;
+  /** medium/low commitments render as a question, not an assertion. */
+  isQuestion: boolean;
+  /** Theme accent for this item (real tokens; gold only for the active/due). */
+  accent: string;
+  href: string;
+};
+
+/** Slim morning-plan slice for the foyer (deterministic, Prompt-1-gated). */
+export type FoyerMorningPlan = {
+  /** The single most urgent real item → the gold spike. Null on a calm day. */
+  top: FoyerPlanItem | null;
+  /** Today's agenda, most urgent first (top item excluded). */
+  items: FoyerPlanItem[];
+  /** At most one cross-source collision insight, or null. */
+  collision: string | null;
+  /** True when nothing pressing — honest calm state. */
+  isCalm: boolean;
+};
+
 export type FoyerData = {
   /** User's first name for the greeting */
   userName: string;
@@ -69,6 +96,14 @@ export type FoyerData = {
   /** Morgen-Plan: firm (high-confidence) commitments you owe. */
   commitmentsOpen?: number;
   commitmentsOverdue?: number;
+  /**
+   * Morgen-Plan-Synthese (Prompt 4, deterministisch). Slim presentational
+   * slice the foyer renders as: gold spike (the single most urgent item),
+   * the "Heute"-agenda, and at most one collision insight. All items are
+   * Prompt-1-gated (triage) + Prompt-3 explainable — nothing marketing/noise.
+   * undefined when the plan couldn't be built (degrades to the counters).
+   */
+  morningPlan?: FoyerMorningPlan;
   /**
    * Suggestions for the "Jetzt" section — 1-N items the user can cycle
    * through with "Anderes vorschlagen". Caller may provide computed
@@ -235,24 +270,32 @@ function lightFor(mood: Mood): { color: string; opacity: number } {
   }
 }
 
+/**
+ * Tageszeit-abhängiger Modus-Untertitel.
+ *  - morgens/vormittags: VORAUSSCHAUEND („das steht heute an").
+ *  - abends/nachts: ABSCHLIESSEND („das bleibt für morgen").
+ * Zählt konkret, was der Plan enthält — assistierend, nie befehlend. Wenn
+ * der Plan ruhig ist, sagt der Ruhezustand (rendert separat) das schon.
+ */
 function subtitleFor(
   mood: Mood,
   isWeekend: boolean,
-  events: number,
-  unread: number
+  plan: FoyerMorningPlan | undefined
 ): string {
-  if (isWeekend) return 'Wochenende. Nur das Nötigste.';
-  if (mood === 'night') return 'Vielleicht noch eine letzte Sache.';
-  if (mood === 'evening') return 'Der Tag klingt aus.';
-  if (events === 0 && unread === 0) return 'Ruhiger Tag bisher.';
-  const parts: string[] = [];
-  if (events > 0) {
-    parts.push(events === 1 ? 'Ein Termin heute' : `${spellOut(events)} Termine heute`);
+  const isEvening = mood === 'evening' || mood === 'night';
+  const pressing = plan ? (plan.top ? 1 : 0) + plan.items.length : 0;
+
+  if (isWeekend && pressing === 0) return 'Wochenende. Nur das Nötigste.';
+  if (!plan || plan.isCalm) {
+    return isEvening ? 'Der Tag klingt ruhig aus.' : 'Ruhiger Start — nichts drängt.';
   }
-  if (unread > 0) {
-    parts.push(`${spellOut(unread)} ungelesene Nachrichten`);
+  if (isEvening) {
+    return pressing > 0
+      ? 'Das bleibt für morgen — der Tag klingt aus.'
+      : 'Der Tag klingt aus.';
   }
-  return parts.join(' · ') + '.';
+  // Morning / midday / afternoon — forward-looking.
+  return 'Das steht heute an.';
 }
 
 function spellOut(n: number): string {
@@ -385,7 +428,7 @@ export function FoyerClient(props: FoyerData) {
       ? greetingFor(mood, props.userName, workspaceContext)
       : ' ';
     const subtitle = now
-      ? subtitleFor(mood, weekend, props.events.length, props.unread)
+      ? subtitleFor(mood, weekend, props.morningPlan)
       : ' ';
     const suggestions = now ? suggestionsFor(mood, weekend, props.unread) : [];
     const light = lightFor(mood);
@@ -395,7 +438,7 @@ export function FoyerClient(props: FoyerData) {
     props.userName,
     props.workspaceName,
     props.workspaceScope,
-    props.events.length,
+    props.morningPlan,
     props.unread,
   ]);
 
@@ -468,28 +511,48 @@ export function FoyerClient(props: FoyerData) {
               </p>
             </header>
 
+            {/* Morgen-Plan: die EINE Spitze, hervorgehoben mit dem Gold-
+                Akzent (bzw. der Dringlichkeitsfarbe). Nur wenn der Tag etwas
+                Echtes enthält — sonst greift der Ruhezustand unten. */}
+            {props.morningPlan?.top && (
+              <div className="mt-10 w-full max-w-[560px]">
+                <MorningSpike item={props.morningPlan.top} onNavigate={enterDoorway} />
+              </div>
+            )}
+
+            {/* „Heute" als konkrete Agenda (Prompt-4-Items, Prompt-1-gegated). */}
+            {props.morningPlan && props.morningPlan.items.length > 0 && (
+              <div className="mt-8 w-full max-w-[560px]">
+                <TodayAgenda items={props.morningPlan.items} onNavigate={enterDoorway} />
+              </div>
+            )}
+
+            {/* Kollisions-Einsicht — höchstens eine, dezent. */}
+            {props.morningPlan?.collision && (
+              <div className="mt-6 w-full max-w-[560px]">
+                <CollisionHint message={props.morningPlan.collision} />
+              </div>
+            )}
+
+            {/* Ehrlicher Ruhezustand — nur wenn der Plan wirklich leer ist. */}
+            {props.morningPlan?.isCalm && !props.morningPlan.top && (
+              <motion.p
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.2, ease: 'easeOut' }}
+                className="mt-10 max-w-[460px] text-center text-[14px] leading-[1.6] text-[#7c7c83]"
+              >
+                {ctx.mood === 'evening' || ctx.mood === 'night'
+                  ? 'Nichts Überfälliges offen. Du kannst den Tag beruhigt ausklingen lassen.'
+                  : 'Heute ist nichts Überfälliges offen. Inbox ist ruhig.'}
+              </motion.p>
+            )}
+
             {props.briefing && (
               <div className="mt-10 flex w-full justify-center">
                 <SmartBriefing briefing={props.briefing} dim={dimRest} />
               </div>
             )}
-
-            <div className="mt-8 flex w-full justify-center">
-              <DailyBriefing
-                events={props.events}
-                dueToday={props.dueToday}
-                dueWeek={props.dueWeek}
-                dueTomorrow={props.dueTomorrow}
-                mood={ctx.mood}
-                onNavigate={enterDoorway}
-                inboxHasItems={props.unread > 0 || props.mentions > 0 || !!props.latestMessage}
-                channelsActivity={props.channelsActivity ?? null}
-                awaitingOnYou={props.awaitingOnYou ?? 0}
-                awaitingOnThem={props.awaitingOnThem ?? 0}
-                commitmentsOpen={props.commitmentsOpen ?? 0}
-                commitmentsOverdue={props.commitmentsOverdue ?? 0}
-              />
-            </div>
 
             <div className="mt-12 flex w-full justify-center">
               <SearchBar
@@ -504,6 +567,23 @@ export function FoyerClient(props: FoyerData) {
                 items={ctx.suggestions}
                 onClick={enterDoorway}
                 dim={dimRest}
+              />
+            </div>
+
+            {/* Gedämpfte Zähler ganz unten — Kontext, nicht Hauptinhalt. */}
+            <div className="mt-16 flex w-full justify-center opacity-70">
+              <DailyBriefing
+                events={props.events}
+                dueToday={props.dueToday}
+                dueWeek={props.dueWeek}
+                dueTomorrow={props.dueTomorrow}
+                mood={ctx.mood}
+                onNavigate={enterDoorway}
+                channelsActivity={props.channelsActivity ?? null}
+                awaitingOnYou={props.awaitingOnYou ?? 0}
+                awaitingOnThem={props.awaitingOnThem ?? 0}
+                commitmentsOpen={props.commitmentsOpen ?? 0}
+                commitmentsOverdue={props.commitmentsOverdue ?? 0}
               />
             </div>
 
@@ -718,6 +798,114 @@ function Num({ children }: { children: React.ReactNode }) {
   return <span className="font-medium text-[#FAFAFA]">{children}</span>;
 }
 
+// ───────────────────────────────────────────────────────────────
+// Morgen-Plan: Spitze → Heute-Agenda → Kollision
+// (consumes the deterministic Prompt-4 plan; no new colours/boxes —
+//  hierarchy via type, spacing and the sparing gold accent.)
+// ───────────────────────────────────────────────────────────────
+
+/**
+ * Die eine Spitze des Tages — das Dringendste, hervorgehoben mit einer
+ * dezenten Akzentlinie (kein greller Kasten). Zeigt Kontext/Herkunft.
+ */
+function MorningSpike({
+  item,
+  onNavigate,
+}: {
+  item: FoyerPlanItem;
+  onNavigate: (href: string) => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={() => onNavigate(item.href)}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.18, ease: 'easeOut' }}
+      className="group flex w-full items-start gap-3.5 border-l-2 pl-4 text-left"
+      style={{ borderColor: item.accent }}
+    >
+      <span className="min-w-0 flex-1">
+        <span
+          className="block font-mono text-[10.5px] uppercase tracking-[0.4px]"
+          style={{ color: item.accent }}
+        >
+          {item.kicker}
+        </span>
+        <span className="mt-1 block text-[19px] font-normal leading-[1.25] tracking-[-0.2px] text-[#F0F0F2]">
+          {item.title}
+        </span>
+        <span className="mt-1 block text-[13px] leading-[1.5] text-[#9b9ba0]">
+          {item.reason}
+        </span>
+      </span>
+      <ArrowUpRight className="mt-1.5 shrink-0 text-[#52525B] transition-colors duration-150 group-hover:text-[#FAFAFA]" />
+    </motion.button>
+  );
+}
+
+/** „Heute" als ruhige Agenda konkreter Einträge (keine Zähler). */
+function TodayAgenda({
+  items,
+  onNavigate,
+}: {
+  items: FoyerPlanItem[];
+  onNavigate: (href: string) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="w-full">
+      <p className="mb-2 px-2 font-mono text-[10px] uppercase tracking-[0.4px] text-[#52525B]">
+        Heute
+      </p>
+      <div>
+        {items.slice(0, 6).map((item, i) => (
+          <motion.button
+            key={item.key}
+            type="button"
+            onClick={() => onNavigate(item.href)}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.24 + i * 0.03, ease: 'easeOut' }}
+            className={`group flex w-full items-baseline gap-3 px-2 py-2 text-left transition-colors duration-150 ease-out hover:bg-white/[0.02] ${
+              i < Math.min(items.length, 6) - 1 ? 'border-b border-[#1F1F23]/10' : ''
+            }`}
+          >
+            <span
+              aria-hidden
+              className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full"
+              style={{ background: item.accent }}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] text-[#FAFAFA]">
+                {item.isQuestion ? `${item.title} — stimmt das?` : item.title}
+              </span>
+              <span className="mt-0.5 block truncate text-[12px] text-[#7c7c83]">
+                {item.reason}
+              </span>
+            </span>
+            <ArrowUpRight className="shrink-0 self-center text-[#3a3a3f] transition-colors duration-150 group-hover:text-[#FAFAFA]" />
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Dezenter Kollisions-Hinweis — feine Akzentlinie, kein Alarm. */
+function CollisionHint({ message }: { message: string }) {
+  return (
+    <motion.p
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.3, ease: 'easeOut' }}
+      className="w-full border-l-2 border-[#E8B86D]/40 pl-3.5 text-[12.5px] leading-[1.55] text-[#9b9ba0]"
+    >
+      {message}
+    </motion.p>
+  );
+}
+
 function SmartBriefing({
   briefing,
   dim,
@@ -765,7 +953,6 @@ function DailyBriefing({
   dueTomorrow,
   mood,
   onNavigate,
-  inboxHasItems,
   channelsActivity,
   awaitingOnYou,
   awaitingOnThem,
@@ -778,9 +965,6 @@ function DailyBriefing({
   dueTomorrow: number;
   mood: Mood;
   onNavigate: (href: string) => void;
-  /** True when the notification stack on the left has any unread items —
-   *  changes the wording of the all-empty briefing state. */
-  inboxHasItems: boolean;
   /** Channels summary for the third row — null in personal workspaces. */
   channelsActivity: FoyerData['channelsActivity'];
   /** Morgen-Plan: triaged awaiting counts + firm commitments owed. */
@@ -831,31 +1015,10 @@ function DailyBriefing({
   const commitmentsEmpty = commitmentsOpen === 0;
   const allEmpty =
     termineEmpty && todosEmpty && channelsEmpty && awaitingEmpty && commitmentsEmpty;
-  if (allEmpty) {
-    // Two flavors of empty:
-    //  - inbox also empty → italic, gentle: a true rest moment.
-    //  - inbox has items   → matter-of-fact: the day itself is clear, but
-    //                        work is incoming from the left.
-    return inboxHasItems ? (
-      <motion.p
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.22, ease: 'easeOut' }}
-        className="text-center text-[13px] text-[#A1A1AA]"
-      >
-        Keine Termine, keine offenen Todos. Inbox links.
-      </motion.p>
-    ) : (
-      <motion.p
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.22, ease: 'easeOut' }}
-        className="text-center text-[13px] italic text-[#7c7c83]"
-      >
-        Heute ist nichts geplant. Genieß den Tag.
-      </motion.p>
-    );
-  }
+  // The honest calm-state message now lives at the top of the foyer (driven
+  // by the morning plan). As a demoted footer, the counters simply render
+  // nothing when empty rather than duplicating that message.
+  if (allEmpty) return null;
 
   type BriefingRow = {
     label: string;
