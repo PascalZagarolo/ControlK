@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -28,6 +29,21 @@ import {
   deleteSubtask,
 } from '@/lib/actions/todos';
 import { setTodoGroupParent } from '@/lib/actions/todo-groups';
+import { FLOW_CANVAS_BG } from '@/lib/flows/status';
+
+// Grafische Gruppen-Ansicht: lazy, damit @xyflow/react die Standard-
+// Listenansicht + das Bundle nicht beschwert.
+const GroupGraphView = dynamic(() => import('./group-graph-view'), {
+  ssr: false,
+  loading: () => (
+    <div
+      className="grid h-[480px] w-full place-items-center rounded-[12px] border border-white/[0.06] text-[13px] text-[#6a6b6c]"
+      style={{ background: FLOW_CANVAS_BG }}
+    >
+      Grafische Ansicht wird geladen …
+    </div>
+  ),
+});
 import { parseTodoInput } from '@/lib/todos/parse-quick-syntax';
 import type { TodoPriority, TodoStatus } from '@/lib/types';
 
@@ -87,6 +103,8 @@ export function TodoGroupDetailClient({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<ListView>('kompakt');
+  // Top-level: Liste (Default) ⇄ Grafisch (Knoten-Ansicht, lazy).
+  const [mode, setMode] = useState<'liste' | 'grafisch'>('liste');
 
   // Title search — case-insensitive over open + done. Empty query = no filter.
   const q = query.trim().toLowerCase();
@@ -107,7 +125,8 @@ export function TodoGroupDetailClient({
 
   return (
     <main className="min-h-screen bg-[#0A0A0C] text-[#FAFAFA]">
-      <div className="mx-auto w-full max-w-[820px] px-6 pt-[88px] pb-24">
+      {/* Grafisch braucht Platz → breiterer Container in dieser Ansicht. */}
+      <div className={`mx-auto w-full px-6 pt-[88px] pb-24 ${mode === 'grafisch' ? 'max-w-[1280px]' : 'max-w-[820px]'}`}>
         <Breadcrumb group={group} />
 
         <header className="mt-6 flex items-start justify-between gap-4">
@@ -118,7 +137,31 @@ export function TodoGroupDetailClient({
             </h1>
             <p className="mt-1 truncate text-[13px] text-[#A1A1AA]">{metaLine}</p>
           </div>
-          <GroupMenu group={group} parentOptions={parentOptions} canNest={canNest} />
+          <div className="flex shrink-0 items-center gap-4">
+            {/* Liste ⇄ Grafisch — app nav style: underlined active tab. */}
+            <div className="flex items-center gap-4" role="tablist" aria-label="Ansicht">
+              {(['liste', 'grafisch'] as const).map((m) => {
+                const active = mode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setMode(m)}
+                    className={`pb-1 font-mono text-[11px] uppercase tracking-[0.4px] transition-colors duration-150 ${
+                      active
+                        ? 'border-b border-[#E8B86D] text-[#FAFAFA]'
+                        : 'border-b border-transparent text-[#52525B] hover:text-[#A1A1AA]'
+                    }`}
+                  >
+                    {m === 'liste' ? 'Liste' : 'Grafisch'}
+                  </button>
+                );
+              })}
+            </div>
+            <GroupMenu group={group} parentOptions={parentOptions} canNest={canNest} />
+          </div>
         </header>
 
         {subgroups.length > 0 && (
@@ -146,6 +189,21 @@ export function TodoGroupDetailClient({
           </section>
         )}
 
+        {mode === 'grafisch' ? (
+          <section className="mt-6">
+            <GroupGraphView
+              groupId={group.id}
+              todos={[...openTodos, ...doneTodos].map((t) => ({
+                id: t.id,
+                title: t.title,
+                status: t.status,
+                priority: t.priority,
+                dueAt: t.dueAt,
+              }))}
+            />
+          </section>
+        ) : (
+          <>
         {/* Toolbar — search + view toggle. Only when there's something to act on. */}
         {(openTodos.length > 0 || doneTodos.length > 0) && (
           <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -230,6 +288,8 @@ export function TodoGroupDetailClient({
               )}
             </AnimatePresence>
           </div>
+        )}
+          </>
         )}
       </div>
     </main>
@@ -700,24 +760,26 @@ function TodoEditor({
   onChanged: () => void;
   onDelete: () => void;
 }) {
-  const [, start] = useTransition();
+  const [pending, start] = useTransition();
   const [title, setTitle] = useState(todo.title);
   const [desc, setDesc] = useState(todo.description ?? '');
   const [newSub, setNewSub] = useState('');
+  // "saved" briefly confirms a successful save so the action feels intuitive.
+  const [justSaved, setJustSaved] = useState(false);
 
-  const saveTitle = () => {
-    const next = title.trim();
-    if (!next || next === todo.title) return;
-    start(async () => {
-      await updateTodoTitle(todo.id, next);
-      onChanged();
-    });
-  };
+  // Dirty = the text fields differ from what's persisted. Drives the visible
+  // save affordance + the Cmd/Ctrl+Enter shortcut.
+  const dirty = title.trim() !== todo.title || (desc.trim() || '') !== (todo.description ?? '');
+  const canSave = dirty && title.trim().length > 0;
 
-  const saveDesc = () => {
-    if ((desc.trim() || '') === (todo.description ?? '')) return;
+  const save = () => {
+    if (!canSave) return;
     start(async () => {
-      await setTodoDescription(todo.id, desc);
+      const next = title.trim();
+      if (next && next !== todo.title) await updateTodoTitle(todo.id, next);
+      if ((desc.trim() || '') !== (todo.description ?? '')) await setTodoDescription(todo.id, desc);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1800);
       onChanged();
     });
   };
@@ -750,30 +812,38 @@ function TodoEditor({
       onChanged();
     });
 
+  // Cmd/Ctrl+Enter saves from anywhere in the title/body fields.
+  const onFieldKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      save();
+    }
+  };
+
   return (
-    <div className="ml-7 mb-3 mt-1 flex flex-col gap-3 rounded-md border border-[#1F1F23] bg-[#0E0E11] p-3">
-      {/* Editable title */}
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={saveTitle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        className="w-full rounded border border-transparent bg-transparent text-[14px] font-medium text-[#FAFAFA] outline-none focus:border-[#2A2A30] focus:bg-[#0A0A0C] focus:px-2 focus:py-1"
-        aria-label="Titel bearbeiten"
-      />
+    <div className="mb-3 mt-1 flex flex-col gap-3 rounded-md border border-[#1F1F23] bg-[#0E0E11] p-3">
+      {/* Editable title — visibly an input field (no silent on-blur save). */}
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Titel</SectionLabel>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={onFieldKeyDown}
+          className="w-full rounded border border-[#1F1F23] bg-[#0A0A0C] px-2.5 py-1.5 text-[14px] font-medium text-[#FAFAFA] outline-none focus:border-[#2A2A30]"
+          aria-label="Titel bearbeiten"
+        />
+      </div>
 
       {/* Editable body (Absätze / zweite Ebene) */}
-      <AutoTextarea
-        value={desc}
-        onChange={setDesc}
-        onBlur={saveDesc}
-        placeholder="Notizen, Absätze, Kontext … (optional)"
-      />
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Beschreibung</SectionLabel>
+        <AutoTextarea
+          value={desc}
+          onChange={setDesc}
+          onKeyDown={onFieldKeyDown}
+          placeholder="Notizen, Absätze, Kontext … (optional)"
+        />
+      </div>
 
       {/* Subtasks (Untergruppen) */}
       <div className="flex flex-col gap-1">
@@ -832,13 +902,40 @@ function TodoEditor({
         </div>
       </div>
 
-      {/* Due-date + time + priority controls */}
+      {/* Due-date + time + priority controls (instant — obvious toggles). */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1F1F23] pt-3 text-[12px]">
         <DueControl value={todo.dueAt} onChange={onSetDue} />
         <TimeControl value={todo.scheduledTime ?? null} onChange={onSetTime} />
         <PrioritySelect value={todo.priority} onChange={onSetPriority} />
-        <button type="button" onClick={onDelete} className="ml-auto text-[#52525B] transition-colors hover:text-[#ff8a8a]">
+      </div>
+
+      {/* Save bar — explicit, visible saving for Titel + Beschreibung. */}
+      <div className="flex items-center gap-3 border-t border-[#1F1F23] pt-3">
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.4px] text-[#52525B]">
+          {justSaved ? (
+            <span className="text-[#5ee08a]">✓ Gespeichert</span>
+          ) : dirty ? (
+            <span className="text-[#E8B86D]">Ungespeicherte Änderungen</span>
+          ) : (
+            'Alles gespeichert'
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="ml-auto rounded-md px-2.5 py-1.5 text-[12px] text-[#52525B] transition-colors hover:text-[#ff8a8a]"
+        >
           Löschen
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          disabled={!canSave || pending}
+          className="rounded-md px-3.5 py-1.5 text-[12.5px] font-medium leading-none text-[#0A0A0C] transition-colors disabled:cursor-default disabled:opacity-40"
+          style={{ background: canSave && !pending ? '#E8B86D' : '#2A2A30', color: canSave && !pending ? '#0A0A0C' : '#52525B' }}
+          title="Speichern (⌘/Strg + ⏎)"
+        >
+          {pending ? 'Speichert …' : 'Speichern'}
         </button>
       </div>
     </div>
@@ -848,12 +945,12 @@ function TodoEditor({
 function AutoTextarea({
   value,
   onChange,
-  onBlur,
+  onKeyDown,
   placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
-  onBlur: () => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
   placeholder?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -866,12 +963,12 @@ function AutoTextarea({
   return (
     <textarea
       ref={ref}
-      rows={1}
+      rows={2}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
+      onKeyDown={onKeyDown}
       placeholder={placeholder}
-      className="w-full resize-none rounded border border-[#1F1F23] bg-[#0A0A0C] px-2 py-1.5 text-[12.5px] leading-[1.6] text-[#D4D4D8] outline-none focus:border-[#2A2A30]"
+      className="w-full resize-none rounded border border-[#1F1F23] bg-[#0A0A0C] px-2.5 py-1.5 text-[12.5px] leading-[1.6] text-[#D4D4D8] outline-none focus:border-[#2A2A30]"
     />
   );
 }

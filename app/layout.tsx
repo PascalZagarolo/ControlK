@@ -7,11 +7,6 @@ import { Header } from '@/components/header/header';
 import { ProfileDock } from '@/components/header/profile-dock';
 import { ToastHost } from '@/components/toast-host';
 import { VerifyBanner } from '@/components/auth/verify-banner';
-import { CalendarConnectBanner } from '@/components/auth/calendar-connect-banner';
-import { eq, and } from 'drizzle-orm';
-import { getDb } from '@/lib/db/client';
-import * as schema from '@/lib/db/schema';
-import { hasCalendarScope } from '@/lib/google/calendar';
 import { CmdK } from '@/components/cmdk/cmd-k';
 import { KeyboardListener } from '@/components/cmdk/keyboard-listener';
 import { QuickCreateMount } from '@/components/todos/quick-create-mount';
@@ -143,26 +138,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     !pathname.startsWith('/reset-password') &&
     !pathname.startsWith('/magic-link');
 
-  // Calendar-connect banner: user has Google connected (refresh token
-  // present) but never granted calendar scopes. Skipped on auth/invite
-  // surfaces so it doesn't fight with focus-state UI.
-  let showCalendarBanner = false;
-  if (user && !pathname.startsWith('/sign-') && !pathname.startsWith('/invite/')) {
-    try {
-      const db = getDb();
-      const oauth = await db.query.oauthAccounts.findFirst({
-        where: and(
-          eq(schema.oauthAccounts.userId, user.id),
-          eq(schema.oauthAccounts.provider, 'google')
-        ),
-        columns: { refreshTokenEnc: true, scopes: true },
-      });
-      showCalendarBanner =
-        !!oauth?.refreshTokenEnc && !hasCalendarScope(oauth.scopes);
-    } catch {
-      // DB hiccup → skip banner, not load-bearing
-    }
-  }
+  // Calendar connect is NOT a floating app-wide hint anymore — once Gmail
+  // was connected it read as a nag. The calendar-scope upgrade now lives only
+  // in Settings → Integrationen (see GmailConnection).
   return (
     <html lang="de" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       {/* suppressHydrationWarning swallows the harmless attribute drift
@@ -177,10 +155,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               pill (which sits at top-6, ~68px tall) so they never overlap it.
               The container ignores pointer events; each pill re-enables them
               so the gaps between/around pills stay click-through. */}
-          {(showVerifyBanner || showCalendarBanner) && (
+          {showVerifyBanner && user && (
             <div className="pointer-events-none fixed inset-x-0 top-[76px] z-40 flex flex-col items-center gap-2 px-4">
-              {showVerifyBanner && user && <VerifyBanner email={user.email} />}
-              {showCalendarBanner && <CalendarConnectBanner />}
+              <VerifyBanner email={user.email} />
             </div>
           )}
           {children}

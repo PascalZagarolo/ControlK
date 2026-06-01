@@ -1,10 +1,41 @@
 # Todo-Flows (`lib/flows`)
 
 Sequenzielle Abläufe ohne Termin („erst A, dann B, dann C") mit zwei
-Ansichten auf **derselben** Datenquelle: Liste (Pflicht-Basis) und optionaler
-Graph (N8N-Stil, Knoten + Pfeile). Erweitert die bestehende Todo-Funktion —
-kein paralleles System, keine Automatisierung/Ausführung (nur die visuelle
-Metapher).
+Ansichten auf **derselben** Datenquelle: **Liste** (Default, Pflicht-Basis)
+und **Flow-Chart** (Knoten + Pfeile, horizontal L→R). Erweitert die bestehende
+Todo-Funktion — kein paralleles System, keine Automatisierung/Ausführung (nur
+die visuelle Knoten-Metapher).
+
+## USP — Sequenz-Logik aus Abhängigkeiten
+
+Der Mehrwert ggü. einer flachen Liste ist „**was kann ich JETZT tun**":
+- **AKTIV** = nicht erledigt UND alle Vorgänger erledigt.
+- **WARTET** = nicht erledigt, aber ein Vorgänger noch offen (blockiert,
+  gedämpft).
+- Wird der aktive Schritt erledigt, wird der nächste entsperrte automatisch
+  aktiv — rein aus den Daten berechnet (`lib/flows/sequence.ts` `resolveFlow`),
+  kein gespeichertes „aktiv"-Flag.
+- `depends_on` treibt die Blockierung; ohne expliziten Wert = linearer
+  Vorgänger (vorheriger Schritt in `step_order`). **Branch-ready**: mehrere
+  Schritte mit erledigtem Vorgänger sind gleichzeitig aktiv.
+
+## Zentrale Status-Tokens
+
+`lib/flows/status.ts` (`FLOW_STATUS`, `FLOW_EDGE`, `FLOW_CANVAS_BG`) ist die
+**eine** Quelle für Farbe + Label je Zustand — Liste und Flow-Chart teilen
+sie, kein Hex pro Komponente. Echte Theme-Tokens:
+- `active` → **#E8B86D** (Ctrl+K Sand/Gold, nur der eine aktive Schritt).
+- `done` → `#6a6b6c` (grey-300, gedämpft) · `waiting` → `#434345` (grey-400,
+  ausgegraut, Opacity < 1).
+- Kanten: durchgezogen (`traversed`, Quelle erledigt) vs. gestrichelt-gedämpft
+  (`upcoming`). Canvas: neutrales `#111214` (grey-700), kein bläuliches Schwarz.
+
+## Wedge-Hook (Schritt ↔ Zusage)
+
+Ein Flow-Schritt mit Kunden-Link zeigt einen dezenten Indikator „↳ Zusage an
+X, fällig Fr" — `lib/db/queries/flows.ts` `resolveStepCommitments` matcht den
+Schritt gegen offene, beleg-gesicherte Commitments (Prompt 3). Konsumiert die
+commitments-Tabelle, **keine neue Schema-Spalte**. In beiden Ansichten sichtbar.
 
 ## 1. Todo-/Subtask-Ist-Zustand (vorher)
 
@@ -43,22 +74,24 @@ ausgeschlossen, damit sie nur im Flow erscheinen.
   (Anhängen). Reihenfolge ist die einzige Wahrheit — beide Ansichten lesen
   exakt dasselbe `resolveFlow`-Ergebnis.
 
-## 4. Liste (Pflicht-Basis) — `flow-list-view.tsx`
+## 4. Liste (Default, Pflicht-Basis) — `flow-list-view.tsx`
 
-Nummerierte Sequenz: aktiver Schritt hervorgehoben (#8B7FFF), erledigte
-abgehakt, kommende gedämpft. Hinzufügen (Refokus für schnelles Erfassen),
+Nummerierte Sequenz: aktiver Schritt im Sand/Gold-Akzent (`#E8B86D` aus dem
+zentralen Token), erledigte gedämpft, wartende ausgegraut. Locked-caps
+Status-Label je Zeile. Hinzufügen (Refokus für schnelles Erfassen),
 Inline-Umbenennen, Hoch/Runter umordnen, Entfernen (mit Confirm), Abhaken.
-**Voll funktional ohne den Graph.**
+**Voll funktional ohne den Flow-Chart.**
 
-## 5. Graph (optional, lazy) — `flow-graph-view.tsx`
+## 5. Flow-Chart (lazy) — `flow-graph-view.tsx`
 
 `@xyflow/react` (etabliert, nicht from scratch). Knoten = Schritte, Pfeile =
-Reihenfolge; Layout automatisch top-to-bottom aus `step_order` (kein manuelles
-Positionieren). Eigener Node im App-Design (dark, #8B7FFF, ruhig — nicht der
-React-Flow-Standard), Attribution aus, Dots-Background. Knoten-Aktionen
-(abhaken / umbenennen / entfernen / anhängen) schreiben in **dasselbe**
-Todo-Modell. **Lazy geladen** via `next/dynamic({ ssr:false })` in
-`flow-detail-client.tsx` → React Flow landet nie im Listen-Bundle.
+Abhängigkeiten; **horizontales L→R-Auto-Layout** aus `step_order` (kein
+manuelles Positionieren, kein freier Canvas). Kompakter Node: Titel + ein
+Status-Label. Farben/Kanten aus `lib/flows/status.ts` (Sand/Gold nur AKTIV;
+durchgezogene Kante = beschrittener Weg, gestrichelt = kommend; neutraler
+grauer Canvas `#111214`). Knoten-Aktionen (abhaken / umbenennen / entfernen /
+inline anhängen) schreiben in **dasselbe** Todo-Modell. **Lazy geladen** via
+`next/dynamic({ ssr:false })` → React Flow landet nie im Listen-Bundle.
 
 ## 6. View-Toggle
 

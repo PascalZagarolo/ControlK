@@ -8,6 +8,7 @@ import {
 } from '@/lib/integrations/registry';
 import { getGoogleConnection } from '@/lib/auth/google-tokens';
 import { GmailConnection } from './gmail-connection';
+import { CalendarConnection } from './calendar-connection';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,7 @@ export default async function Page() {
       </div>
 
       <GmailConnection connection={googleConnection} />
+      <CalendarConnection connection={googleConnection} />
 
       {(['calendar', 'chat', 'dev', 'project'] as const).map((cat) => (
         <section key={cat} className="flex flex-col gap-2">

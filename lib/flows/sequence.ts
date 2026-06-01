@@ -1,10 +1,21 @@
-// ─── Todo-Flows — pure sequence engine ──────────────────────────────
+// ─── Todo-Flows — pure sequence engine (dependency-aware) ───────────
 //
 // A Flow is a Todo marked `is_flow`; its STEPS are ordinary child Todos
 // (flow_parent_id → the flow). One data model, rendered two ways (list +
-// graph). This module is the pure, dependency-free core that both views and
-// the tests share: given the ordered raw steps, it derives each step's
-// runtime state (done / active / upcoming) and the edges between them.
+// flow-chart). This module is the pure, dependency-free core both views and
+// the tests share: from the raw steps it derives each step's runtime state
+// (done / active / waiting) FROM THE DEPENDENCIES and the edges between them.
+//
+// Sequenz-Logik (der USP):
+//   - A step is ACTIVE iff it is not done AND every predecessor is done.
+//   - A step is WAITING iff it is not done AND some predecessor is still open
+//     (blocked — answers "was kann ich JETZT NICHT tun").
+//   - Completing the active step makes the next unblocked one active — purely
+//     a function of the data, no stored "active" flag, no extra write.
+//
+// Linear flows (the first build) use the implicit predecessor = the previous
+// step in `stepOrder`. `dependsOn`, when set, overrides that — so branching
+// works later without a schema change. Active/waiting is computed for BOTH.
 //
 // No `server-only`, no DB, no React — unit-testable (sequence.test.ts).
 
@@ -17,26 +28,35 @@ export type RawStep = {
   status: RawStepStatus;
   /** Order within the flow (lower = earlier). May be null for legacy rows. */
   stepOrder: number | null;
-  /** Predecessor step id — set for forward-compat with branching; linear
-   *  flows can ignore it and rely on stepOrder. */
+  /** Explicit predecessor id. When null, the linear predecessor (previous in
+   *  stepOrder) is used. Lets branching arrive later without breaking schema. */
   dependsOn: string | null;
 };
 
 /** Runtime state of a step in the sequence. */
-export type StepState = 'done' | 'active' | 'upcoming';
+export type StepState = 'done' | 'active' | 'waiting';
 
 export type FlowStep = RawStep & {
   /** 1-based position in the resolved order. */
   position: number;
   state: StepState;
+  /** The predecessor id actually used to compute blocking (explicit or linear). */
+  effectiveDependsOn: string | null;
 };
 
-export type FlowEdge = { from: string; to: string };
+export type FlowEdge = {
+  from: string;
+  to: string;
+  /** true when the source step is done → the path here has been walked. */
+  traversed: boolean;
+};
 
 export type ResolvedFlow = {
   steps: FlowStep[];
   edges: FlowEdge[];
-  /** id of the single active step, or null when the flow is complete/empty. */
+  /** ids of every currently-active step (≥1 with branching; 1 for linear). */
+  activeIds: string[];
+  /** First active step id, or null — convenience for linear flows / summaries. */
   activeId: string | null;
   doneCount: number;
   totalCount: number;
@@ -62,56 +82,62 @@ export function orderSteps<T extends RawStep>(steps: T[]): T[] {
 }
 
 /**
- * Resolve raw steps into the view model.
- *
- * - "active" is COMPUTED, never stored: the first not-done step in order. So
- *   completing the active step makes the next one active automatically, with
- *   no extra write (auto-progress is a pure function of the ordering).
- * - Edges follow `dependsOn` when set (branch-ready); otherwise they connect
- *   consecutive steps in resolved order (linear default).
+ * Resolve raw steps into the view model — state computed from dependencies.
  */
 export function resolveFlow(rawSteps: RawStep[]): ResolvedFlow {
   const ordered = orderSteps(rawSteps);
   const total = ordered.length;
-  const doneCount = ordered.filter((s) => isDone(s.status)).length;
+  const byId = new Map(ordered.map((s) => [s.id, s]));
+  const known = new Set(ordered.map((s) => s.id));
 
-  // First not-done step (in order) is the single active one.
-  const activeIndex = ordered.findIndex((s) => !isDone(s.status));
-  const activeId = activeIndex >= 0 ? ordered[activeIndex].id : null;
+  // Effective predecessor per step: explicit dependsOn if it points to a known
+  // step, else the linear predecessor (previous in order). First step → none.
+  const effectiveDep = new Map<string, string | null>();
+  for (let i = 0; i < ordered.length; i++) {
+    const s = ordered[i];
+    const explicit = s.dependsOn && known.has(s.dependsOn) ? s.dependsOn : null;
+    effectiveDep.set(s.id, explicit ?? (i > 0 ? ordered[i - 1].id : null));
+  }
+
+  // A predecessor "blocks" until it is done. With a chain of linear deps this
+  // naturally yields exactly one active step; with branches, ≥1.
+  const predDone = (stepId: string): boolean => {
+    const dep = effectiveDep.get(stepId) ?? null;
+    if (!dep) return true; // no predecessor → not blocked
+    const p = byId.get(dep);
+    return p ? isDone(p.status) : true;
+  };
 
   const steps: FlowStep[] = ordered.map((s, i) => {
     let state: StepState;
     if (isDone(s.status)) state = 'done';
-    else if (s.id === activeId) state = 'active';
-    else state = 'upcoming';
-    return { ...s, position: i + 1, state };
+    else if (predDone(s.id)) state = 'active';
+    else state = 'waiting';
+    return { ...s, position: i + 1, state, effectiveDependsOn: effectiveDep.get(s.id) ?? null };
   });
 
-  // Edges: prefer explicit dependsOn (forward-compat for branching); fall
-  // back to linear consecutive links. Dedup + only keep edges between known
-  // steps so a stale dependsOn never produces a dangling arrow.
-  const known = new Set(ordered.map((s) => s.id));
+  const activeIds = steps.filter((s) => s.state === 'active').map((s) => s.id);
+  const doneCount = steps.filter((s) => s.state === 'done').length;
+
+  // Edges follow the effective predecessor → step. An edge is "traversed" once
+  // its source (the predecessor) is done. Dedup; only between known steps.
   const seen = new Set<string>();
   const edges: FlowEdge[] = [];
-  const pushEdge = (from: string, to: string) => {
-    if (from === to || !known.has(from) || !known.has(to)) return;
-    const key = `${from}→${to}`;
-    if (seen.has(key)) return;
+  for (const s of steps) {
+    const from = s.effectiveDependsOn;
+    if (!from || !known.has(from)) continue;
+    const key = `${from}→${s.id}`;
+    if (seen.has(key)) continue;
     seen.add(key);
-    edges.push({ from, to });
-  };
-
-  const anyDependsOn = ordered.some((s) => s.dependsOn);
-  if (anyDependsOn) {
-    for (const s of ordered) if (s.dependsOn) pushEdge(s.dependsOn, s.id);
-  } else {
-    for (let i = 1; i < ordered.length; i++) pushEdge(ordered[i - 1].id, ordered[i].id);
+    const src = byId.get(from)!;
+    edges.push({ from, to: s.id, traversed: isDone(src.status) });
   }
 
   return {
     steps,
     edges,
-    activeId,
+    activeIds,
+    activeId: activeIds[0] ?? null,
     doneCount,
     totalCount: total,
     complete: total > 0 ? doneCount === total : true,

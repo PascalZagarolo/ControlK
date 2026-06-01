@@ -1,17 +1,20 @@
 'use client';
 
 /**
- * Flow — GRAPH view (optional visual layer, N8N-style nodes + arrows).
+ * Flow — FLOW-CHART view (visual layer, node-arrow metaphor).
  *
- * SAME data as the list view: nodes = steps, edges = order (from the pure
- * resolveFlow result). Layout is computed automatically top-to-bottom from
- * step order — no manual pixel positioning for linear flows. Every node
- * action writes into the same todo model (toggle / rename / remove), and
- * appending adds a step at the end.
+ * SAME data as the list view: nodes = steps, edges = dependencies (from the
+ * pure resolveFlow result). Horizontal LEFT→RIGHT auto-layout from step order
+ * — no manual pixel positioning, no free canvas. Node = compact: title + one
+ * locked-caps status label (ERLEDIGT/AKTIV/WARTET). Status colours + the
+ * solid/dashed edge styling come from the CENTRAL token map
+ * (lib/flows/status), shared with the list view + morning plan. Every node
+ * action writes the same todo model (toggle / rename / remove); appending
+ * adds a step at the end.
  *
- * This module is loaded LAZILY (dynamic import in flow-detail-client) so
- * @xyflow/react never weighs on the list view. Styled to the app: dark,
- * accent #8B7FFF, calm — not the default React Flow look.
+ * Loaded LAZILY (dynamic import in flow-detail-client) so @xyflow/react never
+ * weighs on the list view. Styled to the app (neutral dark grey canvas, sand/
+ * gold accent for the single active step) — not the default React Flow look.
  */
 import { useCallback, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -33,37 +36,35 @@ import {
   renameFlowNode,
 } from '@/lib/actions/flows';
 import { toast } from '@/lib/stores/toast-store';
+import { FLOW_STATUS, FLOW_EDGE, FLOW_CANVAS_BG, FLOW_DOT_COLOR } from '@/lib/flows/status';
 import type { FlowStep, FlowEdge } from '@/lib/flows/sequence';
+import type { FlowStepCommitment } from '@/lib/db/queries/flows';
 
-const ACCENT = '#8B7FFF';
+const GOLD = FLOW_STATUS.active.color; // sand/gold, central token
 
 type StepNodeData = {
   step: FlowStep;
+  commitment?: FlowStepCommitment;
   busy: boolean;
   onToggle: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onRemove: (id: string) => void;
 };
 
-// Custom node — matches the app's dark/calm language, not stock React Flow.
+// Custom node — matches the app's dark/calm language via central tokens.
 function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
-  const { step, busy, onToggle, onRename, onRemove } = data;
+  const { step, commitment, busy, onToggle, onRename, onRemove } = data;
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(step.title);
-
-  const palette =
-    step.state === 'done'
-      ? { border: `${ACCENT}55`, bg: 'rgba(139,127,255,0.08)', dot: ACCENT, label: '#A1A1AA' }
-      : step.state === 'active'
-        ? { border: ACCENT, bg: 'rgba(139,127,255,0.14)', dot: ACCENT, label: '#FAFAFA' }
-        : { border: 'rgba(255,255,255,0.08)', bg: '#141417', dot: '#52525B', label: '#A1A1AA' };
+  const tok = FLOW_STATUS[step.state];
 
   return (
     <div
-      className="w-[200px] rounded-[12px] border px-3 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.4)] backdrop-blur-sm"
-      style={{ borderColor: palette.border, background: palette.bg, opacity: step.state === 'upcoming' ? 0.7 : 1 }}
+      className="w-[210px] rounded-[12px] border px-3 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+      style={{ borderColor: tok.border, background: tok.bg, opacity: tok.opacity }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: '#52525B', width: 6, height: 6, border: 'none' }} />
+      {/* Horizontal flow → handles on left (target) + right (source). */}
+      <Handle type="target" position={Position.Left} style={{ background: '#6a6b6c', width: 6, height: 6, border: 'none' }} />
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -71,7 +72,7 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
           onClick={() => onToggle(step.id)}
           aria-label={step.state === 'done' ? 'Wieder öffnen' : 'Erledigt'}
           className="grid h-5 w-5 shrink-0 place-items-center rounded-full font-mono text-[10px] disabled:opacity-50"
-          style={{ background: `${palette.dot}22`, color: palette.dot, border: step.state === 'active' ? `1px solid ${ACCENT}` : 'none' }}
+          style={{ background: `${tok.color}22`, color: tok.color, border: step.state === 'active' ? `1px solid ${tok.color}` : 'none' }}
         >
           {step.state === 'done' ? '✓' : step.position}
         </button>
@@ -91,14 +92,13 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
                 setEditing(false);
               }
             }}
-            className="min-w-0 flex-1 rounded border border-[#2A2A30] bg-[#0A0A0C] px-1.5 py-0.5 text-[12.5px] text-[#FAFAFA] outline-none"
+            className="min-w-0 flex-1 rounded border border-[#2f3031] bg-[#0c0d0f] px-1.5 py-0.5 text-[12.5px] text-[#FAFAFA] outline-none"
           />
         ) : (
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className={`min-w-0 flex-1 truncate text-left text-[13px] ${step.state === 'done' ? 'line-through decoration-[#52525B]/40' : ''}`}
-            style={{ color: palette.label }}
+            className={`min-w-0 flex-1 truncate text-left text-[13px] ${step.state === 'done' ? 'line-through decoration-[#6a6b6c]/40 text-[#9c9c9d]' : 'text-[#FAFAFA]'}`}
           >
             {step.title}
           </button>
@@ -110,34 +110,42 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
             if (confirm('Diesen Schritt entfernen?')) onRemove(step.id);
           }}
           aria-label="Entfernen"
-          className="shrink-0 text-[12px] text-[#3a3a3f] transition-colors hover:text-[#ff8a8a] disabled:opacity-50"
+          className="shrink-0 text-[12px] text-[#434345] transition-colors hover:text-[#ff8a8a] disabled:opacity-50"
         >
           ×
         </button>
       </div>
-      {step.state === 'active' && (
-        <p className="mt-1 pl-7 font-mono text-[9px] uppercase tracking-[0.3px]" style={{ color: ACCENT }}>
-          jetzt dran
+      <div className="mt-1.5 flex items-center justify-between gap-2 pl-7">
+        <span className="font-mono text-[9px] uppercase tracking-[0.4px]" style={{ color: tok.color }}>
+          {tok.label}
+        </span>
+      </div>
+      {/* Wedge-hook indicator. */}
+      {commitment && (
+        <p className="mt-1 truncate pl-7 text-[10px]" style={{ color: GOLD }} title={commitment.label}>
+          ↳ {commitment.label}
         </p>
       )}
-      <Handle type="source" position={Position.Bottom} style={{ background: '#52525B', width: 6, height: 6, border: 'none' }} />
+      <Handle type="source" position={Position.Right} style={{ background: '#6a6b6c', width: 6, height: 6, border: 'none' }} />
     </div>
   );
 }
 
 const NODE_TYPES = { step: StepNode };
 
-const NODE_W = 200;
-const V_GAP = 96; // vertical spacing between stacked nodes
+const NODE_W = 210;
+const H_GAP = 110; // horizontal spacing between nodes (node width + gutter)
 
 export default function FlowGraphView({
   flowId,
   steps,
   edges: flowEdges,
+  commitments = {},
 }: {
   flowId: string;
   steps: FlowStep[];
   edges: FlowEdge[];
+  commitments?: Record<string, FlowStepCommitment>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -156,41 +164,45 @@ export default function FlowGraphView({
   const onRename = useCallback((id: string, title: string) => act(() => renameFlowNode(id, title)), [act]);
   const onRemove = useCallback((id: string) => act(() => removeFlowStep(id)), [act]);
 
-  // Auto top-to-bottom layout straight from step order (no manual coords).
+  // Auto LEFT→RIGHT layout straight from step order (no manual coords).
   const nodes: Node<StepNodeData>[] = useMemo(
     () =>
       steps.map((step, i) => ({
         id: step.id,
         type: 'step',
-        position: { x: 0, y: i * V_GAP },
-        data: { step, busy: pending, onToggle, onRename, onRemove },
+        position: { x: i * (NODE_W + H_GAP), y: 0 },
+        data: { step, commitment: commitments[step.id], busy: pending, onToggle, onRename, onRemove },
         draggable: false,
         selectable: false,
         width: NODE_W,
       })),
-    [steps, pending, onToggle, onRename, onRemove]
+    [steps, commitments, pending, onToggle, onRename, onRemove]
   );
 
+  // Solid for the walked path (traversed), dashed+dim for upcoming.
   const edges: Edge[] = useMemo(
     () =>
-      flowEdges.map((e) => ({
-        id: `${e.from}-${e.to}`,
-        source: e.from,
-        target: e.to,
-        animated: false,
-        style: { stroke: '#3a3a3f', strokeWidth: 1.5 },
-      })),
+      flowEdges.map((e) => {
+        const tok = e.traversed ? FLOW_EDGE.traversed : FLOW_EDGE.upcoming;
+        return {
+          id: `${e.from}-${e.to}`,
+          source: e.from,
+          target: e.to,
+          animated: false,
+          style: { stroke: tok.stroke, strokeWidth: tok.width, strokeDasharray: tok.dash },
+        };
+      }),
     [flowEdges]
   );
 
   return (
-    <div className="relative h-[460px] w-full overflow-hidden rounded-[12px] border border-white/[0.06] bg-[#0A0A0C]">
+    <div className="relative h-[460px] w-full overflow-hidden rounded-[12px] border border-white/[0.06]" style={{ background: FLOW_CANVAS_BG }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         fitView
-        fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
+        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -200,10 +212,10 @@ export default function FlowGraphView({
         minZoom={0.4}
         maxZoom={1.5}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1F1F23" />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={FLOW_DOT_COLOR} />
       </ReactFlow>
 
-      {/* Append a step at the end — writes into the same model. */}
+      {/* Inline "Schritt anhängen" — writes into the same model. */}
       <AppendButton flowId={flowId} onAdded={() => router.refresh()} disabled={pending} />
     </div>
   );
@@ -232,7 +244,7 @@ function AppendButton({ flowId, onAdded, disabled }: { flowId: string; onAdded: 
   return (
     <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
       {open ? (
-        <div className="flex items-center gap-2 rounded-full border border-white/[0.1] bg-[rgba(18,19,21,0.96)] px-2.5 py-1.5 backdrop-blur-md">
+        <div className="flex items-center gap-2 rounded-full border border-white/[0.1] bg-[rgba(12,13,15,0.96)] px-2.5 py-1.5 backdrop-blur-md">
           <input
             autoFocus
             value={value}
@@ -245,9 +257,9 @@ function AppendButton({ flowId, onAdded, disabled }: { flowId: string; onAdded: 
             }}
             placeholder="Neuer Schritt …"
             disabled={pending}
-            className="w-44 bg-transparent text-[13px] text-[#FAFAFA] outline-none placeholder:text-[#52525B]"
+            className="w-44 bg-transparent text-[13px] text-[#FAFAFA] outline-none placeholder:text-[#6a6b6c]"
           />
-          <button type="button" onClick={submit} disabled={pending} className="text-[12px] font-medium" style={{ color: ACCENT }}>
+          <button type="button" onClick={submit} disabled={pending} className="text-[12px] font-medium" style={{ color: GOLD }}>
             +
           </button>
         </div>
@@ -257,7 +269,7 @@ function AppendButton({ flowId, onAdded, disabled }: { flowId: string; onAdded: 
           disabled={disabled}
           onClick={() => setOpen(true)}
           className="rounded-full border px-3 py-1.5 text-[12px] font-medium backdrop-blur-md transition-colors disabled:opacity-50"
-          style={{ borderColor: `${ACCENT}40`, background: 'rgba(139,127,255,0.1)', color: ACCENT }}
+          style={{ borderColor: `${GOLD}40`, background: 'rgba(232,184,109,0.1)', color: GOLD }}
         >
           + Schritt anhängen
         </button>

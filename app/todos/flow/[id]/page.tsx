@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Flow detail — /todos/flow/[id]. One data source (the flow todo + its step
- * todos), two views (Liste / Graph) chosen client-side.
+ * todos), two views (Liste / Flow-Chart) chosen client-side.
  */
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,6 +27,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         description: flow.description,
         steps: flow.resolved.steps,
         edges: flow.resolved.edges,
+        commitments: flow.commitments,
         doneCount: flow.resolved.doneCount,
         totalCount: flow.resolved.totalCount,
         complete: flow.resolved.complete,
