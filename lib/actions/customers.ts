@@ -8,6 +8,7 @@ import * as s from '@/lib/db/schema';
 import { requireUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { listCustomersMinimal } from '@/lib/db/queries/customers';
+import { sendPushToUser } from '@/lib/push/web-push';
 import type { CustomerStatus } from '@/lib/types';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -338,6 +339,75 @@ export async function addContactNote(input: {
   paths(customer.slug);
   revalidatePath(`/kunden/${input.customerId}`);
   return { ok: true, id: row.id };
+}
+
+/**
+ * Hand a contact off to a teammate: assign it to them, drop a shared note
+ * ("→ An X übergeben: …"), and notify them (in-app + best-effort push). One
+ * action for the whole gesture — builds on assignee + contact_notes.
+ */
+export async function handoffContact(input: {
+  customerId: string;
+  toUserId: string;
+  note?: string;
+}): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  // Handoff is to a TEAMMATE — assigning to yourself isn't a handoff.
+  if (input.toUserId === user.id) {
+    return { ok: false, error: 'Du kannst einen Kontakt nicht an dich selbst übergeben.' };
+  }
+  const db = getDb();
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+
+  const member = await db.query.workspaceMembers.findFirst({
+    where: and(
+      eq(s.workspaceMembers.workspaceId, ws.id),
+      eq(s.workspaceMembers.userId, input.toUserId)
+    ),
+    with: { user: true },
+  });
+  if (!member) return { ok: false, error: 'Kein Mitglied dieses Workspace.' };
+  const partnerFirst = (member.user?.name ?? 'Partner').split(' ')[0]?.trim() || 'Partner';
+  const note = input.note?.trim().slice(0, 2000);
+
+  await db
+    .update(s.customers)
+    .set({ assignedTo: input.toUserId })
+    .where(eq(s.customers.id, input.customerId));
+
+  await db.insert(s.contactNotes).values({
+    workspaceId: ws.id,
+    customerId: input.customerId,
+    authorId: user.id,
+    text: `→ An ${partnerFirst} übergeben${note ? `: ${note}` : ''}`.slice(0, 2000),
+  });
+
+  // Notify the teammate — in-app (best-effort) + push (if they opted in).
+  await db
+    .insert(s.notifications)
+    .values({
+      userId: input.toUserId,
+      workspaceId: ws.id,
+      kind: 'system',
+      title: `Kontakt übergeben: ${customer.name}`,
+      excerpt: note
+        ? note.length > 200 ? `${note.slice(0, 197)}…` : note
+        : `${user.name} hat dir ${customer.name} übergeben.`,
+      sourceUrl: `/kunden/${customer.id}`,
+    } as typeof s.notifications.$inferInsert)
+    .catch(() => {});
+  await sendPushToUser(input.toUserId, {
+    title: 'Kontakt übergeben',
+    body: `${user.name.split(' ')[0]} → ${customer.name}${note ? `: ${note}` : ''}`,
+    url: `/kunden/${customer.id}`,
+  }).catch(() => {});
+
+  paths(customer.slug);
+  revalidatePath(`/kunden/${input.customerId}`);
+  return { ok: true };
 }
 
 /** Delete a shared update — author only (orphaned notes can't be deleted). */

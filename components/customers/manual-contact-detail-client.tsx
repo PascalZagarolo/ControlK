@@ -11,6 +11,7 @@ import {
   setContactAssignee,
   addContactNote,
   deleteContactNote,
+  handoffContact,
 } from '@/lib/actions/customers';
 import {
   confirmCommitment,
@@ -72,6 +73,7 @@ export function ManualContactDetailClient({
           </p>
         )}
         <AssigneeSelector detail={detail} currentUserId={currentUserId} />
+        <HandoffControl detail={detail} currentUserId={currentUserId} />
         <ContactFields detail={detail} />
         <EmailManager id={detail.id} emails={detail.emails} />
         <UpdatesThread id={detail.id} notes={detail.notes} currentUserId={currentUserId} />
@@ -374,6 +376,84 @@ function AssigneeSelector({
           disabled={pending}
         />
       ))}
+    </div>
+  );
+}
+
+// Hand the contact to a teammate with an optional note — assign + note +
+// notify in one gesture. Only shown when there's someone to hand off to.
+function HandoffControl({
+  detail,
+  currentUserId,
+}: {
+  detail: ManualContactDetail;
+  currentUserId?: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [target, setTarget] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+
+  const others = detail.members.filter((m) => m.id !== currentUserId);
+  if (others.length === 0) return null;
+
+  const submit = () => {
+    if (!target) return;
+    startTransition(async () => {
+      const r = await handoffContact({ customerId: detail.id, toUserId: target, note }).catch(() => ({
+        ok: false,
+        error: 'Übergabe fehlgeschlagen.',
+      }));
+      if (r.ok) {
+        const name = others.find((o) => o.id === target)?.name.split(' ')[0] ?? 'Partner';
+        toast(`An ${name} übergeben`, 'success');
+        setTarget(null);
+        setNote('');
+        router.refresh();
+      } else {
+        toast(r.error ?? 'Fehlgeschlagen', 'danger');
+      }
+    });
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <span className="text-[12px]" style={{ color: C.faint }}>
+        Übergeben an:
+      </span>
+      {others.map((m) => (
+        <Chip
+          key={m.id}
+          label={m.name.split(' ')[0]}
+          active={target === m.id}
+          onClick={() => setTarget(target === m.id ? null : m.id)}
+          disabled={pending}
+        />
+      ))}
+      {target && (
+        <div className="mt-1 flex w-full items-center gap-2">
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit();
+            }}
+            placeholder="Kurzer Hinweis an den Partner (optional) …"
+            maxLength={2000}
+            className="flex-1 rounded-lg border bg-transparent px-3 py-2 text-[13px] outline-none transition-colors placeholder:text-[#52525B] focus:border-white/20"
+            style={{ borderColor: C.hair, color: C.fg }}
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={pending}
+            className="shrink-0 rounded-lg px-3 py-2 text-[12.5px] font-medium leading-none transition-colors disabled:opacity-50"
+            style={{ background: 'rgba(232,184,109,0.14)', color: C.gold }}
+          >
+            {pending ? 'Übergebe …' : 'Übergeben'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
