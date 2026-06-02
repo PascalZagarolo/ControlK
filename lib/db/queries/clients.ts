@@ -392,6 +392,77 @@ export async function listWaitingOnYou(
   });
 }
 
+// ─── Auto-customer SUGGESTIONS (propose, never auto-tag) ────────────
+
+export type ClientSuggestion = {
+  email: string;
+  name: string;
+  count: number;
+};
+
+/**
+ * Frequent senders the user has NOT tagged and that aren't CRM contacts —
+ * surfaced as gentle "als Kunde markieren?" suggestions. Pure proposal: never
+ * auto-tags. Noise-free via the Prompt-1 category gate; dismissed senders are
+ * remembered so they don't reappear.
+ */
+export async function suggestClientTags(
+  workspaceId: string,
+  userId: string,
+  opts: { minCount?: number; limit?: number } = {}
+): Promise<ClientSuggestion[]> {
+  const minCount = opts.minCount ?? 4;
+  const limit = opts.limit ?? 5;
+  const db = getDb();
+
+  const [{ tags, crmEmails }, dismissedRows, rows] = await Promise.all([
+    loadClientSignals(workspaceId, userId),
+    db
+      .select({ identifier: s.clientSuggestionDismissals.identifier })
+      .from(s.clientSuggestionDismissals)
+      .where(
+        and(
+          eq(s.clientSuggestionDismissals.workspaceId, workspaceId),
+          eq(s.clientSuggestionDismissals.userId, userId)
+        )
+      ),
+    db
+      .select({
+        senderEmail: s.inboxItems.senderEmail,
+        senderName: sql<string>`max(${s.inboxItems.senderName})`,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
+          eq(s.inboxItems.direction, 'inbox'),
+          eq(s.inboxItems.isArchived, false),
+          sql`${s.inboxItems.category} in ('primary','customer')`,
+          sql`${s.inboxItems.senderEmail} is not null`
+        )
+      )
+      .groupBy(s.inboxItems.senderEmail)
+      .having(sql`count(*) >= ${minCount}`)
+      .orderBy(sql`count(*) desc`)
+      .limit(50),
+  ]);
+
+  const dismissed = new Set(dismissedRows.map((d) => d.identifier));
+  const out: ClientSuggestion[] = [];
+  for (const r of rows) {
+    const email = r.senderEmail?.trim().toLowerCase();
+    if (!email) continue;
+    // Already a client (tag or CRM) → not a suggestion. Already dismissed → skip.
+    if (resolveClient(email, tags, crmEmails).isClient) continue;
+    if (dismissed.has(email)) continue;
+    out.push({ email, name: r.senderName || email, count: Number(r.n) });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 // ─── Kundenmanagement (calm customer OVERVIEW — NOT a CRM) ──────────
 //
 // A read-only AGGREGATION over existing wedge data, anchored on the user's

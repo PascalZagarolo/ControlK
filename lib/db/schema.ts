@@ -2682,6 +2682,31 @@ export const contactTags = pgTable(
   })
 );
 
+// "Nicht als Kunde" — the user dismissed a suggested client tag for this
+// sender/domain, so we stop proposing it. Per-user, identifier = lowercased
+// email or domain (same key space as contact_tags).
+export const clientSuggestionDismissals = pgTable(
+  'client_suggestion_dismissals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    identifier: text('identifier').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('client_suggestion_dismissals_ws_user_identifier_idx').on(
+      t.workspaceId,
+      t.userId,
+      t.identifier
+    ),
+  })
+);
+
 export const contactTagsRelations = relations(contactTags, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [contactTags.workspaceId],

@@ -3,8 +3,9 @@
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { CustomerOverviewRow } from '@/lib/db/queries/clients';
+import type { CustomerOverviewRow, ClientSuggestion } from '@/lib/db/queries/clients';
 import { createManualContact } from '@/lib/actions/customers';
+import { tagSenderAsClient, dismissClientSuggestion } from '@/lib/actions/contact-tags';
 import { toast } from '@/lib/stores/toast-store';
 
 // Calm customer OVERVIEW (wedge). A read-only view onto what Ctrl+K already
@@ -43,10 +44,12 @@ export function KundenWedgeClient({
   rows,
   canCreate = false,
   currentUserId,
+  suggestions = [],
 }: {
   rows: CustomerOverviewRow[];
   canCreate?: boolean;
   currentUserId?: string;
+  suggestions?: ClientSuggestion[];
 }) {
   const [sort, setSort] = useState<Sort>('urgency');
   const [creating, setCreating] = useState(false);
@@ -107,6 +110,8 @@ export function KundenWedgeClient({
         {canCreate && creating && (
           <CreateContactForm onClose={() => setCreating(false)} />
         )}
+
+        {suggestions.length > 0 && <SuggestionStrip suggestions={suggestions} />}
 
         {rows.length > 0 && (
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -290,6 +295,86 @@ function CustomerRow({
         </div>
       </Link>
     </li>
+  );
+}
+
+// Gentle auto-customer SUGGESTIONS — frequent untagged senders. Pure proposal:
+// one tap to tag, one tap to dismiss. Never auto-tags.
+function SuggestionStrip({ suggestions }: { suggestions: ClientSuggestion[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [handled, setHandled] = useState<Record<string, boolean>>({});
+
+  const visible = suggestions.filter((sug) => !handled[sug.email]);
+  if (visible.length === 0) return null;
+
+  const act = (email: string, fn: () => Promise<{ ok: boolean; error?: string }>, msg: string) => {
+    setHandled((h) => ({ ...h, [email]: true }));
+    startTransition(async () => {
+      const r = await fn().catch(() => ({ ok: false, error: 'Fehlgeschlagen.' }));
+      if (r.ok) {
+        toast(msg, 'success');
+        router.refresh();
+      } else {
+        setHandled((h) => ({ ...h, [email]: false }));
+        toast(r.error ?? 'Fehlgeschlagen.', 'danger');
+      }
+    });
+  };
+
+  return (
+    <div
+      className="mt-6 flex flex-col gap-2 rounded-2xl border p-4"
+      style={{ borderColor: C.hair, background: 'rgba(255,255,255,0.015)' }}
+    >
+      <p className="text-[12px]" style={{ color: C.faint }}>
+        Häufige Absender — als Kunde markieren? (Vorschlag, kein Automatismus.)
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {visible.map((sug) => (
+          <li
+            key={sug.email}
+            className="flex items-center gap-3 rounded-lg border px-3 py-2"
+            style={{ borderColor: C.hair, background: 'rgba(255,255,255,0.02)' }}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium" style={{ color: C.fg }}>
+                {sug.name}
+              </p>
+              <p className="truncate font-mono text-[11px]" style={{ color: C.faint }}>
+                {sug.email} · {sug.count}× Kontakt
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                act(
+                  sug.email,
+                  () => tagSenderAsClient({ email: sug.email, scope: 'email', displayName: sug.name }),
+                  'Als Kunde markiert.'
+                )
+              }
+              className="shrink-0 rounded-md px-2.5 py-1.5 text-[12px] font-medium leading-none transition-colors disabled:opacity-50"
+              style={{ background: 'rgba(232,184,109,0.14)', color: C.gold }}
+            >
+              Als Kunde
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                act(sug.email, () => dismissClientSuggestion(sug.email), 'Vorschlag ausgeblendet.')
+              }
+              className="shrink-0 text-[12px] transition-colors hover:opacity-80 disabled:opacity-50"
+              style={{ color: C.faint }}
+            >
+              Ignorieren
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

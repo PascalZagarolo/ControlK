@@ -407,6 +407,13 @@
       "when": 1782250000000,
       "tag": "0057_commitment_resolved_at",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782300000000,
+      "tag": "0058_client_suggestion_dismissals",
+      "breakpoints": true
     }
   ]
 }

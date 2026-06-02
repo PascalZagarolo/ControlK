@@ -131,6 +131,30 @@ export async function updateContactTag(input: {
   return { ok: true };
 }
 
+/**
+ * Dismiss a suggested client tag ("nicht als Kunde") so it stops being
+ * proposed. Per-user; identifier is the lowercased email/domain.
+ */
+export async function dismissClientSuggestion(identifier: string): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const id = identifier.trim().toLowerCase();
+  if (!id) return { ok: false, error: 'Ungültig.' };
+  const db = getDb();
+  await db
+    .insert(s.clientSuggestionDismissals)
+    .values({ workspaceId: ws.id, userId: user.id, identifier: id })
+    .onConflictDoNothing({
+      target: [
+        s.clientSuggestionDismissals.workspaceId,
+        s.clientSuggestionDismissals.userId,
+        s.clientSuggestionDismissals.identifier,
+      ],
+    });
+  revalidatePath('/kunden');
+  return { ok: true };
+}
+
 /** Is this email already tagged (exact OR via its domain)? Drives the UI toggle. */
 export async function isSenderTagged(email: string): Promise<boolean> {
   const user = await requireUser();

@@ -6,7 +6,7 @@ import {
   listCustomersDetailed,
   smartCustomerCounts,
 } from '@/lib/db/queries/customers';
-import { listCustomerOverview } from '@/lib/db/queries/clients';
+import { listCustomerOverview, suggestClientTags } from '@/lib/db/queries/clients';
 import { listWorkspaceMembers } from '@/lib/db/queries/members';
 import { KundenListClient } from '@/components/customers/kunden-list-client';
 import { KundenWedgeClient } from '@/components/customers/kunden-wedge-client';
@@ -29,8 +29,18 @@ export default async function Page() {
   if (!ws.rentalPack) {
     // Business-Gate: Kontakt-/Kundenmanagement nur in Business-Workspaces.
     if (ws.scope !== 'business') redirect('/');
-    const rows = await listCustomerOverview(ws.id, user.id, { includeManual: true });
-    return <KundenWedgeClient rows={rows} canCreate currentUserId={user.id} />;
+    const [rows, suggestions] = await Promise.all([
+      listCustomerOverview(ws.id, user.id, { includeManual: true }),
+      suggestClientTags(ws.id, user.id),
+    ]);
+    return (
+      <KundenWedgeClient
+        rows={rows}
+        canCreate
+        currentUserId={user.id}
+        suggestions={suggestions}
+      />
+    );
   }
 
   const [customers, tags, members, counts] = await Promise.all([
