@@ -320,6 +320,10 @@ export type GmailFullBody = {
   subject: string;
   date: Date;
   isRead: boolean;
+  /** RFC822 Message-ID header — set as In-Reply-To on a reply (threading). */
+  messageId: string | null;
+  /** Existing References header — extended on a reply (threading). */
+  references: string | null;
   /** Plain-text body (preferred). Empty string when the message is HTML-only. */
   plain: string;
   /** Whether the source actually contains an HTML body (informational). */
@@ -414,6 +418,8 @@ export async function getFullMessage(
     subject: headerOf(raw.payload, 'Subject') || '(kein Betreff)',
     date: new Date(ts),
     isRead: !(raw.labelIds ?? []).includes('UNREAD'),
+    messageId: headerOf(raw.payload, 'Message-ID') || null,
+    references: headerOf(raw.payload, 'References') || null,
     plain: decoded.plain,
     hasHtml: decoded.hasHtml,
     attachments: decoded.attachments,
@@ -519,6 +525,75 @@ export async function archiveMessage(accessToken: string, messageId: string): Pr
 
 export async function markMessageRead(accessToken: string, messageId: string): Promise<void> {
   await modifyLabels(accessToken, messageId, { remove: ['UNREAD'] });
+}
+
+// ── Sending a reply ─────────────────────────────────────────────
+
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// RFC 2047 "encoded-word" for non-ASCII header values (e.g. Betreff with
+// Umlauten). ASCII passes through untouched so plain subjects stay readable.
+// Strip CR/LF from header values — prevents header injection via a crafted
+// subject/recipient (a newline would otherwise smuggle extra headers).
+function sanitizeHeader(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function encodeHeaderWord(value: string): string {
+  const clean = sanitizeHeader(value);
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(clean)) return clean;
+  return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
+}
+
+export type SendReplyInput = {
+  threadId: string;
+  to: string;
+  cc?: string | null;
+  subject: string;
+  /** RFC822 Message-ID of the message being replied to (threading). */
+  inReplyTo?: string | null;
+  /** Existing References chain to extend (threading). */
+  references?: string | null;
+  bodyText: string;
+};
+
+/**
+ * Sends a plain-text reply within an existing Gmail thread. The body is sent
+ * verbatim (already reviewed by the user) as UTF-8 text/plain. Threading is
+ * driven by the `threadId` plus In-Reply-To/References headers so the reply
+ * lands in the right conversation rather than starting a new one.
+ */
+export async function sendReply(
+  accessToken: string,
+  input: SendReplyInput
+): Promise<{ id: string; threadId: string }> {
+  const subject = input.subject.replace(/^(re:\s*)+/i, '').trim();
+  const refs = sanitizeHeader([input.references, input.inReplyTo].filter(Boolean).join(' '));
+  const headers = [
+    `To: ${sanitizeHeader(input.to)}`,
+    input.cc ? `Cc: ${sanitizeHeader(input.cc)}` : null,
+    `Subject: ${encodeHeaderWord(`Re: ${subject}`)}`,
+    input.inReplyTo ? `In-Reply-To: ${sanitizeHeader(input.inReplyTo)}` : null,
+    refs ? `References: ${refs}` : null,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    // From / Date / Message-ID are intentionally omitted — Gmail's
+    // /messages/send fills them (authenticated sender, send time, unique id).
+  ].filter(Boolean);
+
+  // Body base64 in 76-char lines (RFC 2045), CRLF throughout.
+  const bodyB64 = Buffer.from(input.bodyText, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
+  const mime = `${headers.join('\r\n')}\r\n\r\n${bodyB64}`;
+
+  return gfetch<{ id: string; threadId: string }>('/messages/send', accessToken, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ raw: base64url(Buffer.from(mime, 'utf8')), threadId: input.threadId }),
+  });
 }
 
 // ── Header parsing ──────────────────────────────────────────────

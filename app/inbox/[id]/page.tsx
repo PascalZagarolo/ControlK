@@ -5,7 +5,7 @@ import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { loadInboxDetailContext, resolveSyncedGmailIds } from '@/lib/db/queries/inbox-detail';
-import { getValidGoogleAccessToken } from '@/lib/auth/google-tokens';
+import { getValidGoogleAccessToken, getGoogleConnection } from '@/lib/auth/google-tokens';
 import {
   GmailAuthError,
   getFullMessage,
@@ -63,6 +63,12 @@ export default async function Page({
     threadMessages.map((t) => t.id)
   ).catch(() => new Map<string, string>());
 
+  // Whether replying-by-send is unlocked (gmail.send granted). Drives the
+  // reply panel: "Senden" vs. a just-in-time consent link.
+  const canSend = await getGoogleConnection(user.id)
+    .then((c) => !!c && c.scopes.includes('https://www.googleapis.com/auth/gmail.send'))
+    .catch(() => false);
+
   const threadRows: ThreadRow[] = threadMessages
     .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
     .map((t) => ({
@@ -89,8 +95,10 @@ export default async function Page({
             receivedAt: new Date(item.receivedAt).toISOString(),
             isRead: item.isRead,
             preview: item.preview,
+            direction: item.direction,
           }}
           body={body}
+          canSend={canSend}
           alreadyCustomer={context.customer != null}
           senderTagged={senderTagged}
           threadStrip={

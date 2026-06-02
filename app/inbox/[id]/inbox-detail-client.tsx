@@ -25,17 +25,21 @@ type ItemSummary = {
   receivedAt: string;
   isRead: boolean;
   preview: string | null;
+  direction: 'inbox' | 'sent' | string;
 };
 
 export function InboxDetailClient({
   item,
   body,
+  canSend = false,
   threadStrip,
   alreadyCustomer = false,
   senderTagged = false,
 }: {
   item: ItemSummary;
   body: GmailFullBody | null;
+  /** True when gmail.send is granted — enables in-app reply sending. */
+  canSend?: boolean;
   /** Pre-rendered server component (or null when thread has only this message). */
   threadStrip?: React.ReactNode;
   /** True when this sender already resolves to a customer — hides the
@@ -204,10 +208,14 @@ export function InboxDetailClient({
         </div>
       </header>
 
-      {/* AI helpers — summarize / draft reply */}
+      {/* AI helpers — summarize / thread-aware draft + send */}
       <InboxAiPanel
+        itemId={item.id}
         subject={subject}
         from={sender}
+        replyTo={item.senderEmail}
+        canReply={item.direction !== 'sent' && !!item.senderEmail}
+        canSend={canSend}
         bodyText={body?.plain ?? item.preview ?? null}
       />
 

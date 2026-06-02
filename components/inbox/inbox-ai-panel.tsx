@@ -2,30 +2,63 @@
 
 /**
  * AI helpers on the inbox detail view: summarize the email into a gist +
- * action items, or draft a reply. The email body is passed in from the page
- * (fetched from Gmail at render time), so these actions don't re-hit Gmail.
- * The reply is a draft to copy — Ctrl K doesn't send mail.
+ * action items, or draft a reply. The reply draft now reads the WHOLE thread
+ * (server-side) for context and — when gmail.send is granted — can be sent
+ * straight from Ctrl+K after the user reviews it. Never auto-sends.
  */
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { draftInboxReply, summarizeInboxEmail, type SuggestedAction } from '@/lib/actions/inbox-ai';
+import { summarizeInboxEmail, type SuggestedAction } from '@/lib/actions/inbox-ai';
+import { draftReply, sendReply } from '@/lib/actions/reply';
 import { createTodoFromForm } from '@/lib/actions/todos';
 import { toast } from '@/lib/stores/toast-store';
 
+const GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
+
 export function InboxAiPanel({
+  itemId,
   subject,
   from,
+  replyTo,
+  canReply,
+  canSend,
   bodyText,
 }: {
+  itemId: string;
   subject: string | null;
   from: string | null;
+  replyTo: string | null;
+  canReply: boolean;
+  canSend: boolean;
   bodyText: string | null;
 }) {
+  const router = useRouter();
+  const draftKey = `ctrlk:reply-draft:${itemId}`;
   const [pending, start] = useTransition();
   const [active, setActive] = useState<'summary' | 'draft' | null>(null);
   const [summary, setSummary] = useState<{ summary: string; actions: SuggestedAction[] } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Send-scope can be granted mid-flow (JIT consent); start from the prop and
+  // upgrade from the draft action's fresh check.
+  const [sendable, setSendable] = useState(canSend);
+
+  // Restore an in-progress draft after a consent round-trip (the page remounts
+  // when the user returns from the Gmail "Senden aktivieren" OAuth redirect).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        setDraft(saved);
+        setActive('draft');
+      }
+    } catch {
+      /* ignore storage errors */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [addedTodos, setAddedTodos] = useState<Set<number>>(new Set());
   // One-tap dismiss per suggested action (R3) — same gesture as everywhere.
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
@@ -54,13 +87,26 @@ export function InboxAiPanel({
     });
   };
 
+  const updateDraft = (value: string | null) => {
+    setDraft(value);
+    try {
+      if (value && value.trim()) localStorage.setItem(draftKey, value);
+      else localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore storage errors */
+    }
+  };
+
   const runDraft = () => {
     setError(null);
     setActive('draft');
+    setSent(false);
     start(async () => {
-      const res = await draftInboxReply({ subject, from, bodyText });
-      if (res.ok) setDraft(res.draft);
-      else setError(res.error);
+      const res = await draftReply({ inboxItemId: itemId });
+      if (res.ok) {
+        updateDraft(res.draft);
+        setSendable(res.canSend); // reflect a freshly-granted send scope
+      } else setError(res.error);
     });
   };
 
@@ -71,6 +117,28 @@ export function InboxAiPanel({
       () => toast('Kopieren fehlgeschlagen', 'danger')
     );
   };
+
+  const send = () => {
+    if (!draft?.trim()) return;
+    if (!window.confirm(`Antwort an ${replyTo ?? 'den Absender'} senden?`)) return;
+    setError(null);
+    start(async () => {
+      const res = await sendReply({ inboxItemId: itemId, body: draft });
+      if (res.ok) {
+        setSent(true);
+        updateDraft(null); // clear the persisted draft once it's out
+        toast('Antwort gesendet', 'success');
+        router.refresh();
+      } else {
+        setError(res.error);
+        toast(res.error ?? 'Senden fehlgeschlagen', 'danger');
+      }
+    });
+  };
+
+  const upgradeHref =
+    `/api/auth/google/start?scopes=${encodeURIComponent(GMAIL_SEND)}` +
+    `&from=${encodeURIComponent(`/inbox/${itemId}`)}`;
 
   return (
     <section className="rounded-[12px] border border-[#5E9EFF]/15 bg-[#5E9EFF]/[0.04] p-3">
@@ -86,14 +154,16 @@ export function InboxAiPanel({
         >
           {pending && active === 'summary' ? 'Fasse zusammen …' : 'Zusammenfassen'}
         </button>
-        <button
-          type="button"
-          onClick={runDraft}
-          disabled={pending}
-          className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[12px] text-ink-100 transition-colors hover:border-white/[0.18] hover:text-ink-50 disabled:opacity-50"
-        >
-          {pending && active === 'draft' ? 'Entwerfe …' : 'Antwort entwerfen'}
-        </button>
+        {canReply && (
+          <button
+            type="button"
+            onClick={runDraft}
+            disabled={pending}
+            className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[12px] text-ink-100 transition-colors hover:border-white/[0.18] hover:text-ink-50 disabled:opacity-50"
+          >
+            {pending && active === 'draft' ? 'Entwerfe …' : 'Antwort entwerfen'}
+          </button>
+        )}
       </div>
 
       {error && <p className="mt-2 text-[12px] text-[#ff8a8a]">⚠ {error}</p>}
@@ -177,29 +247,68 @@ export function InboxAiPanel({
             className="overflow-hidden"
           >
             <div className="mt-3">
+              {replyTo && (
+                <p className="mb-1.5 font-mono text-[11px] text-ink-300">
+                  An: <span className="text-ink-100">{replyTo}</span>
+                </p>
+              )}
               <textarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  updateDraft(e.target.value);
+                  setSent(false);
+                }}
                 rows={8}
-                className="w-full resize-y rounded-[8px] border border-white/[0.08] bg-black/20 p-3 text-[13px] leading-relaxed text-ink-100 outline-none focus:border-[#5E9EFF]/40"
+                disabled={sent}
+                className="w-full resize-y rounded-[8px] border border-white/[0.08] bg-black/20 p-3 text-[13px] leading-relaxed text-ink-100 outline-none focus:border-[#5E9EFF]/40 disabled:opacity-60"
               />
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={copy}
-                  className="rounded-full bg-[#5E9EFF] px-3 py-1 text-[12px] font-medium text-black transition-colors hover:bg-[#7CB0FF]"
-                >
-                  Kopieren
-                </button>
-                <button
-                  type="button"
-                  onClick={runDraft}
-                  disabled={pending}
-                  className="rounded-full border border-white/[0.08] px-3 py-1 text-[12px] text-ink-300 transition-colors hover:text-ink-50 disabled:opacity-50"
-                >
-                  Neu entwerfen
-                </button>
-              </div>
+              {/* Honest trust note — AI drafted from the thread; you decide. */}
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-300">
+                ✦ KI-Entwurf aus dem ganzen Verlauf — prüf ihn, bevor du sendest. Ctrl+K
+                sendet nichts ohne deinen Klick.
+              </p>
+
+              {sent ? (
+                <p className="mt-2 text-[12px] font-medium text-[#5ee08a]">
+                  ✓ Antwort gesendet — sie ist jetzt in deinem Gmail-Thread.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {sendable ? (
+                    <button
+                      type="button"
+                      onClick={send}
+                      disabled={pending || !draft.trim()}
+                      className="rounded-full bg-[#5ee08a] px-3.5 py-1 text-[12px] font-semibold text-black transition-colors hover:bg-[#7CEBA0] disabled:opacity-50"
+                    >
+                      {pending && active === 'draft' ? 'Senden …' : 'Senden'}
+                    </button>
+                  ) : (
+                    <a
+                      href={upgradeHref}
+                      className="rounded-full bg-[#5ee08a] px-3.5 py-1 text-[12px] font-semibold text-black transition-colors hover:bg-[#7CEBA0]"
+                      title="Einmalige Gmail-Berechtigung zum Senden"
+                    >
+                      Senden aktivieren
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={copy}
+                    className="rounded-full border border-white/[0.08] px-3 py-1 text-[12px] text-ink-100 transition-colors hover:border-white/[0.18] hover:text-ink-50"
+                  >
+                    Kopieren
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runDraft}
+                    disabled={pending}
+                    className="rounded-full border border-white/[0.08] px-3 py-1 text-[12px] text-ink-300 transition-colors hover:text-ink-50 disabled:opacity-50"
+                  >
+                    Neu entwerfen
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

@@ -32,6 +32,9 @@ function safeRedirect(input: string | null): string {
 const ALLOWED_EXTRA_SCOPES = new Set<string>([
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
+  // gmail.send — requested just-in-time when the user first sends a reply
+  // from Ctrl+K (not part of the base connect, to keep onboarding low-friction).
+  'https://www.googleapis.com/auth/gmail.send',
   // Calendar scopes — readonly is the V1 sync surface; `events` lets
   // us write back in Phase 2 (uRent → Google) without forcing a second
   // consent screen later. Both granted in the same prompt.
