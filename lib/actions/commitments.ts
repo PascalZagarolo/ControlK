@@ -245,6 +245,52 @@ async function setStatus(id: string, status: 'done' | 'dismissed'): Promise<Resu
   return { ok: true };
 }
 
+/**
+ * "Nicht heute" — defer a commitment until `untilIso` (default: tomorrow
+ * morning). It leaves the open list + morning plan until then, instead of
+ * being resolved or dismissed. Ownership-checked.
+ */
+export async function snoozeCommitment(id: string, untilIso?: string): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  let until: Date;
+  if (untilIso) {
+    const d = new Date(untilIso);
+    until = isNaN(d.getTime()) ? defaultSnoozeUntil() : d;
+  } else {
+    until = defaultSnoozeUntil();
+  }
+  // Only an OPEN commitment can be deferred — snoozing a resolved/dismissed
+  // one would silently no-op, so we report that rather than fake success.
+  const [row] = await db
+    .update(s.inboxCommitments)
+    .set({ snoozedUntil: until })
+    .where(
+      and(
+        eq(s.inboxCommitments.id, id),
+        eq(s.inboxCommitments.workspaceId, ws.id),
+        eq(s.inboxCommitments.userId, user.id),
+        eq(s.inboxCommitments.status, 'open')
+      )
+    )
+    .returning({ id: s.inboxCommitments.id });
+  if (!row) return { ok: false, error: 'Zusage nicht gefunden oder schon erledigt.' };
+  revalidatePath('/inbox');
+  revalidatePath('/plan');
+  revalidatePath('/kunden');
+  return { ok: true };
+}
+
+/** Tomorrow at 09:00 — the product-wide "nicht heute" wake time (matches the
+ *  inbox/todo snooze + the morning-plan action), so it's consistent everywhere. */
+function defaultSnoozeUntil(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
 export async function resolveCommitment(id: string): Promise<Result> {
   return setStatus(id, 'done');
 }

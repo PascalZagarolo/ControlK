@@ -54,6 +54,8 @@ export async function listOpenCommitments(
         eq(s.inboxCommitments.workspaceId, workspaceId),
         eq(s.inboxCommitments.userId, userId),
         eq(s.inboxCommitments.status, 'open'),
+        // "Nicht heute": hide snoozed commitments until they wake.
+        sql`(${s.inboxCommitments.snoozedUntil} is null or ${s.inboxCommitments.snoozedUntil} <= now())`,
         // Hallucination guard: never surface a commitment without its
         // verbatim source sentence. Legacy rows lacking one are hidden
         // rather than asserted. (Matches the "nie ohne source_sentence
@@ -114,6 +116,8 @@ export async function getCommitmentCounts(
         eq(s.inboxCommitments.userId, userId),
         eq(s.inboxCommitments.status, 'open'),
         eq(s.inboxCommitments.confidence, 'high'),
+        // Snoozed ("nicht heute") commitments don't inflate the plan counts.
+        sql`(${s.inboxCommitments.snoozedUntil} is null or ${s.inboxCommitments.snoozedUntil} <= now())`,
         // Same hallucination guard as listOpenCommitments — a quote-less
         // row must not inflate the morning-plan counts either.
         sql`${s.inboxCommitments.sourceQuote} is not null and length(trim(${s.inboxCommitments.sourceQuote})) > 0`

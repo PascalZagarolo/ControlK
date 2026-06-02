@@ -2612,6 +2612,9 @@ export const inboxCommitments = pgTable(
     confidence: commitmentConfidenceEnum('confidence').notNull().default('medium'),
     dueAt: timestamp('due_at', { withTimezone: true }),
     status: commitmentStatusEnum('status').notNull().default('open'),
+    // "Nicht heute": deferred until this time — hidden from the open list/plan
+    // until it wakes. Null = active now.
+    snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
     // Set when a follow-up SENT mail in the thread auto-resolved this.
     autoDoneAt: timestamp('auto_done_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

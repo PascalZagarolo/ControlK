@@ -393,6 +393,13 @@
       "when": 1782150000000,
       "tag": "0055_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782200000000,
+      "tag": "0056_commitment_snooze",
+      "breakpoints": true
     }
   ]
 }

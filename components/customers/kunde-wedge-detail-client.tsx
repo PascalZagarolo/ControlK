@@ -9,6 +9,7 @@ import {
   dismissCommitment,
   resolveCommitment,
   commitmentToTodo,
+  snoozeCommitment,
 } from '@/lib/actions/commitments';
 import { updateContactTag } from '@/lib/actions/contact-tags';
 import { toast } from '@/lib/stores/toast-store';
@@ -239,6 +240,7 @@ function CommitmentCard({ c }: { c: DetailCommitment }) {
           <ActionButton label="Ist eine Zusage" onClick={() => act(() => confirmCommitment(c.id), 'Bestätigt.')} disabled={pending} primary />
         )}
         <ActionButton label="Erledigt" onClick={() => act(() => resolveCommitment(c.id), 'Als erledigt markiert.')} disabled={pending} />
+        <ActionButton label="Nicht heute" onClick={() => act(() => snoozeCommitment(c.id), 'Auf morgen verschoben.')} disabled={pending} subtle />
         <ActionButton label="Als Todo" onClick={() => act(() => commitmentToTodo(c.id), 'Todo erstellt.')} disabled={pending} />
         <ActionButton label="Verwerfen" onClick={() => act(() => dismissCommitment(c.id), 'Verworfen.')} disabled={pending} subtle />
         {c.sourceItemId && (

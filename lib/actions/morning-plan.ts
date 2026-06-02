@@ -8,6 +8,7 @@ import {
   dismissCommitment,
   confirmCommitment,
   commitmentToTodo,
+  snoozeCommitment,
 } from '@/lib/actions/commitments';
 import {
   snoozeInboxItem,
@@ -41,11 +42,11 @@ function tomorrowMorningIso(): string {
  *   dismiss         dismissCommitment      archive                  setTodoStatus(erledigt)
  *   confirm         confirmCommitment      —                        —
  *   to_todo         commitmentToTodo       createTodoFromInboxItem  —
- *   not_today       snooze (tomorrow)*     snoozeInboxItem(tomorrow) snoozeTodo(tomorrow)
+ *   not_today       snoozeCommitment       snoozeInboxItem(tomorrow) snoozeTodo(tomorrow)
  *
- * *commitments have no snooze column; "not today" on a commitment is a
- *  no-op acknowledgement (it simply stays open) — surfaced to the UI as ok
- *  so the row can collapse for the session without mutating trust state.
+ * "not_today" now defers a commitment for real (snoozed_until = tomorrow 09:00):
+ * it leaves the open list + morning plan + counts until it wakes, consistent
+ * with how inbox items and todos snooze.
  */
 export async function applyPlanAction(input: {
   source: PlanItemSource;
@@ -65,7 +66,7 @@ export async function applyPlanAction(input: {
     else if (action === 'dismiss') res = await dismissCommitment(sourceId);
     else if (action === 'confirm') res = await confirmCommitment(sourceId);
     else if (action === 'to_todo') res = await commitmentToTodo(sourceId);
-    else if (action === 'not_today') res = { ok: true }; // stays open, collapses client-side
+    else if (action === 'not_today') res = await snoozeCommitment(sourceId, tomorrowMorningIso());
     else res = { ok: false, error: 'Aktion nicht unterstützt.' };
   } else if (source === 'inbox') {
     if (action === 'to_todo') res = await createTodoFromInboxItem(sourceId);
