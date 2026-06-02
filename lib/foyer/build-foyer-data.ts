@@ -536,6 +536,9 @@ function toFoyerPlanItem(item: PlanItem): FoyerPlanItem {
     isQuestion: item.isQuestion,
     accent: planAccent(item.kind),
     href: item.href,
+    assignee: item.assignee
+      ? { label: item.assignee.isMe ? 'auf dich' : `${item.assignee.name.split(' ')[0]} ist dran`, isMe: item.assignee.isMe }
+      : null,
   };
 }
 

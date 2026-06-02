@@ -10,10 +10,14 @@
 
 import 'server-only';
 
+import { and, eq, inArray } from 'drizzle-orm';
+import { getDb } from '@/lib/db/client';
+import * as s from '@/lib/db/schema';
 import { getAwaitingSplit } from '@/lib/db/queries/inbox-overview';
 import { listOpenCommitments } from '@/lib/db/queries/commitments';
 import { listCalendarEvents } from '@/lib/db/queries/calendar';
 import { listTodos } from '@/lib/db/queries/todos';
+import { listWorkspaceMembers } from '@/lib/db/queries/members';
 import { fetchGmailConnectionState } from '@/lib/foyer/gmail-state';
 import { computeMorningPlan } from './compute';
 import { summarizeMorningPlan } from './summarize';
@@ -137,10 +141,57 @@ export async function buildMorningPlan(
     todos: todoInputs,
   });
 
+  // Team responsibility hint (post-compute, no engine logic touched): for plan
+  // items tied to a customer, attach who it's assigned to (du/Partner). Only
+  // affects items whose customer has an assignee; everything else is unchanged.
+  await attachAssignees(workspaceId, userId, plan.items);
+
   const summary =
     opts.withSummary === false
       ? ''
       : await summarizeMorningPlan(userId, plan).catch(() => '');
 
   return { ...plan, summary, connectionState };
+}
+
+async function attachAssignees(
+  workspaceId: string,
+  userId: string,
+  items: MorningPlan['items']
+): Promise<void> {
+  const ids = [...new Set(items.map((i) => i.customerId).filter((id): id is string => !!id))];
+  if (ids.length === 0) return;
+  try {
+    const db = getDb();
+    const [rows, members] = await Promise.all([
+      db
+        .select({ id: s.customers.id, assignedTo: s.customers.assignedTo })
+        .from(s.customers)
+        .where(and(eq(s.customers.workspaceId, workspaceId), inArray(s.customers.id, ids))),
+      listWorkspaceMembers(workspaceId).catch(() => []),
+    ]);
+    const memberById = new Map(members.map((m) => [m.id, m]));
+    const assigneeByCustomer = new Map<string, { name: string; initials: string }>();
+    for (const r of rows) {
+      if (!r.assignedTo) continue;
+      const m = memberById.get(r.assignedTo);
+      if (m) assigneeByCustomer.set(r.id, { name: m.name, initials: m.initials });
+    }
+    for (const item of items) {
+      if (!item.customerId) continue;
+      const a = assigneeByCustomer.get(item.customerId);
+      if (a) item.assignee = { name: a.name, initials: a.initials, isMe: false };
+    }
+    // isMe needs the viewer; resolve via the raw assignedTo ids.
+    const meCustomers = new Set(rows.filter((r) => r.assignedTo === userId).map((r) => r.id));
+    for (const item of items) {
+      if (item.customerId && item.assignee && meCustomers.has(item.customerId)) {
+        item.assignee.isMe = true;
+      }
+    }
+  } catch (e) {
+    // Assignee hint is best-effort — never break the plan over it. Logged so a
+    // silently-missing hint (e.g. members query failed) is still diagnosable.
+    console.warn('[morning-plan] assignee hint skipped:', e instanceof Error ? e.message : e);
+  }
 }

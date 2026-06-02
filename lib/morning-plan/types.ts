@@ -107,6 +107,18 @@ export type PlanItem = {
   href: string;
   /** Customer linkage when known. */
   customerName: string | null;
+  /** Customer id when this item is tied to one (commitments) — for assignee lookup. */
+  customerId: string | null;
+  /** Team responsibility, resolved post-compute (build layer) for items whose
+   *  customer is assigned. Null/undefined when unassigned or not customer-tied. */
+  assignee?: PlanAssignee | null;
+};
+
+export type PlanAssignee = {
+  name: string;
+  initials: string;
+  /** True when the contact is assigned to the viewing user. */
+  isMe: boolean;
 };
 
 export type PlanCollision = {

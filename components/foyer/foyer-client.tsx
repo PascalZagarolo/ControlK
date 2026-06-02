@@ -55,6 +55,8 @@ export type FoyerPlanItem = {
   /** Theme accent for this item (real tokens; gold only for the active/due). */
   accent: string;
   href: string;
+  /** Team responsibility hint ("auf dich" / "Müller ist dran"); null if none. */
+  assignee?: { label: string; isMe: boolean } | null;
 };
 
 /** Slim morning-plan slice for the foyer (deterministic, Prompt-1-gated). */
@@ -882,6 +884,12 @@ function TodayAgenda({
               </span>
               <span className="mt-0.5 block truncate text-[12px] text-[#7c7c83]">
                 {item.reason}
+                {item.assignee && (
+                  <span style={{ color: item.assignee.isMe ? '#E8B86D' : '#7c7c83' }}>
+                    {' · '}
+                    {item.assignee.label}
+                  </span>
+                )}
               </span>
             </span>
             <ArrowUpRight className="shrink-0 self-center text-[#3a3a3f] transition-colors duration-150 group-hover:text-[#FAFAFA]" />

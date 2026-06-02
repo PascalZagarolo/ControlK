@@ -131,6 +131,9 @@ function commitmentItems(commitments: CommitmentInput[], now: Date): PlanItem[] 
       actions: question ? ['confirm', 'dismiss'] : ['done', 'to_todo', 'not_today', 'dismiss'],
       href: c.customerId ? `/kunden/${c.customerId}` : '/inbox',
       customerName: c.customerName,
+      // Only commitments carry a customer id today, so the team-assignment hint
+      // (build layer) covers commitment items only — replies/events/todos = null.
+      customerId: c.customerId,
     });
   }
   return out;
@@ -156,6 +159,7 @@ function replyItems(replies: ReplyWaitingInput[], now: Date): PlanItem[] {
       actions: ['to_todo', 'not_today', 'done'],
       href: `/inbox/${r.id}`,
       customerName: null,
+      customerId: null,
     };
   });
 }
@@ -184,6 +188,7 @@ function eventItems(events: EventInput[], now: Date): PlanItem[] {
         actions: [], // calendar events aren't checked off from the plan
         href: `/kalender?event=${e.id}`,
         customerName: e.customerName,
+        customerId: null,
       };
     });
 }
@@ -214,6 +219,7 @@ function todoItems(todos: TodoInput[], now: Date): PlanItem[] {
       actions: ['done', 'not_today'],
       href: `/todos?todo=${t.id}`,
       customerName: null,
+      customerId: null,
     });
   }
   return out;

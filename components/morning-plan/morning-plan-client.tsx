@@ -272,6 +272,17 @@ function PlanRow({
                 <span className="truncate text-[10.5px] text-[#5ee08a]">{item.customerName}</span>
               </>
             )}
+            {item.assignee && (
+              <>
+                <span aria-hidden className="text-ink-300/50">·</span>
+                <span
+                  className="truncate text-[10.5px]"
+                  style={{ color: item.assignee.isMe ? '#E8B86D' : '#7c7c83' }}
+                >
+                  {item.assignee.isMe ? 'auf dich' : `${item.assignee.name.split(' ')[0]} ist dran`}
+                </span>
+              </>
+            )}
           </div>
 
           {/* Title + link */}
