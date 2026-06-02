@@ -543,6 +543,11 @@ export const customers = pgTable(
     // Interesse/Kunde). Deliberately free text — NOT a structured pipeline
     // stage with automation.
     contactStatus: text('contact_status'),
+    // Optional, lightweight team responsibility for a (shared) contact. A
+    // workspace member's id, or null = "beide/niemand". One field, no workflow.
+    assignedTo: varchar('assigned_to', { length: 255 }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
     ownerId: varchar('owner_id', { length: 255 }).references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -558,6 +563,8 @@ export const customers = pgTable(
     ownerIdx: index('customers_owner_idx').on(t.ownerId),
     // Manual-contact overview filters by (workspace, source).
     sourceIdx: index('customers_source_idx').on(t.workspaceId, t.source),
+    // "Meine Kontakte" assignment lookups by (workspace, assignee).
+    assignedToIdx: index('customers_assigned_to_idx').on(t.workspaceId, t.assignedTo),
   })
 );
 
@@ -628,6 +635,33 @@ export const customerContacts = pgTable('customer_contacts', {
   email: text('email'),
   phone: text('phone'),
 });
+
+// Shared, chronological short updates on a contact — the collaborative
+// "angerufen, will Angebot bis Fr" note both partners can read + add. This is
+// the ONLY manual collab input and is deliberately a freeform timeline, NOT a
+// structured activity log (no kinds, no required fields, no pipeline stages).
+export const contactNotes = pgTable(
+  'contact_notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    // Who wrote it (kept for the "von wem" attribution). Set null if the
+    // member leaves so the note text survives.
+    authorId: varchar('author_id', { length: 255 }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    text: text('text').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    customerIdx: index('contact_notes_customer_idx').on(t.customerId, t.createdAt),
+  })
+);
 
 export const customerActivity = pgTable(
   'customer_activity',

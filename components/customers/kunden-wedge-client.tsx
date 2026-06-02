@@ -42,15 +42,27 @@ const STATUS_SUGGESTIONS = ['neu', 'kontaktiert', 'interessiert', 'kein Interess
 export function KundenWedgeClient({
   rows,
   canCreate = false,
+  currentUserId,
 }: {
   rows: CustomerOverviewRow[];
   canCreate?: boolean;
+  currentUserId?: string;
 }) {
   const [sort, setSort] = useState<Sort>('urgency');
   const [creating, setCreating] = useState(false);
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+
+  // "Meine" = contacts assigned to me, plus my personal tagged clients.
+  const hasAssignments = rows.some((r) => r.assignedTo);
+  const scoped = useMemo(() => {
+    if (scope === 'all' || !currentUserId) return rows;
+    return rows.filter(
+      (r) => r.entity === 'tag' || r.assignedTo?.id === currentUserId
+    );
+  }, [rows, scope, currentUserId]);
 
   const sorted = useMemo(() => {
-    const copy = [...rows];
+    const copy = [...scoped];
     if (sort === 'name') {
       copy.sort((a, b) => a.displayName.localeCompare(b.displayName, 'de'));
     } else if (sort === 'recent') {
@@ -60,7 +72,7 @@ export function KundenWedgeClient({
     }
     // 'urgency' keeps the server order (overdue → waiting → open → recent).
     return copy;
-  }, [rows, sort]);
+  }, [scoped, sort]);
 
   const needAttention = rows.filter(
     (r) => r.overdueCommitments > 0 || r.waitingDays !== null
@@ -97,46 +109,92 @@ export function KundenWedgeClient({
         )}
 
         {rows.length > 0 && (
-          <div className="mt-6 flex items-center gap-1">
-            {(
-              [
-                ['urgency', 'Dringlichkeit'],
-                ['recent', 'Letzter Kontakt'],
-                ['name', 'Name'],
-              ] as [Sort, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSort(key)}
-                className="rounded-md px-2.5 py-1 text-[12px] font-medium leading-none transition-colors"
-                style={
-                  sort === key
-                    ? { background: 'rgba(255,255,255,0.06)', color: C.fg }
-                    : { color: C.faint }
-                }
-              >
-                {label}
-              </button>
-            ))}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1">
+              {(
+                [
+                  ['urgency', 'Dringlichkeit'],
+                  ['recent', 'Letzter Kontakt'],
+                  ['name', 'Name'],
+                ] as [Sort, string][]
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSort(key)}
+                  className="rounded-md px-2.5 py-1 text-[12px] font-medium leading-none transition-colors"
+                  style={
+                    sort === key
+                      ? { background: 'rgba(255,255,255,0.06)', color: C.fg }
+                      : { color: C.faint }
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {hasAssignments && currentUserId && (
+              <div className="flex items-center gap-1 border-l pl-3" style={{ borderColor: C.hair }}>
+                {(
+                  [
+                    ['all', 'Alle'],
+                    ['mine', 'Meine'],
+                  ] as ['all' | 'mine', string][]
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setScope(key)}
+                    className="rounded-md px-2.5 py-1 text-[12px] font-medium leading-none transition-colors"
+                    style={
+                      scope === key
+                        ? { background: 'rgba(255,255,255,0.06)', color: C.fg }
+                        : { color: C.faint }
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         <ul className="mt-3 flex flex-col">
           {sorted.map((r) => (
-            <CustomerRow key={r.id} row={r} />
+            <CustomerRow key={r.id} row={r} currentUserId={currentUserId} />
           ))}
+          {sorted.length === 0 && rows.length > 0 && (
+            <li className="py-6 text-[13px]" style={{ color: C.calm }}>
+              Dir sind gerade keine Kontakte zugeordnet.
+            </li>
+          )}
         </ul>
       </div>
     </main>
   );
 }
 
-function CustomerRow({ row }: { row: CustomerOverviewRow }) {
+function CustomerRow({
+  row,
+  currentUserId,
+}: {
+  row: CustomerOverviewRow;
+  currentUserId?: string;
+}) {
   const calm =
     row.overdueCommitments === 0 &&
     row.waitingDays === null &&
     row.openCommitments === 0;
+
+  // Team assignment hint on actionable rows: is it on me or my partner?
+  const actionable = row.overdueCommitments > 0 || row.waitingDays !== null;
+  const assignHint =
+    actionable && row.assignedTo
+      ? row.assignedTo.id === currentUserId
+        ? { text: 'auf dich', color: C.gold }
+        : { text: `${row.assignedTo.name.split(' ')[0]} ist dran`, color: C.faint }
+      : null;
 
   return (
     <li>
@@ -205,6 +263,7 @@ function CustomerRow({ row }: { row: CustomerOverviewRow }) {
                 wartet seit {row.waitingDays} {row.waitingDays === 1 ? 'Tag' : 'Tagen'}
               </span>
             )}
+            {assignHint && <span style={{ color: assignHint.color }}>· {assignHint.text}</span>}
             {calm && <span style={{ color: C.calm }}>nichts Offenes</span>}
             {row.note && (
               <span className="truncate" style={{ color: C.faint }} title={row.note}>
@@ -214,12 +273,21 @@ function CustomerRow({ row }: { row: CustomerOverviewRow }) {
           </div>
         </div>
 
-        <span
-          className="shrink-0 font-mono text-[11px] tabular-nums"
-          style={{ color: C.faint }}
-        >
-          {relDays(row.lastInteractionDays)}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Who had the last interaction — dezente Partner-Initialen (Team). */}
+          {row.lastInteractionBy && (
+            <span
+              className="grid h-5 w-5 place-items-center rounded-full text-[9px] font-semibold"
+              style={{ background: 'rgba(255,255,255,0.06)', color: C.muted }}
+              title={`Zuletzt: ${row.lastInteractionBy.name}`}
+            >
+              {row.lastInteractionBy.initials}
+            </span>
+          )}
+          <span className="font-mono text-[11px] tabular-nums" style={{ color: C.faint }}>
+            {relDays(row.lastInteractionDays)}
+          </span>
+        </div>
       </Link>
     </li>
   );

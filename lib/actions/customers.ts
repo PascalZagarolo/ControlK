@@ -207,6 +207,7 @@ export async function updateManualContact(input: {
 
   await db.update(s.customers).set(patch).where(eq(s.customers.id, input.customerId));
   paths(customer.slug);
+  revalidatePath(`/kunden/${input.customerId}`);
   revalidatePath('/inbox');
   return { ok: true };
 }
@@ -243,7 +244,9 @@ export async function addContactEmail(input: {
   }
 
   // Reuse the CRM linker — same customer_contacts table + per-customer dedup.
-  return linkSenderToCustomer({ customerId: input.customerId, email });
+  const r = await linkSenderToCustomer({ customerId: input.customerId, email });
+  if (r.ok) revalidatePath(`/kunden/${input.customerId}`);
+  return r;
 }
 
 /** Remove an email address from a manual contact. */
@@ -266,7 +269,95 @@ export async function removeContactEmail(input: {
       )
     );
   paths(customer.slug);
+  revalidatePath(`/kunden/${input.customerId}`);
   revalidatePath('/inbox');
+  return { ok: true };
+}
+
+// ─── Team-Kollaboration: Zuständigkeit + geteilte Kurz-Updates ──────
+
+/**
+ * Assign a contact to a team member (lightweight responsibility) or null =
+ * "beide/niemand". Business-gated; the assignee must be a workspace member.
+ */
+export async function setContactAssignee(input: {
+  customerId: string;
+  assignedTo: string | null;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const db = getDb();
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+
+  if (input.assignedTo) {
+    const member = await db.query.workspaceMembers.findFirst({
+      where: and(
+        eq(s.workspaceMembers.workspaceId, ws.id),
+        eq(s.workspaceMembers.userId, input.assignedTo)
+      ),
+    });
+    if (!member) return { ok: false, error: 'Kein Mitglied dieses Workspace.' };
+  }
+
+  await db
+    .update(s.customers)
+    .set({ assignedTo: input.assignedTo })
+    .where(eq(s.customers.id, input.customerId));
+  paths(customer.slug);
+  // The wedge contact detail is keyed by customer id, not slug.
+  revalidatePath(`/kunden/${input.customerId}`);
+  revalidatePath('/plan');
+  return { ok: true };
+}
+
+/** Add a shared, chronological short update to a contact (author = caller). */
+export async function addContactNote(input: {
+  customerId: string;
+  text: string;
+}): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const text = input.text.trim();
+  if (!text) return { ok: false, error: 'Leeres Update.' };
+  const db = getDb();
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+
+  const [row] = await db
+    .insert(s.contactNotes)
+    .values({
+      workspaceId: ws.id,
+      customerId: input.customerId,
+      authorId: user.id,
+      text: text.slice(0, 2000),
+    })
+    .returning({ id: s.contactNotes.id });
+  paths(customer.slug);
+  revalidatePath(`/kunden/${input.customerId}`);
+  return { ok: true, id: row.id };
+}
+
+/** Delete a shared update — author only (orphaned notes can't be deleted). */
+export async function deleteContactNote(input: { noteId: string }): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const db = getDb();
+  const note = await db.query.contactNotes.findFirst({
+    where: and(eq(s.contactNotes.id, input.noteId), eq(s.contactNotes.workspaceId, ws.id)),
+  });
+  if (!note) return { ok: false, error: 'Update nicht gefunden.' };
+  // Author-only. An orphaned note (author left → authorId null) is NOT
+  // deletable by others — deny rather than accidentally grant via short-circuit.
+  if (!note.authorId || note.authorId !== user.id) {
+    return { ok: false, error: 'Nur der Verfasser kann das Update löschen.' };
+  }
+  await db.delete(s.contactNotes).where(eq(s.contactNotes.id, input.noteId));
+  revalidatePath('/kunden');
+  revalidatePath(`/kunden/${note.customerId}`);
   return { ok: true };
 }
 

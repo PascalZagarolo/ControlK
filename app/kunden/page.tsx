@@ -30,7 +30,7 @@ export default async function Page() {
     // Business-Gate: Kontakt-/Kundenmanagement nur in Business-Workspaces.
     if (ws.scope !== 'business') redirect('/');
     const rows = await listCustomerOverview(ws.id, user.id, { includeManual: true });
-    return <KundenWedgeClient rows={rows} canCreate />;
+    return <KundenWedgeClient rows={rows} canCreate currentUserId={user.id} />;
   }
 
   const [customers, tags, members, counts] = await Promise.all([

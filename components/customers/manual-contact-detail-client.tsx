@@ -8,6 +8,9 @@ import {
   updateManualContact,
   addContactEmail,
   removeContactEmail,
+  setContactAssignee,
+  addContactNote,
+  deleteContactNote,
 } from '@/lib/actions/customers';
 import {
   confirmCommitment,
@@ -35,7 +38,23 @@ function fmtDate(iso: string): string {
   return `${d}.${m}.${y.slice(2)}`;
 }
 
-export function ManualContactDetailClient({ detail }: { detail: ManualContactDetail }) {
+function relTime(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return 'heute';
+  if (days === 1) return 'gestern';
+  if (days < 7) return `vor ${days} Tagen`;
+  return fmtDate(iso);
+}
+
+export function ManualContactDetailClient({
+  detail,
+  currentUserId,
+}: {
+  detail: ManualContactDetail;
+  currentUserId?: string;
+}) {
+  // The most recent timeline entry tells us who last interacted (team view).
+  const last = detail.timeline[0];
   return (
     <main className="min-h-screen" style={{ background: C.bg, color: C.fg }}>
       <div className="mx-auto w-full max-w-2xl px-5 pb-24 pt-20 sm:px-8">
@@ -44,8 +63,17 @@ export function ManualContactDetailClient({ detail }: { detail: ManualContactDet
         </Link>
 
         <ContactHeader detail={detail} />
+        {last && (
+          <p className="mt-2 text-[12.5px]" style={{ color: C.muted }}>
+            Zuletzt: {last.byName ? last.byName.split(' ')[0] : 'jemand'},{' '}
+            {relTime(last.receivedAt)} —{' '}
+            {last.direction === 'sent' ? 'ihr habt geschrieben' : `${detail.name} hat geantwortet`}
+          </p>
+        )}
+        <AssigneeSelector detail={detail} currentUserId={currentUserId} />
         <ContactFields detail={detail} />
         <EmailManager id={detail.id} emails={detail.emails} />
+        <UpdatesThread id={detail.id} notes={detail.notes} currentUserId={currentUserId} />
 
         <Section title="Offene Zusagen" count={detail.openCommitments.length} empty="Keine offenen Zusagen an diesen Kontakt.">
           {detail.openCommitments.map((c) => <CommitmentCard key={c.id} c={c} />)}
@@ -303,5 +331,167 @@ function ActionButton({ label, onClick, disabled, primary, subtle }: {
       style={primary ? { background: 'rgba(232,184,109,0.12)', color: C.gold } : subtle ? { color: C.faint } : { background: 'rgba(255,255,255,0.05)', color: C.fg }}>
       {label}
     </button>
+  );
+}
+
+// Lightweight responsibility — a member or "Beide" (null). One field, no flow.
+function AssigneeSelector({
+  detail,
+  currentUserId,
+}: {
+  detail: ManualContactDetail;
+  currentUserId?: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const current = detail.assignedTo?.id ?? '';
+
+  const choose = (value: string) => {
+    startTransition(async () => {
+      const r = await setContactAssignee({
+        customerId: detail.id,
+        assignedTo: value || null,
+      }).catch(() => ({ ok: false, error: 'Fehlgeschlagen.' }));
+      if (r.ok) router.refresh();
+      else toast(r.error ?? 'Fehlgeschlagen.', 'danger');
+    });
+  };
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <span className="text-[12px]" style={{ color: C.faint }}>
+        Zuständig:
+      </span>
+      <Chip label="Beide" active={current === ''} onClick={() => choose('')} disabled={pending} />
+      {detail.members.map((m) => (
+        <Chip
+          key={m.id}
+          label={m.id === currentUserId ? `${m.name.split(' ')[0]} (du)` : m.name.split(' ')[0]}
+          active={current === m.id}
+          onClick={() => choose(m.id)}
+          disabled={pending}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Chip({ label, active, onClick, disabled }: {
+  label: string; active: boolean; onClick: () => void; disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-full px-2.5 py-1 text-[12px] font-medium leading-none transition-colors disabled:opacity-50"
+      style={active ? { background: 'rgba(232,184,109,0.14)', color: C.gold } : { background: 'rgba(255,255,255,0.05)', color: C.muted }}
+    >
+      {label}
+    </button>
+  );
+}
+
+// Shared chronological updates both partners read + add. Free text, no types.
+function UpdatesThread({
+  id,
+  notes,
+  currentUserId,
+}: {
+  id: string;
+  notes: ManualContactDetail['notes'];
+  currentUserId?: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [text, setText] = useState('');
+
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    startTransition(async () => {
+      const r = await addContactNote({ customerId: id, text: t }).catch(() => ({ ok: false, error: 'Fehlgeschlagen.' }));
+      if (r.ok) { setText(''); router.refresh(); }
+      else toast(r.error ?? 'Fehlgeschlagen.', 'danger');
+    });
+  };
+  const remove = (noteId: string) => {
+    startTransition(async () => {
+      const r = await deleteContactNote({ noteId }).catch(() => ({ ok: false, error: 'Fehlgeschlagen.' }));
+      if (r.ok) router.refresh();
+      else toast(r.error ?? 'Fehlgeschlagen.', 'danger');
+    });
+  };
+
+  return (
+    <section className="mt-9">
+      <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em]" style={{ color: C.faint }}>
+        Updates
+      </h2>
+      <div className="flex items-start gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) add(); }}
+          placeholder="Kurzes Update fürs Team — z. B. angerufen, will Angebot bis Freitag …"
+          rows={2}
+          maxLength={2000}
+          className="flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-[13px] leading-relaxed outline-none transition-colors placeholder:text-[#52525B] focus:border-white/20"
+          style={{ borderColor: C.hair, color: C.fg }}
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={pending || !text.trim()}
+          className="shrink-0 rounded-lg px-3 py-2 text-[12.5px] font-medium leading-none transition-colors disabled:opacity-50"
+          style={{ background: 'rgba(255,255,255,0.06)', color: C.fg }}
+        >
+          Posten
+        </button>
+      </div>
+
+      {notes.length === 0 ? (
+        <p className="mt-3 text-[13px]" style={{ color: C.calm }}>
+          Noch keine Updates. Was dein Partner hier notiert, siehst du sofort.
+        </p>
+      ) : (
+        <ul className="mt-3 flex flex-col gap-2">
+          {notes.map((n) => (
+            <li
+              key={n.id}
+              className="flex items-start gap-3 rounded-xl border px-3.5 py-2.5"
+              style={{ borderColor: C.hair, background: C.panel }}
+            >
+              <span
+                className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold"
+                style={{ background: 'rgba(255,255,255,0.06)', color: C.muted }}
+                title={n.authorName ?? 'Unbekannt'}
+              >
+                {n.authorInitials ?? '—'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed" style={{ color: C.fg }}>
+                  {n.text}
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: C.calm }}>
+                  {n.authorName ? n.authorName.split(' ')[0] : 'Unbekannt'} · {relTime(n.createdAt)}
+                </p>
+              </div>
+              {n.authorId && n.authorId === currentUserId && (
+                <button
+                  type="button"
+                  onClick={() => remove(n.id)}
+                  disabled={pending}
+                  className="shrink-0 text-[11px] transition-colors hover:opacity-80 disabled:opacity-50"
+                  style={{ color: C.faint }}
+                >
+                  Löschen
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

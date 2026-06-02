@@ -34,7 +34,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     // Manual contacts only exist in business workspaces.
     if (ws.scope === 'business') {
       const manual = await getManualContactDetail(ws.id, user.id, id);
-      if (manual) return <ManualContactDetailClient detail={manual} />;
+      if (manual) return <ManualContactDetailClient detail={manual} currentUserId={user.id} />;
     }
     notFound();
   }

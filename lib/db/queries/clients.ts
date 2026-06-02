@@ -4,6 +4,7 @@ import { getDb } from '../client';
 import * as s from '../schema';
 import { resolveClient, type ClientMatch, type ContactTag } from '@/lib/clients/resolve';
 import { listOpenCommitments } from './commitments';
+import { listWorkspaceMembers } from './members';
 
 // ─── Contact tags (lightweight per-user client marks) ───────────────
 
@@ -430,6 +431,10 @@ export type CustomerOverviewRow = {
   lastInteractionAt: string | null;
   /** Days since the last interaction (server-computed, hydration-safe). */
   lastInteractionDays: number | null;
+  /** Manual (shared) contacts: which team member had the last interaction. */
+  lastInteractionBy: { id: string; name: string; initials: string } | null;
+  /** Manual contacts: optional responsibility (a member, or null = beide). */
+  assignedTo: { id: string; name: string; initials: string } | null;
   unreadCount: number;
 };
 
@@ -557,6 +562,10 @@ export async function listCustomerOverview(
   const manualRows: CustomerOverviewRow[] = [];
   const coveredKeys = new Set<string>();
   if (opts.includeManual) {
+    // Workspace members → id/name/initials, for "who last" + assignee labels.
+    const members = await listWorkspaceMembers(workspaceId).catch(() => []);
+    const memberById = new Map(members.map((m) => [m.id, { id: m.id, name: m.name, initials: m.initials }]));
+
     const contacts = await db
       .select({
         id: s.customers.id,
@@ -564,6 +573,7 @@ export async function listCustomerOverview(
         company: s.customers.company,
         contactStatus: s.customers.contactStatus,
         notes: s.customers.notes,
+        assignedTo: s.customers.assignedTo,
         email: sql<string | null>`lower(${s.customerContacts.email})`,
       })
       .from(s.customers)
@@ -574,58 +584,65 @@ export async function listCustomerOverview(
     // Group emails per contact.
     const byContact = new Map<
       string,
-      { name: string; company: string | null; status: string | null; note: string | null; emails: string[] }
+      { name: string; company: string | null; status: string | null; note: string | null; assignedTo: string | null; emails: string[] }
     >();
     for (const r of contacts) {
       let c = byContact.get(r.id);
       if (!c) {
-        c = { name: r.name, company: r.company, status: r.contactStatus, note: r.notes || null, emails: [] };
+        c = { name: r.name, company: r.company, status: r.contactStatus, note: r.notes || null, assignedTo: r.assignedTo, emails: [] };
         byContact.set(r.id, c);
       }
       if (r.email && !c.emails.includes(r.email)) c.emails.push(r.email);
     }
 
-    // Workspace-wide last contact per email (both directions, all members).
-    // Two direction-specific aggregates: the CONTACT's address is the SENDER on
-    // inbound mail but the RECIPIENT on sent mail — a single coalesce() would
-    // mis-key sent mail under our own address, so we group each direction by
-    // the right column and merge the maxima.
+    // Workspace-wide last contact per email (both directions, all members),
+    // INCLUDING which member it was. The contact's address is the SENDER on
+    // inbound mail but the RECIPIENT on sent mail, so we take the latest row
+    // per email in each direction (DISTINCT ON) and merge by recency.
     const allEmails = [...new Set([...byContact.values()].flatMap((c) => c.emails))];
-    const teamLastByEmail = new Map<string, number>();
+    const teamLastByEmail = new Map<string, { at: number; userId: string | null }>();
     if (allEmails.length > 0) {
+      const senderLower = sql`lower(${s.inboxItems.senderEmail})`;
+      const recipientLower = sql`lower(${s.inboxItems.recipientEmail})`;
       const [inboundLast, sentLast] = await Promise.all([
+        // Contact wrote to us: sender = contact, inbound only.
         db
-          .select({
+          .selectDistinctOn([senderLower], {
             email: sql<string>`lower(${s.inboxItems.senderEmail})`,
-            latest: sql<Date>`max(${s.inboxItems.receivedAt})`,
+            at: s.inboxItems.receivedAt,
+            userId: s.inboxItems.userId,
           })
           .from(s.inboxItems)
           .where(
             and(
               eq(s.inboxItems.workspaceId, workspaceId),
-              inArray(sql`lower(${s.inboxItems.senderEmail})`, allEmails)
+              eq(s.inboxItems.direction, 'inbox'),
+              inArray(senderLower, allEmails)
             )
           )
-          .groupBy(sql`lower(${s.inboxItems.senderEmail})`),
+          .orderBy(senderLower, desc(s.inboxItems.receivedAt)),
+        // We wrote to the contact: recipient = contact, sent only.
         db
-          .select({
+          .selectDistinctOn([recipientLower], {
             email: sql<string>`lower(${s.inboxItems.recipientEmail})`,
-            latest: sql<Date>`max(${s.inboxItems.receivedAt})`,
+            at: s.inboxItems.receivedAt,
+            userId: s.inboxItems.userId,
           })
           .from(s.inboxItems)
           .where(
             and(
               eq(s.inboxItems.workspaceId, workspaceId),
-              inArray(sql`lower(${s.inboxItems.recipientEmail})`, allEmails)
+              eq(s.inboxItems.direction, 'sent'),
+              inArray(recipientLower, allEmails)
             )
           )
-          .groupBy(sql`lower(${s.inboxItems.recipientEmail})`),
+          .orderBy(recipientLower, desc(s.inboxItems.receivedAt)),
       ]);
       for (const r of [...inboundLast, ...sentLast]) {
-        if (!r.email || !r.latest) continue;
-        const t = new Date(r.latest).getTime();
+        if (!r.email || !r.at) continue;
+        const t = new Date(r.at).getTime();
         const prev = teamLastByEmail.get(r.email);
-        if (prev === undefined || t > prev) teamLastByEmail.set(r.email, t);
+        if (prev === undefined || t > prev.at) teamLastByEmail.set(r.email, { at: t, userId: r.userId });
       }
     }
 
@@ -651,11 +668,14 @@ export async function listCustomerOverview(
           oldestNeeds = a.oldestNeeds;
         }
       }
-      // Team-wide last interaction across the contact's emails.
-      const teamLast = c.emails.reduce<number | null>((m, e) => {
+      // Team-wide last interaction across the contact's emails — incl. who.
+      let teamLast: { at: number; userId: string | null } | null = null;
+      for (const e of c.emails) {
         const t = teamLastByEmail.get(e);
-        return t && (m === null || t > m) ? t : m;
-      }, null);
+        if (t && (teamLast === null || t.at > teamLast.at)) teamLast = t;
+      }
+      const lastBy = teamLast?.userId ? (memberById.get(teamLast.userId) ?? null) : null;
+      const assignee = c.assignedTo ? (memberById.get(c.assignedTo) ?? null) : null;
       manualRows.push({
         id,
         entity: 'manual',
@@ -670,8 +690,10 @@ export async function listCustomerOverview(
         overdueCommitments: overdue,
         waitingDays: oldestNeeds != null ? Math.max(0, Math.floor((now - oldestNeeds) / DAY_MS)) : null,
         needsReply,
-        lastInteractionAt: teamLast ? new Date(teamLast).toISOString() : null,
-        lastInteractionDays: teamLast != null ? Math.max(0, Math.floor((now - teamLast) / DAY_MS)) : null,
+        lastInteractionAt: teamLast ? new Date(teamLast.at).toISOString() : null,
+        lastInteractionDays: teamLast != null ? Math.max(0, Math.floor((now - teamLast.at) / DAY_MS)) : null,
+        lastInteractionBy: lastBy,
+        assignedTo: assignee,
         unreadCount: unread,
       });
     }
@@ -702,6 +724,9 @@ export async function listCustomerOverview(
         lastInteractionAt: lastInteraction ? new Date(lastInteraction).toISOString() : null,
         lastInteractionDays:
           lastInteraction != null ? Math.max(0, Math.floor((now - lastInteraction) / DAY_MS)) : null,
+        // Per-user tagged clients aren't shared, so no team attribution/assignee.
+        lastInteractionBy: null,
+        assignedTo: null,
         unreadCount: a?.unread ?? 0,
       };
     });
@@ -936,6 +961,15 @@ export async function getCustomerDetailByTag(
 // (with the member who interacted) so a team sees the shared history.
 
 export type ManualContactEmail = { id: string; email: string };
+export type TeamMember = { id: string; name: string; initials: string };
+export type ContactNote = {
+  id: string;
+  text: string;
+  createdAt: string;
+  authorId: string | null;
+  authorName: string | null;
+  authorInitials: string | null;
+};
 
 export type ManualContactDetail = {
   id: string;
@@ -945,6 +979,12 @@ export type ManualContactDetail = {
   status: string | null;
   note: string | null;
   emails: ManualContactEmail[];
+  /** Optional team responsibility (a member) or null = beide/niemand. */
+  assignedTo: TeamMember | null;
+  /** Workspace members, for the assignment selector. */
+  members: TeamMember[];
+  /** Shared, chronological short updates both partners read + add. */
+  notes: ContactNote[];
   openCommitments: DetailCommitment[];
   doneCommitments: DetailCommitment[];
   waitingThreads: DetailThread[];
@@ -968,14 +1008,50 @@ export async function getManualContactDetail(
   });
   if (!customer) return null;
 
-  const contactRows = await db
-    .select({ id: s.customerContacts.id, email: sql<string | null>`lower(${s.customerContacts.email})` })
-    .from(s.customerContacts)
-    .where(eq(s.customerContacts.customerId, customerId));
+  const [contactRows, members, noteRows] = await Promise.all([
+    db
+      .select({ id: s.customerContacts.id, email: sql<string | null>`lower(${s.customerContacts.email})` })
+      .from(s.customerContacts)
+      .where(eq(s.customerContacts.customerId, customerId)),
+    listWorkspaceMembers(workspaceId).catch(() => []),
+    // Shared chronological updates (newest first), with the author's identity.
+    db
+      .select({
+        id: s.contactNotes.id,
+        text: s.contactNotes.text,
+        createdAt: s.contactNotes.createdAt,
+        authorId: s.contactNotes.authorId,
+        authorName: s.users.name,
+        authorInitials: s.users.initials,
+      })
+      .from(s.contactNotes)
+      .leftJoin(s.users, eq(s.users.id, s.contactNotes.authorId))
+      .where(
+        and(
+          eq(s.contactNotes.workspaceId, workspaceId),
+          eq(s.contactNotes.customerId, customerId)
+        )
+      )
+      .orderBy(desc(s.contactNotes.createdAt))
+      .limit(100),
+  ]);
   const emails = contactRows
     .filter((r): r is { id: string; email: string } => !!r.email)
     .map((r) => ({ id: r.id, email: r.email }));
   const emailList = emails.map((e) => e.email);
+
+  const memberList: TeamMember[] = members.map((m) => ({ id: m.id, name: m.name, initials: m.initials }));
+  const assignedTo: TeamMember | null = customer.assignedTo
+    ? (memberList.find((m) => m.id === customer.assignedTo) ?? null)
+    : null;
+  const notes: ContactNote[] = noteRows.map((n) => ({
+    id: n.id,
+    text: n.text,
+    createdAt: new Date(n.createdAt).toISOString(),
+    authorId: n.authorId ?? null,
+    authorName: n.authorName ?? null,
+    authorInitials: n.authorInitials ?? null,
+  }));
 
   const now = Date.now();
   const toCommitment = (r: {
@@ -998,7 +1074,7 @@ export async function getManualContactDetail(
     };
   };
 
-  // No emails yet → only the contact fields; nothing to attribute.
+  // No emails yet → only the contact fields + collab data; nothing to attribute.
   if (emailList.length === 0) {
     return {
       id: customer.id,
@@ -1008,6 +1084,9 @@ export async function getManualContactDetail(
       status: customer.contactStatus,
       note: customer.notes || null,
       emails: [],
+      assignedTo,
+      members: memberList,
+      notes,
       openCommitments: [],
       doneCommitments: [],
       waitingThreads: [],
@@ -1094,6 +1173,9 @@ export async function getManualContactDetail(
     status: customer.contactStatus,
     note: customer.notes || null,
     emails,
+    assignedTo,
+    members: memberList,
+    notes,
     openCommitments: commitRows.filter((r) => r.status === 'open').map(toCommitment),
     doneCommitments: commitRows.filter((r) => r.status === 'done').map(toCommitment),
     waitingThreads: threadRows.map((r) => ({
