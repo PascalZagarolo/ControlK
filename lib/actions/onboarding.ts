@@ -82,53 +82,65 @@ export async function runFirstScan(): Promise<OnboardingScanResult> {
     return { ok: false, reason: sync.reason };
   }
 
-  // 2. Autopilot's commitment pass over freshly-synced sent mail. Best-effort:
-  //    no AI budget / rate-limit just means 0 found, not a failure.
-  const commit = await scanCommitments(user.id, ws.id).catch(() => ({
-    scanned: 0,
-    found: 0,
-    rateLimited: false,
-  }));
+  // Everything past the sync is wrapped: buildMorningPlan's sub-fetches each
+  // degrade to empty, but its synchronous compute step (or getAwaitingSplit /
+  // requireCurrentWorkspace) could still throw. An uncaught throw here would
+  // reject the action and strand the client on the scanning spinner forever,
+  // so we degrade to a clean { ok: false, reason: 'error' } instead.
+  try {
+    // 2. Autopilot's commitment pass over freshly-synced sent mail. Best-effort:
+    //    no AI budget / rate-limit just means 0 found, not a failure.
+    const commit = await scanCommitments(user.id, ws.id).catch(() => ({
+      scanned: 0,
+      found: 0,
+      rateLimited: false,
+    }));
 
-  // 3. Build the real plan from what we just read.
-  const plan = await buildMorningPlan(ws.id, user.id, { withSummary: true });
+    // 3. Build the real plan from what we just read.
+    const plan = await buildMorningPlan(ws.id, user.id, { withSummary: true });
 
-  const mapped: OnboardingPlanItem[] = plan.items.slice(0, MAX_PREVIEW_ITEMS).map((item) => ({
-    key: item.key,
-    kicker: PLAN_KICKER[item.kind] ?? 'Heute',
-    title: item.title,
-    reason: item.reason,
-    timing: item.timing,
-    isQuestion: item.isQuestion,
-    accent: planAccent(item.kind),
-  }));
+    const mapped: OnboardingPlanItem[] = plan.items.slice(0, MAX_PREVIEW_ITEMS).map((item) => ({
+      key: item.key,
+      kicker: PLAN_KICKER[item.kind] ?? 'Heute',
+      title: item.title,
+      reason: item.reason,
+      timing: item.timing,
+      isQuestion: item.isQuestion,
+      accent: planAccent(item.kind),
+    }));
 
-  // 4. A few real, distinct inbound senders for the optional "als Kunde
-  //    markieren" step — deduped by email, only those we can tag.
-  const seen = new Set<string>();
-  const awaiting = await getAwaitingSplit(ws.id, user.id).catch(() => ({ onYou: [], onThem: [] }));
-  const taggable: { name: string; email: string; ageDays: number }[] = [];
-  for (const row of awaiting.onYou) {
-    const email = row.senderEmail?.trim().toLowerCase();
-    if (!email || seen.has(email)) continue;
-    seen.add(email);
-    taggable.push({ name: cleanSenderName(row.senderName) || email, email, ageDays: row.ageDays });
-    if (taggable.length >= MAX_TAGGABLE_SENDERS) break;
+    // 4. A few real, distinct inbound senders for the optional "als Kunde
+    //    markieren" step — deduped by email, only those we can tag.
+    const seen = new Set<string>();
+    const awaiting = await getAwaitingSplit(ws.id, user.id).catch(() => ({ onYou: [], onThem: [] }));
+    const taggable: { name: string; email: string; ageDays: number }[] = [];
+    for (const row of awaiting.onYou) {
+      const email = row.senderEmail?.trim().toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      taggable.push({ name: cleanSenderName(row.senderName) || email, email, ageDays: row.ageDays });
+      if (taggable.length >= MAX_TAGGABLE_SENDERS) break;
+    }
+
+    return {
+      ok: true,
+      connectionState: plan.connectionState,
+      // `inserted` = rows newly recorded by the first sync (initial mode pulls
+      // the whole recent batch), so the UI labels this "erfasst", not "gelesen".
+      scan: { mailsRead: sync.inserted, commitmentsFound: commit.found },
+      plan: {
+        summaryLine: plan.summary,
+        items: mapped,
+        collision: plan.collisions[0]?.message ?? null,
+        isCalm: plan.isCalm,
+        stats: plan.stats,
+      },
+      senders: taggable,
+    };
+  } catch (e) {
+    console.error('[runFirstScan] plan build failed:', e instanceof Error ? e.message : e);
+    return { ok: false, reason: 'error' };
   }
-
-  return {
-    ok: true,
-    connectionState: plan.connectionState,
-    scan: { mailsRead: sync.inserted, commitmentsFound: commit.found },
-    plan: {
-      summaryLine: plan.summary,
-      items: mapped,
-      collision: plan.collisions[0]?.message ?? null,
-      isCalm: plan.isCalm,
-      stats: plan.stats,
-    },
-    senders: taggable,
-  };
 }
 
 /** Strip a "Name <email>" wrapper down to the display name. */

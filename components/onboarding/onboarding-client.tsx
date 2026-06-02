@@ -95,9 +95,17 @@ export function OnboardingClient({
     scanStarted.current = true;
     setPhase('scanning');
     startTransition(async () => {
-      const result = await runFirstScan();
-      setScan(result);
-      setPhase('result');
+      // Final safety net: the action already degrades thrown errors to
+      // { ok: false }, but if it ever rejects (network, RSC transport), we
+      // must still leave the scanning spinner — never strand the user.
+      try {
+        const result = await runFirstScan();
+        setScan(result);
+      } catch {
+        setScan({ ok: false, reason: 'error' });
+      } finally {
+        setPhase('result');
+      }
     });
     // startTransition isn't a dep — it's stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -508,9 +516,10 @@ function ScanResult({
         <p className="text-[14px] leading-relaxed text-[#9c9c9d]">
           {plan.summaryLine}
         </p>
-        {/* Honest scan provenance — never hide what was (not) found. */}
+        {/* Honest scan provenance — "erfasst" (recorded), since the count is
+            the rows the first sync actually stored, not a raw read tally. */}
         <p className="font-mono text-[11px] tracking-[0.04em] text-[#7c7c83]">
-          {counts.mailsRead} Mails gelesen · {counts.commitmentsFound}{' '}
+          {counts.mailsRead} Mails erfasst · {counts.commitmentsFound}{' '}
           {counts.commitmentsFound === 1 ? 'Zusage' : 'Zusagen'} erkannt
         </p>
       </header>
@@ -518,10 +527,11 @@ function ScanResult({
       {empty ? (
         <div className="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
           <p className="text-[13.5px] leading-relaxed text-[#9c9c9d]">
-            Ich habe nichts gefunden, das heute dringend deine Aufmerksamkeit
-            braucht — keine überfälligen Zusagen, niemand wartet zu lange. Das ist
-            ein gutes Zeichen, kein leerer Bildschirm. Sobald sich etwas ändert,
-            steht es morgens hier.
+            Bei deinem ersten Scan habe ich nichts gefunden, das heute dringend
+            deine Aufmerksamkeit braucht — keine überfälligen Zusagen, niemand
+            wartet zu lange. Das ist ein gutes Zeichen, kein leerer Bildschirm.
+            Sobald eine Zusage oder ein wartender Kunde auftaucht, steht das hier
+            morgens als Erstes.
           </p>
         </div>
       ) : (
