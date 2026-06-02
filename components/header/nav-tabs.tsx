@@ -40,8 +40,10 @@ const MORE: Tab[] = [
   { label: 'Notizen', href: '/notes' },
   // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },
-  // uRent-specific modules — only when the Vermietungs-Pack is enabled.
-  { label: 'Kunden', href: '/kunden', rental: true },
+  // Kunden is for everyone: /kunden serves the calm wedge customer overview
+  // to normal workspaces and the full CRM to rental-pack ones (page branches
+  // on rentalPack). Flotte/Verträge remain uRent-only.
+  { label: 'Kunden', href: '/kunden' },
   { label: 'Flotte', href: '/flotte', rental: true },
   { label: 'Verträge', href: '/vertraege', rental: true },
 ];

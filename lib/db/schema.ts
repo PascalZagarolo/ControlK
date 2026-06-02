@@ -2592,6 +2592,10 @@ export const contactTags = pgTable(
     identifier: text('identifier').notNull(),
     // Optional friendly label ("Müller GmbH"); falls back to the identifier.
     displayName: text('display_name'),
+    // Optional free-text note — the ONLY voluntary manual field in the calm
+    // customer overview. Per-user (rides on this per-user tag), observational,
+    // NOT a structured/maintained CRM field.
+    note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({

@@ -84,6 +84,49 @@ export async function untagContact(id: string): Promise<Result> {
       )
     );
   revalidatePath('/inbox');
+  revalidatePath('/inbox/clients');
+  revalidatePath('/kunden');
+  revalidatePath('/plan');
+  return { ok: true };
+}
+
+/**
+ * Update a tagged client's voluntary fields — display name and/or the optional
+ * note. The note is the ONLY free-text input in the calm customer overview;
+ * there are no structured/maintained CRM fields. Ownership-checked.
+ */
+export async function updateContactTag(input: {
+  id: string;
+  displayName?: string | null;
+  note?: string | null;
+}): Promise<Result> {
+  const user = await requireUser();
+  const ws = await requireCurrentWorkspace();
+  const db = getDb();
+  const patch: { displayName?: string | null; note?: string | null } = {};
+  if (input.displayName !== undefined) {
+    const dn = input.displayName?.trim();
+    patch.displayName = dn ? dn.slice(0, 120) : null;
+  }
+  if (input.note !== undefined) {
+    const n = input.note?.trim();
+    patch.note = n ? n.slice(0, 2000) : null;
+  }
+  if (Object.keys(patch).length === 0) return { ok: true };
+  const [row] = await db
+    .update(s.contactTags)
+    .set(patch)
+    .where(
+      and(
+        eq(s.contactTags.id, input.id),
+        eq(s.contactTags.userId, user.id),
+        eq(s.contactTags.workspaceId, ws.id)
+      )
+    )
+    .returning({ id: s.contactTags.id });
+  if (!row) return { ok: false, error: 'Kunde nicht gefunden.' };
+  revalidatePath('/kunden');
+  revalidatePath('/inbox/clients');
   revalidatePath('/plan');
   return { ok: true };
 }

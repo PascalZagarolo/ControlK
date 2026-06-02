@@ -3,6 +3,7 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { getCustomerFullBySlug } from '@/lib/db/queries/customer-detail';
 import { listCustomerTags } from '@/lib/db/queries/customers';
+import { getCustomerDetailByTag } from '@/lib/db/queries/clients';
 import { listContracts } from '@/lib/db/queries/contracts';
 import { listWorkspaceMembers } from '@/lib/db/queries/members';
 import { listTodoGroups } from '@/lib/db/queries/todo-groups';
@@ -11,14 +12,26 @@ import { getDb } from '@/lib/db/client';
 import * as s from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { KundenDetailClient } from '@/components/customers/kunden-detail-client';
+import { KundeWedgeDetailClient } from '@/components/customers/kunde-wedge-detail-client';
 import { listBacklinksFor } from '@/lib/db/queries/note-backlinks';
 import { BacklinksPanel } from '@/components/notes/backlinks-panel';
+
+export const dynamic = 'force-dynamic';
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const user = await currentUser();
   if (!user) redirect(`/sign-in?from=/kunden/${id}`);
   const ws = await requireCurrentWorkspace();
+
+  // Wedge audience: the [id] param is a contact_tag id, and the detail is the
+  // calm computed summary (see /kunden page branch). rentalPack workspaces
+  // fall through to the legacy CRM detail (slug-keyed) below, unchanged.
+  if (!ws.rentalPack) {
+    const detail = await getCustomerDetailByTag(ws.id, user.id, id);
+    if (!detail) notFound();
+    return <KundeWedgeDetailClient detail={detail} />;
+  }
 
   const customer = await getCustomerFullBySlug(ws.id, id);
   if (!customer) notFound();
