@@ -497,7 +497,9 @@ function getMood(d: Date): 'morning' | 'midday' | 'afternoon' | 'evening' | 'nig
 // ───────────────────────────────────────────────────────────────
 
 // Locked-caps kicker per item kind (matches the inbox/plan vocabulary).
-const PLAN_KICKER: Record<PlanItem['kind'], string> = {
+// Exported so the onboarding first-scan preview renders the EXACT same
+// vocabulary + accent tokens as the foyer — one source of truth, no drift.
+export const PLAN_KICKER: Record<PlanItem['kind'], string> = {
   commitment_overdue: 'Zusage · überfällig',
   commitment_due_today: 'Zusage · heute fällig',
   commitment_open: 'Zusage',
@@ -509,7 +511,7 @@ const PLAN_KICKER: Record<PlanItem['kind'], string> = {
 
 // Real theme tokens — sand/gold ONLY for the due/active signal, red for
 // overdue, calm greys/blue/green otherwise. No new colours.
-function planAccent(kind: PlanItem['kind']): string {
+export function planAccent(kind: PlanItem['kind']): string {
   switch (kind) {
     case 'commitment_overdue':
     case 'todo_overdue':

@@ -11,6 +11,7 @@
  * here — the foyer tolerates anonymous viewers gracefully.
  */
 
+import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/current-user';
 import { getCurrentWorkspace, listUserWorkspaces } from '@/lib/db/current-workspace';
 import { buildFoyerData } from '@/lib/foyer/build-foyer-data';
@@ -60,6 +61,12 @@ export default async function Page() {
   const user = await currentUser();
   if (!user) {
     return <FoyerClient {...ANONYMOUS_FOYER} />;
+  }
+  // First-run: route a freshly-signed-up user through onboarding before the
+  // foyer. Existing users are backfilled as completed (migration 0051), so
+  // they never see this. The connect step is the only non-skippable one.
+  if (!user.onboardingCompleted) {
+    redirect('/onboarding');
   }
   const ws = await getCurrentWorkspace();
   if (!ws) {

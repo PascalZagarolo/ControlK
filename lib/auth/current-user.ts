@@ -15,6 +15,10 @@ export type SessionUser = {
   avatarTo: string;
   emailVerified: boolean;
   totpEnabled: boolean;
+  /** Null until the post-signup onboarding flow is completed/ended. */
+  onboardingCompleted: boolean;
+  /** Chosen task focus from onboarding step 1 (messaging only). */
+  onboardingFocus: string | null;
   sessionExpiresAt: Date;
 };
 
@@ -37,6 +41,8 @@ export const currentUser = cache(async (): Promise<SessionUser | null> => {
     avatarTo: user.avatarTo,
     emailVerified: !!user.emailVerifiedAt,
     totpEnabled: !!user.totpEnabledAt,
+    onboardingCompleted: !!user.onboardingCompletedAt,
+    onboardingFocus: user.onboardingFocus ?? null,
     sessionExpiresAt: result.session.expiresAt,
   };
 });

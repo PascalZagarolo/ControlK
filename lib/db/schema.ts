@@ -133,6 +133,15 @@ export const users = pgTable('users', {
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   totpSecret: text('totp_secret'),
   totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
+  // ── Onboarding (Erst-Flow nach Anmeldung) ──
+  // Die in Schritt 1 gewählte AUFGABE (nicht Identität) — personalisiert nur
+  // Messaging/Hervorhebung, segmentiert KEINE Feature-Sets. Werte:
+  // 'commitments' | 'response_time' | 'morning_chaos' | 'all'. Null = nicht
+  // gewählt / übersprungen.
+  onboardingFocus: varchar('onboarding_focus', { length: 32 }),
+  // Gesetzt, sobald der 3-Schritt-Flow durch ist (oder bewusst beendet) —
+  // gated den /onboarding-Redirect. Null = Onboarding noch offen.
+  onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
