@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import * as s from '../schema';
 import { resolveClient, type ClientMatch, type ContactTag } from '@/lib/clients/resolve';
@@ -404,14 +404,19 @@ function tagKey(kind: 'email' | 'domain', identifier: string): string {
 }
 
 export type CustomerOverviewRow = {
-  /** contact_tags.id — used for the detail route + note/untag actions. */
-  tagId: string;
-  /** resolveClient key (email or "domain:x") — the aggregation join key. */
+  /** Detail-route + action id: contact_tags.id ('tag') or customers.id ('manual'). */
+  id: string;
+  /** 'tag' = per-user tagged client (Prompt 5); 'manual' = shared business contact. */
+  entity: 'tag' | 'manual';
+  /** resolveClient key (email/"domain:x") for tags; "customer:<id>" for manual. */
   key: string;
   kind: 'email' | 'domain';
   identifier: string;
   displayName: string;
   note: string | null;
+  /** Manual contacts only: the free status + company (null for tagged clients). */
+  status: string | null;
+  company: string | null;
   /** Open promises the user owes this client (Prompt 3, quote-guarded). */
   openCommitments: number;
   /** Subset of openCommitments already past their due date. */
@@ -420,7 +425,8 @@ export type CustomerOverviewRow = {
   waitingDays: number | null;
   /** true when any thread currently "braucht Antwort" (Prompt 1 gate). */
   needsReply: boolean;
-  /** Latest mail in EITHER direction; null if no mail on record. */
+  /** Latest mail in EITHER direction; null if no mail on record. For manual
+   *  (shared) contacts this is workspace-wide (the team's last contact). */
   lastInteractionAt: string | null;
   /** Days since the last interaction (server-computed, hydration-safe). */
   lastInteractionDays: number | null;
@@ -438,14 +444,15 @@ export type CustomerOverviewRow = {
  */
 export async function listCustomerOverview(
   workspaceId: string,
-  userId: string
+  userId: string,
+  opts: { includeManual?: boolean } = {}
 ): Promise<CustomerOverviewRow[]> {
   const db = getDb();
   const [tagRows, { tags, crmEmails }] = await Promise.all([
     listContactTags(workspaceId, userId),
     loadClientSignals(workspaceId, userId),
   ]);
-  if (tagRows.length === 0) return [];
+  if (tagRows.length === 0 && !opts.includeManual) return [];
 
   // Inbound mail aggregated per sender (same gates as getClientGroups +
   // listWaitingOnYou): non-archived, non-future-snoozed; "needs reply" =
@@ -541,28 +548,165 @@ export async function listCustomerOverview(
   }
 
   const now = Date.now();
-  const rows: CustomerOverviewRow[] = tagRows.map((t) => {
-    const key = tagKey(t.kind, t.identifier);
-    const a = byKey.get(key);
-    const lastInteraction = Math.max(a?.latestInbound ?? 0, a?.latestSent ?? 0) || null;
-    return {
-      tagId: t.id,
-      key,
-      kind: t.kind,
-      identifier: t.identifier,
-      displayName: t.displayName?.trim() || t.identifier,
-      note: t.note,
-      openCommitments: a?.open ?? 0,
-      overdueCommitments: a?.overdue ?? 0,
-      waitingDays:
-        a?.oldestNeeds != null ? Math.max(0, Math.floor((now - a.oldestNeeds) / DAY_MS)) : null,
-      needsReply: a?.needsReply ?? false,
-      lastInteractionAt: lastInteraction ? new Date(lastInteraction).toISOString() : null,
-      lastInteractionDays:
-        lastInteraction != null ? Math.max(0, Math.floor((now - lastInteraction) / DAY_MS)) : null,
-      unreadCount: a?.unread ?? 0,
-    };
-  });
+
+  // Manual (shared) business contacts, if requested. They live on the existing
+  // customers/customer_contacts model and own a SET of emails; per-user metrics
+  // sum the byKey aggregates over those emails, while last-interaction is read
+  // workspace-wide (the team's last contact). coveredKeys lets us drop tag rows
+  // that a manual contact already represents (no double-listing).
+  const manualRows: CustomerOverviewRow[] = [];
+  const coveredKeys = new Set<string>();
+  if (opts.includeManual) {
+    const contacts = await db
+      .select({
+        id: s.customers.id,
+        name: s.customers.name,
+        company: s.customers.company,
+        contactStatus: s.customers.contactStatus,
+        notes: s.customers.notes,
+        email: sql<string | null>`lower(${s.customerContacts.email})`,
+      })
+      .from(s.customers)
+      .leftJoin(s.customerContacts, eq(s.customerContacts.customerId, s.customers.id))
+      .where(and(eq(s.customers.workspaceId, workspaceId), eq(s.customers.source, 'manual')))
+      .limit(2000);
+
+    // Group emails per contact.
+    const byContact = new Map<
+      string,
+      { name: string; company: string | null; status: string | null; note: string | null; emails: string[] }
+    >();
+    for (const r of contacts) {
+      let c = byContact.get(r.id);
+      if (!c) {
+        c = { name: r.name, company: r.company, status: r.contactStatus, note: r.notes || null, emails: [] };
+        byContact.set(r.id, c);
+      }
+      if (r.email && !c.emails.includes(r.email)) c.emails.push(r.email);
+    }
+
+    // Workspace-wide last contact per email (both directions, all members).
+    // Two direction-specific aggregates: the CONTACT's address is the SENDER on
+    // inbound mail but the RECIPIENT on sent mail — a single coalesce() would
+    // mis-key sent mail under our own address, so we group each direction by
+    // the right column and merge the maxima.
+    const allEmails = [...new Set([...byContact.values()].flatMap((c) => c.emails))];
+    const teamLastByEmail = new Map<string, number>();
+    if (allEmails.length > 0) {
+      const [inboundLast, sentLast] = await Promise.all([
+        db
+          .select({
+            email: sql<string>`lower(${s.inboxItems.senderEmail})`,
+            latest: sql<Date>`max(${s.inboxItems.receivedAt})`,
+          })
+          .from(s.inboxItems)
+          .where(
+            and(
+              eq(s.inboxItems.workspaceId, workspaceId),
+              inArray(sql`lower(${s.inboxItems.senderEmail})`, allEmails)
+            )
+          )
+          .groupBy(sql`lower(${s.inboxItems.senderEmail})`),
+        db
+          .select({
+            email: sql<string>`lower(${s.inboxItems.recipientEmail})`,
+            latest: sql<Date>`max(${s.inboxItems.receivedAt})`,
+          })
+          .from(s.inboxItems)
+          .where(
+            and(
+              eq(s.inboxItems.workspaceId, workspaceId),
+              inArray(sql`lower(${s.inboxItems.recipientEmail})`, allEmails)
+            )
+          )
+          .groupBy(sql`lower(${s.inboxItems.recipientEmail})`),
+      ]);
+      for (const r of [...inboundLast, ...sentLast]) {
+        if (!r.email || !r.latest) continue;
+        const t = new Date(r.latest).getTime();
+        const prev = teamLastByEmail.get(r.email);
+        if (prev === undefined || t > prev) teamLastByEmail.set(r.email, t);
+      }
+    }
+
+    // If the same address sits on two manual contacts (a data-quality slip —
+    // there's no workspace-unique constraint), each email's metrics must be
+    // counted ONCE, not summed into both contacts. claimedEmails enforces that.
+    const claimedEmails = new Set<string>();
+    for (const [id, c] of byContact) {
+      // Per-user metrics: sum the byKey aggregates over the contact's emails.
+      let open = 0, overdue = 0, unread = 0, needsReply = false;
+      let oldestNeeds: number | null = null;
+      for (const email of c.emails) {
+        coveredKeys.add(email);
+        if (claimedEmails.has(email)) continue;
+        claimedEmails.add(email);
+        const a = byKey.get(email);
+        if (!a) continue;
+        open += a.open;
+        overdue += a.overdue;
+        unread += a.unread;
+        if (a.needsReply) needsReply = true;
+        if (a.oldestNeeds != null && (oldestNeeds === null || a.oldestNeeds < oldestNeeds)) {
+          oldestNeeds = a.oldestNeeds;
+        }
+      }
+      // Team-wide last interaction across the contact's emails.
+      const teamLast = c.emails.reduce<number | null>((m, e) => {
+        const t = teamLastByEmail.get(e);
+        return t && (m === null || t > m) ? t : m;
+      }, null);
+      manualRows.push({
+        id,
+        entity: 'manual',
+        key: `customer:${id}`,
+        kind: 'email',
+        identifier: c.emails[0] ?? '',
+        displayName: c.name,
+        note: c.note,
+        status: c.status,
+        company: c.company,
+        openCommitments: open,
+        overdueCommitments: overdue,
+        waitingDays: oldestNeeds != null ? Math.max(0, Math.floor((now - oldestNeeds) / DAY_MS)) : null,
+        needsReply,
+        lastInteractionAt: teamLast ? new Date(teamLast).toISOString() : null,
+        lastInteractionDays: teamLast != null ? Math.max(0, Math.floor((now - teamLast) / DAY_MS)) : null,
+        unreadCount: unread,
+      });
+    }
+  }
+
+  // Tag rows — skipping any key already represented by a manual contact.
+  const rows: CustomerOverviewRow[] = tagRows
+    .filter((t) => !coveredKeys.has(tagKey(t.kind, t.identifier)))
+    .map((t) => {
+      const key = tagKey(t.kind, t.identifier);
+      const a = byKey.get(key);
+      const lastInteraction = Math.max(a?.latestInbound ?? 0, a?.latestSent ?? 0) || null;
+      return {
+        id: t.id,
+        entity: 'tag' as const,
+        key,
+        kind: t.kind,
+        identifier: t.identifier,
+        displayName: t.displayName?.trim() || t.identifier,
+        note: t.note,
+        status: null,
+        company: null,
+        openCommitments: a?.open ?? 0,
+        overdueCommitments: a?.overdue ?? 0,
+        waitingDays:
+          a?.oldestNeeds != null ? Math.max(0, Math.floor((now - a.oldestNeeds) / DAY_MS)) : null,
+        needsReply: a?.needsReply ?? false,
+        lastInteractionAt: lastInteraction ? new Date(lastInteraction).toISOString() : null,
+        lastInteractionDays:
+          lastInteraction != null ? Math.max(0, Math.floor((now - lastInteraction) / DAY_MS)) : null,
+        unreadCount: a?.unread ?? 0,
+      };
+    });
+
+  rows.push(...manualRows);
 
   // Urgency default (consistent with the morning plan): overdue promises →
   // longest wait → open promises → most recent contact.
@@ -781,5 +925,192 @@ export async function getCustomerDetailByTag(
     doneCommitments,
     waitingThreads,
     timeline,
+  };
+}
+
+// ── Manual contact detail (shared business contact) ──
+//
+// Same calm summary as a tagged client, but anchored on a customers row + its
+// customer_contacts emails (multi-address). Per-user for commitments + "braucht
+// Antwort" (those live in one member's inbox); the timeline is workspace-wide
+// (with the member who interacted) so a team sees the shared history.
+
+export type ManualContactEmail = { id: string; email: string };
+
+export type ManualContactDetail = {
+  id: string;
+  name: string;
+  company: string | null;
+  phone: string | null;
+  status: string | null;
+  note: string | null;
+  emails: ManualContactEmail[];
+  openCommitments: DetailCommitment[];
+  doneCommitments: DetailCommitment[];
+  waitingThreads: DetailThread[];
+  timeline: (DetailTimelineEntry & { byName: string | null })[];
+};
+
+export async function getManualContactDetail(
+  workspaceId: string,
+  userId: string,
+  customerId: string
+): Promise<ManualContactDetail | null> {
+  const db = getDb();
+  const customer = await db.query.customers.findFirst({
+    // source='manual' guard: this view is for manually-created contacts only,
+    // never the rental CRM's customers (defense-in-depth beyond the route gate).
+    where: and(
+      eq(s.customers.id, customerId),
+      eq(s.customers.workspaceId, workspaceId),
+      eq(s.customers.source, 'manual')
+    ),
+  });
+  if (!customer) return null;
+
+  const contactRows = await db
+    .select({ id: s.customerContacts.id, email: sql<string | null>`lower(${s.customerContacts.email})` })
+    .from(s.customerContacts)
+    .where(eq(s.customerContacts.customerId, customerId));
+  const emails = contactRows
+    .filter((r): r is { id: string; email: string } => !!r.email)
+    .map((r) => ({ id: r.id, email: r.email }));
+  const emailList = emails.map((e) => e.email);
+
+  const now = Date.now();
+  const toCommitment = (r: {
+    id: string; promiseText: string; sourceQuote: string | null; dueAt: Date | null;
+    dueBasis: string | null; confidence: string; sourceItemId: string | null;
+  }): DetailCommitment => {
+    const due = r.dueAt ? new Date(r.dueAt).getTime() : null;
+    const overdueDays = due && due < now ? Math.floor((now - due) / DAY_MS) : null;
+    const confidence = r.confidence as 'high' | 'medium' | 'low';
+    return {
+      id: r.id,
+      promiseText: r.promiseText,
+      sourceQuote: r.sourceQuote ?? '',
+      dueAt: r.dueAt ? new Date(r.dueAt).toISOString() : null,
+      dueBasis: r.dueBasis,
+      overdueDays,
+      confidence,
+      isQuestion: confidence !== 'high',
+      sourceItemId: r.sourceItemId,
+    };
+  };
+
+  // No emails yet → only the contact fields; nothing to attribute.
+  if (emailList.length === 0) {
+    return {
+      id: customer.id,
+      name: customer.name,
+      company: customer.company,
+      phone: customer.phone,
+      status: customer.contactStatus,
+      note: customer.notes || null,
+      emails: [],
+      openCommitments: [],
+      doneCommitments: [],
+      waitingThreads: [],
+      timeline: [],
+    };
+  }
+
+  const [commitRows, threadRows, timelineRows] = await Promise.all([
+    db
+      .select({
+        id: s.inboxCommitments.id,
+        promiseText: s.inboxCommitments.promiseText,
+        sourceQuote: s.inboxCommitments.sourceQuote,
+        dueAt: s.inboxCommitments.dueAt,
+        dueBasis: s.inboxCommitments.dueBasis,
+        confidence: s.inboxCommitments.confidence,
+        status: s.inboxCommitments.status,
+        sourceItemId: s.inboxCommitments.sourceItemId,
+      })
+      .from(s.inboxCommitments)
+      .where(
+        and(
+          eq(s.inboxCommitments.workspaceId, workspaceId),
+          eq(s.inboxCommitments.userId, userId),
+          inArray(sql`lower(${s.inboxCommitments.recipientEmail})`, emailList),
+          sql`${s.inboxCommitments.sourceQuote} is not null and length(trim(${s.inboxCommitments.sourceQuote})) > 0`,
+          sql`${s.inboxCommitments.status} in ('open','done')`
+        )
+      )
+      .orderBy(s.inboxCommitments.dueAt),
+    db
+      .select({
+        id: s.inboxItems.id,
+        sourceId: s.inboxItems.sourceId,
+        subject: s.inboxItems.subject,
+        preview: s.inboxItems.preview,
+        receivedAt: s.inboxItems.receivedAt,
+      })
+      .from(s.inboxItems)
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          eq(s.inboxItems.userId, userId),
+          eq(s.inboxItems.direction, 'inbox'),
+          eq(s.inboxItems.isRead, false),
+          eq(s.inboxItems.isArchived, false),
+          sql`${s.inboxItems.category} in ('primary','customer')`,
+          or(isNull(s.inboxItems.snoozedUntil), sql`${s.inboxItems.snoozedUntil} <= now()`)!,
+          inArray(sql`lower(${s.inboxItems.senderEmail})`, emailList)
+        )
+      )
+      .orderBy(s.inboxItems.receivedAt),
+    // Timeline: workspace-wide (all members), with who interacted.
+    db
+      .select({
+        id: s.inboxItems.id,
+        direction: s.inboxItems.direction,
+        subject: s.inboxItems.subject,
+        receivedAt: s.inboxItems.receivedAt,
+        senderName: s.inboxItems.senderName,
+        recipientEmail: s.inboxItems.recipientEmail,
+        byName: s.users.name,
+      })
+      .from(s.inboxItems)
+      .leftJoin(s.users, eq(s.users.id, s.inboxItems.userId))
+      .where(
+        and(
+          eq(s.inboxItems.workspaceId, workspaceId),
+          or(
+            and(eq(s.inboxItems.direction, 'inbox'), inArray(sql`lower(${s.inboxItems.senderEmail})`, emailList)),
+            and(eq(s.inboxItems.direction, 'sent'), inArray(sql`lower(${s.inboxItems.recipientEmail})`, emailList))
+          )!
+        )
+      )
+      .orderBy(desc(s.inboxItems.receivedAt))
+      .limit(40),
+  ]);
+
+  return {
+    id: customer.id,
+    name: customer.name,
+    company: customer.company,
+    phone: customer.phone,
+    status: customer.contactStatus,
+    note: customer.notes || null,
+    emails,
+    openCommitments: commitRows.filter((r) => r.status === 'open').map(toCommitment),
+    doneCommitments: commitRows.filter((r) => r.status === 'done').map(toCommitment),
+    waitingThreads: threadRows.map((r) => ({
+      id: r.id,
+      sourceId: r.sourceId,
+      subject: r.subject,
+      preview: r.preview,
+      receivedAt: new Date(r.receivedAt).toISOString(),
+      waitingDays: Math.max(0, Math.floor((now - new Date(r.receivedAt).getTime()) / DAY_MS)),
+    })),
+    timeline: timelineRows.map((r) => ({
+      id: r.id,
+      direction: r.direction as 'inbox' | 'sent',
+      subject: r.subject,
+      receivedAt: new Date(r.receivedAt).toISOString(),
+      who: r.direction === 'sent' ? (r.recipientEmail ?? 'Gesendet') : r.senderName,
+      byName: r.byName ?? null,
+    })),
   };
 }

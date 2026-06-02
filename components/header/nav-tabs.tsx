@@ -13,6 +13,9 @@ type Tab = {
   // Tabs flagged `rental` only show when the workspace opted into the
   // uRent/Vermietungs-Pack. Keeps the default product horizontal.
   rental?: boolean;
+  // Tabs flagged `businessOrRental` show in Business-scope workspaces OR
+  // rental-pack ones (the customer-management module — hidden for solo/private).
+  businessOrRental?: boolean;
 };
 
 // Primary tabs sit inline in the header pill. Kept lean so the pill never
@@ -40,10 +43,10 @@ const MORE: Tab[] = [
   { label: 'Notizen', href: '/notes' },
   // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },
-  // Kunden is for everyone: /kunden serves the calm wedge customer overview
-  // to normal workspaces and the full CRM to rental-pack ones (page branches
-  // on rentalPack). Flotte/Verträge remain uRent-only.
-  { label: 'Kunden', href: '/kunden' },
+  // Kunden: the customer-management module — visible in Business-scope
+  // workspaces (calm wedge overview + manual contacts) and rental-pack ones
+  // (full CRM). Hidden for solo/private (page redirects them too).
+  { label: 'Kunden', href: '/kunden', businessOrRental: true },
   { label: 'Flotte', href: '/flotte', rental: true },
   { label: 'Verträge', href: '/vertraege', rental: true },
 ];
@@ -60,7 +63,9 @@ export function NavTabs({
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const inScope = (t: Tab) =>
-    (!t.scopes || t.scopes.includes(scope)) && (!t.rental || rentalPack);
+    (!t.scopes || t.scopes.includes(scope)) &&
+    (!t.rental || rentalPack) &&
+    (!t.businessOrRental || scope === 'business' || rentalPack);
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   const primary = PRIMARY.filter(inScope);

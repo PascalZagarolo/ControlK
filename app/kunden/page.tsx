@@ -14,11 +14,12 @@ import { KundenWedgeClient } from '@/components/customers/kunden-wedge-client';
 export const dynamic = 'force-dynamic';
 
 /**
- * /kunden serves two audiences off the same URL, decided by ws.rentalPack:
- *   • rentalPack workspaces  → the full fleet/contract CRM (unchanged).
- *   • wedge workspaces       → the calm, read-only customer OVERVIEW: a view
- *     onto what Ctrl+K already knows (open commitments, who's waiting, last
- *     contact) per tagged client. No CRM to maintain.
+ * /kunden serves three audiences off the same URL:
+ *   • rentalPack workspaces      → the full fleet/contract CRM (unchanged).
+ *   • business wedge workspaces  → the calm customer OVERVIEW: tagged clients
+ *     (per-user) + manually-created shared contacts, with computed urgency.
+ *   • solo/private workspaces    → module hidden (the tool stays schlank) →
+ *     redirect home. The /inbox/clients lenses remain available there.
  */
 export default async function Page() {
   const user = await currentUser();
@@ -26,8 +27,10 @@ export default async function Page() {
   const ws = await requireCurrentWorkspace();
 
   if (!ws.rentalPack) {
-    const rows = await listCustomerOverview(ws.id, user.id);
-    return <KundenWedgeClient rows={rows} />;
+    // Business-Gate: Kontakt-/Kundenmanagement nur in Business-Workspaces.
+    if (ws.scope !== 'business') redirect('/');
+    const rows = await listCustomerOverview(ws.id, user.id, { includeManual: true });
+    return <KundenWedgeClient rows={rows} canCreate />;
   }
 
   const [customers, tags, members, counts] = await Promise.all([

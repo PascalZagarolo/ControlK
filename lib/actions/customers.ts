@@ -92,6 +92,184 @@ export async function createCustomer(formData: FormData): Promise<Result<{ slug:
   return { ok: true, slug };
 }
 
+// ─── Manuelle Kontakte (telefonisch akquiriert, nur Business-Workspaces) ──
+//
+// Ein manuell angelegter Kontakt teilt das BESTEHENDE geteilte customers-Modell
+// (+ customer_contacts für Mehrfach-Adressen). Die Mail-Rückführung läuft danach
+// automatisch über resolveClient (crm_contact) — keine eigene Zuordnungslogik.
+// Bewusst NICHT: Pipeline-Stages, Aktivitäts-Logging, Follow-up-Engine, Scoring.
+
+function normEmails(raw: string[] | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of raw ?? []) {
+    const e = r.trim().toLowerCase();
+    if (!e.includes('@') || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
+}
+
+export async function createManualContact(input: {
+  name: string;
+  emails?: string[];
+  company?: string | null;
+  phone?: string | null;
+  status?: string | null;
+  note?: string | null;
+}): Promise<Result<{ slug: string; id: string }>> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  // Business-Gate: das Kontaktmanagement existiert nur in Team/Business-Workspaces.
+  if (ws.scope !== 'business') {
+    return { ok: false, error: 'Kontakte gibt es nur in Business-Workspaces.' };
+  }
+  const db = getDb();
+
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: 'Name erforderlich.' };
+  const emails = normEmails(input.emails);
+
+  const base = slugify(name) || 'kontakt';
+  let slug = base;
+  for (let i = 0; i < 8; i++) {
+    const dup = await db.query.customers.findFirst({
+      where: and(eq(s.customers.workspaceId, ws.id), eq(s.customers.slug, slug)),
+    });
+    if (!dup) break;
+    // Last attempt: a timestamp suffix is effectively collision-proof, so the
+    // unique index never rejects the insert even for adversarial name clusters.
+    slug = i === 7 ? `${base}-${Date.now()}` : `${base}-${Math.floor(Math.random() * 9999)}`;
+  }
+
+  const color = pickColor(slug);
+  const [row] = await db
+    .insert(s.customers)
+    .values({
+      workspaceId: ws.id,
+      slug,
+      name,
+      source: 'manual',
+      company: input.company?.trim() || null,
+      phone: input.phone?.trim() || null,
+      contactStatus: input.status?.trim() || null,
+      initials: initialsOf(name),
+      fromColor: color.from,
+      toColor: color.to,
+      notes: input.note?.trim() || '',
+    })
+    .returning({ id: s.customers.id });
+
+  if (emails.length > 0) {
+    await db.insert(s.customerContacts).values(
+      emails.map((email) => ({
+        customerId: row.id,
+        name,
+        email,
+      }))
+    );
+  }
+
+  revalidatePath('/kunden');
+  revalidatePath('/inbox');
+  revalidatePath('/plan');
+  return { ok: true, slug, id: row.id };
+}
+
+/** Edit the manual-contact fields (no structured stages — just these). */
+export async function updateManualContact(input: {
+  customerId: string;
+  name?: string;
+  company?: string | null;
+  phone?: string | null;
+  status?: string | null;
+  note?: string | null;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const db = getDb();
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+
+  const patch: Record<string, string | null> = {};
+  if (input.name !== undefined) {
+    const n = input.name.trim();
+    if (!n) return { ok: false, error: 'Name darf nicht leer sein.' };
+    patch.name = n;
+  }
+  if (input.company !== undefined) patch.company = input.company?.trim() || null;
+  if (input.phone !== undefined) patch.phone = input.phone?.trim() || null;
+  if (input.status !== undefined) patch.contactStatus = input.status?.trim() || null;
+  if (input.note !== undefined) patch.notes = input.note?.trim() || '';
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  await db.update(s.customers).set(patch).where(eq(s.customers.id, input.customerId));
+  paths(customer.slug);
+  revalidatePath('/inbox');
+  return { ok: true };
+}
+
+/** Add an email address to a manual contact (mail then auto-attributes). */
+export async function addContactEmail(input: {
+  customerId: string;
+  email: string;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  // Defense-in-depth: manual contacts only exist in Business-Workspaces.
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const db = getDb();
+  const email = input.email.trim().toLowerCase();
+  if (!email.includes('@')) return { ok: false, error: 'Ungültige E-Mail.' };
+
+  // Don't split a contact's mail across two records: reject an address already
+  // assigned to a DIFFERENT contact in this workspace.
+  const clash = await db
+    .select({ id: s.customerContacts.id })
+    .from(s.customerContacts)
+    .innerJoin(s.customers, eq(s.customers.id, s.customerContacts.customerId))
+    .where(
+      and(
+        eq(s.customers.workspaceId, ws.id),
+        sql`lower(${s.customerContacts.email}) = ${email}`,
+        sql`${s.customerContacts.customerId} <> ${input.customerId}`
+      )
+    )
+    .limit(1);
+  if (clash.length > 0) {
+    return { ok: false, error: 'Diese Adresse ist bereits einem anderen Kontakt zugeordnet.' };
+  }
+
+  // Reuse the CRM linker — same customer_contacts table + per-customer dedup.
+  return linkSenderToCustomer({ customerId: input.customerId, email });
+}
+
+/** Remove an email address from a manual contact. */
+export async function removeContactEmail(input: {
+  customerId: string;
+  contactId: string;
+}): Promise<Result> {
+  await requireUser();
+  const ws = await requireCurrentWorkspace();
+  if (ws.scope !== 'business') return { ok: false, error: 'Nur in Business-Workspaces.' };
+  const db = getDb();
+  const customer = await findGuarded(ws.id, input.customerId);
+  if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+  await db
+    .delete(s.customerContacts)
+    .where(
+      and(
+        eq(s.customerContacts.id, input.contactId),
+        eq(s.customerContacts.customerId, input.customerId)
+      )
+    );
+  paths(customer.slug);
+  revalidatePath('/inbox');
+  return { ok: true };
+}
+
 // ─── Inline-Edit single fields ──────────────────────────────
 type EditableField = 'name' | 'industry' | 'status' | 'notes' | 'forecastContribution';
 

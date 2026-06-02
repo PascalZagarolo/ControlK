@@ -3,7 +3,7 @@ import { currentUser } from '@/lib/auth/current-user';
 import { requireCurrentWorkspace } from '@/lib/db/current-workspace';
 import { getCustomerFullBySlug } from '@/lib/db/queries/customer-detail';
 import { listCustomerTags } from '@/lib/db/queries/customers';
-import { getCustomerDetailByTag } from '@/lib/db/queries/clients';
+import { getCustomerDetailByTag, getManualContactDetail } from '@/lib/db/queries/clients';
 import { listContracts } from '@/lib/db/queries/contracts';
 import { listWorkspaceMembers } from '@/lib/db/queries/members';
 import { listTodoGroups } from '@/lib/db/queries/todo-groups';
@@ -13,6 +13,7 @@ import * as s from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { KundenDetailClient } from '@/components/customers/kunden-detail-client';
 import { KundeWedgeDetailClient } from '@/components/customers/kunde-wedge-detail-client';
+import { ManualContactDetailClient } from '@/components/customers/manual-contact-detail-client';
 import { listBacklinksFor } from '@/lib/db/queries/note-backlinks';
 import { BacklinksPanel } from '@/components/notes/backlinks-panel';
 
@@ -24,13 +25,18 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!user) redirect(`/sign-in?from=/kunden/${id}`);
   const ws = await requireCurrentWorkspace();
 
-  // Wedge audience: the [id] param is a contact_tag id, and the detail is the
-  // calm computed summary (see /kunden page branch). rentalPack workspaces
-  // fall through to the legacy CRM detail (slug-keyed) below, unchanged.
+  // Wedge audience: the [id] param is either a contact_tag id (tagged client)
+  // or a customers id (manual contact, business workspaces). rentalPack
+  // workspaces fall through to the legacy CRM detail (slug-keyed) below.
   if (!ws.rentalPack) {
-    const detail = await getCustomerDetailByTag(ws.id, user.id, id);
-    if (!detail) notFound();
-    return <KundeWedgeDetailClient detail={detail} />;
+    const tagged = await getCustomerDetailByTag(ws.id, user.id, id);
+    if (tagged) return <KundeWedgeDetailClient detail={tagged} />;
+    // Manual contacts only exist in business workspaces.
+    if (ws.scope === 'business') {
+      const manual = await getManualContactDetail(ws.id, user.id, id);
+      if (manual) return <ManualContactDetailClient detail={manual} />;
+    }
+    notFound();
   }
 
   const customer = await getCustomerFullBySlug(ws.id, id);

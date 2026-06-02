@@ -372,6 +372,13 @@
       "when": 1782000000000,
       "tag": "0052_contact_tag_note",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782050000000,
+      "tag": "0053_manual_contacts",
+      "breakpoints": true
     }
   ]
 }

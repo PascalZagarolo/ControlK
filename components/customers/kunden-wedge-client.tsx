@@ -1,8 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { CustomerOverviewRow } from '@/lib/db/queries/clients';
+import { createManualContact } from '@/lib/actions/customers';
+import { toast } from '@/lib/stores/toast-store';
 
 // Calm customer OVERVIEW (wedge). A read-only view onto what Ctrl+K already
 // knows per tagged client — open commitments, who's waiting, last contact.
@@ -34,8 +37,17 @@ function relDays(days: number | null): string {
   return `vor ${Math.floor(days / 365)} J.`;
 }
 
-export function KundenWedgeClient({ rows }: { rows: CustomerOverviewRow[] }) {
+const STATUS_SUGGESTIONS = ['neu', 'kontaktiert', 'interessiert', 'kein Interesse', 'Kunde'];
+
+export function KundenWedgeClient({
+  rows,
+  canCreate = false,
+}: {
+  rows: CustomerOverviewRow[];
+  canCreate?: boolean;
+}) {
   const [sort, setSort] = useState<Sort>('urgency');
+  const [creating, setCreating] = useState(false);
 
   const sorted = useMemo(() => {
     const copy = [...rows];
@@ -57,16 +69,32 @@ export function KundenWedgeClient({ rows }: { rows: CustomerOverviewRow[] }) {
   return (
     <main className="min-h-screen" style={{ background: C.bg, color: C.fg }}>
       <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-24 sm:px-8">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-[26px] font-semibold tracking-[-0.01em] sm:text-[30px]">Kunden</h1>
-          <p className="text-[14px] leading-relaxed" style={{ color: C.muted }}>
-            {rows.length === 0
-              ? 'Markiere Absender im Posteingang als Kunde — dann erscheinen sie hier mit allem, was offen ist.'
-              : needAttention > 0
-                ? `${needAttention} ${needAttention === 1 ? 'Kunde braucht' : 'Kunden brauchen'} gerade deine Aufmerksamkeit.`
-                : 'Alles ruhig — bei keinem Kunden ist gerade etwas offen.'}
-          </p>
+        <header className="flex items-start gap-3">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-[26px] font-semibold tracking-[-0.01em] sm:text-[30px]">Kunden</h1>
+            <p className="text-[14px] leading-relaxed" style={{ color: C.muted }}>
+              {rows.length === 0
+                ? 'Markiere Absender im Posteingang als Kunde oder leg einen Kontakt an — dann erscheinen sie hier mit allem, was offen ist.'
+                : needAttention > 0
+                  ? `${needAttention} ${needAttention === 1 ? 'Kunde braucht' : 'Kunden brauchen'} gerade deine Aufmerksamkeit.`
+                  : 'Alles ruhig — bei keinem Kunden ist gerade etwas offen.'}
+            </p>
+          </div>
+          {canCreate && !creating && (
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="ml-auto shrink-0 rounded-lg px-3 py-2 text-[13px] font-medium leading-none transition-colors"
+              style={{ background: 'rgba(255,255,255,0.06)', color: C.fg }}
+            >
+              + Neuer Kontakt
+            </button>
+          )}
         </header>
+
+        {canCreate && creating && (
+          <CreateContactForm onClose={() => setCreating(false)} />
+        )}
 
         {rows.length > 0 && (
           <div className="mt-6 flex items-center gap-1">
@@ -96,7 +124,7 @@ export function KundenWedgeClient({ rows }: { rows: CustomerOverviewRow[] }) {
 
         <ul className="mt-3 flex flex-col">
           {sorted.map((r) => (
-            <CustomerRow key={r.tagId} row={r} />
+            <CustomerRow key={r.id} row={r} />
           ))}
         </ul>
       </div>
@@ -113,7 +141,7 @@ function CustomerRow({ row }: { row: CustomerOverviewRow }) {
   return (
     <li>
       <Link
-        href={`/kunden/${row.tagId}`}
+        href={`/kunden/${row.id}`}
         className="group flex items-center gap-4 border-b py-3.5 transition-colors hover:bg-white/[0.02]"
         style={{ borderColor: C.hair }}
       >
@@ -136,7 +164,20 @@ function CustomerRow({ row }: { row: CustomerOverviewRow }) {
             <p className="truncate text-[15px] font-medium" style={{ color: C.fg }}>
               {row.displayName}
             </p>
-            {row.kind === 'domain' && (
+            {row.company && (
+              <span className="shrink-0 truncate text-[12px]" style={{ color: C.muted }}>
+                · {row.company}
+              </span>
+            )}
+            {row.status && (
+              <span
+                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                style={{ background: 'rgba(255,255,255,0.05)', color: C.faint }}
+              >
+                {row.status}
+              </span>
+            )}
+            {row.entity === 'tag' && row.kind === 'domain' && (
               <span
                 className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.2px]"
                 style={{ color: C.calm }}
@@ -181,5 +222,109 @@ function CustomerRow({ row }: { row: CustomerOverviewRow }) {
         </span>
       </Link>
     </li>
+  );
+}
+
+// Lightweight "manually add a contact" form (Business-Workspaces). Maps to a
+// shared customers row + customer_contacts emails — no pipeline/stage fields.
+function CreateContactForm({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [name, setName] = useState('');
+  const [emails, setEmails] = useState('');
+  const [company, setCompany] = useState('');
+  const [phone, setPhone] = useState('');
+  const [status, setStatus] = useState('');
+  const [note, setNote] = useState('');
+
+  const submit = () => {
+    if (!name.trim()) {
+      toast('Name erforderlich.', 'danger');
+      return;
+    }
+    const emailList = emails
+      .split(/[,\s;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.includes('@'));
+    startTransition(async () => {
+      const r = await createManualContact({
+        name,
+        emails: emailList,
+        company,
+        phone,
+        status,
+        note,
+      }).catch(() => ({ ok: false as const, error: 'Anlegen fehlgeschlagen.' }));
+      if (r.ok) {
+        toast('Kontakt angelegt.', 'success');
+        onClose();
+        router.refresh();
+      } else {
+        toast(r.error ?? 'Anlegen fehlgeschlagen.', 'danger');
+      }
+    });
+  };
+
+  const field =
+    'w-full rounded-lg border bg-transparent px-3 py-2 text-[13.5px] outline-none transition-colors placeholder:text-[#52525B] focus:border-white/20';
+  return (
+    <div
+      className="mt-6 flex flex-col gap-2.5 rounded-2xl border p-4"
+      style={{ borderColor: C.hair, background: 'rgba(255,255,255,0.02)' }}
+    >
+      <p className="text-[13px] font-medium" style={{ color: C.fg }}>
+        Neuer Kontakt
+      </p>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" className={field} style={{ borderColor: C.hair, color: C.fg }} />
+        <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Firma (optional)" className={field} style={{ borderColor: C.hair, color: C.fg }} />
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Telefon (optional)" className={field} style={{ borderColor: C.hair, color: C.fg }} />
+        <input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status (frei)" list="create-status-suggestions" className={field} style={{ borderColor: C.hair, color: C.fg }} />
+        <datalist id="create-status-suggestions">
+          {STATUS_SUGGESTIONS.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      </div>
+      <input
+        value={emails}
+        onChange={(e) => setEmails(e.target.value)}
+        placeholder="E-Mail-Adressen (Komma-getrennt, optional)"
+        className={field}
+        style={{ borderColor: C.hair, color: C.fg }}
+      />
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Notiz (optional) …"
+        rows={2}
+        maxLength={2000}
+        className="w-full resize-none rounded-lg border bg-transparent px-3 py-2 text-[13.5px] leading-relaxed outline-none transition-colors placeholder:text-[#52525B] focus:border-white/20"
+        style={{ borderColor: C.hair, color: C.fg }}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={pending || !name.trim()}
+          className="rounded-md px-3 py-1.5 text-[12.5px] font-medium leading-none transition-colors disabled:opacity-50"
+          style={{ background: '#E8B86D', color: '#0A0A0C' }}
+        >
+          {pending ? 'Anlegen …' : 'Kontakt anlegen'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={pending}
+          className="text-[12.5px] transition-colors disabled:opacity-50"
+          style={{ color: C.faint }}
+        >
+          Abbrechen
+        </button>
+        <span className="ml-auto text-[11px]" style={{ color: C.calm }}>
+          Zugeordnete Mails heften sich automatisch an.
+        </span>
+      </div>
+    </div>
   );
 }

@@ -532,6 +532,17 @@ export const customers = pgTable(
     cachedLastTouchpointAt: timestamp('cached_last_touchpoint_at', { withTimezone: true }),
     notes: text('notes').default(''),
     forecastContribution: text('forecast_contribution'),
+    // Manual contacts (telefonisch akquirierte Leads, Business-Workspaces):
+    // 'manual' marks a contact created by hand vs. the rental CRM's customers.
+    source: text('source'),
+    // Optional contact details for manually-created contacts. company is the
+    // firm name (vs. the customer's display name); phone is a single number.
+    company: text('company'),
+    phone: text('phone'),
+    // A single FREE status string (e.g. neu/kontaktiert/interessiert/kein
+    // Interesse/Kunde). Deliberately free text — NOT a structured pipeline
+    // stage with automation.
+    contactStatus: text('contact_status'),
     ownerId: varchar('owner_id', { length: 255 }).references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -545,6 +556,8 @@ export const customers = pgTable(
   (t) => ({
     slugWsIdx: uniqueIndex('customers_slug_workspace_idx').on(t.workspaceId, t.slug),
     ownerIdx: index('customers_owner_idx').on(t.ownerId),
+    // Manual-contact overview filters by (workspace, source).
+    sourceIdx: index('customers_source_idx').on(t.workspaceId, t.source),
   })
 );
 
