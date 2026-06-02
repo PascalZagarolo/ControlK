@@ -41,6 +41,8 @@ const MORE: Tab[] = [
   // "Mehr"; the /notes route and all note data stay untouched.
   // TODO: Notizen in Morgen-Plan integrieren — siehe Prompt 4.
   { label: 'Notizen', href: '/notes' },
+  // Wochen-Rückblick: gehaltene vs. kippende Zusagen — schließt den Wedge-Loop.
+  { label: 'Rückblick', href: '/rueckblick' },
   // Contacts stay horizontal — useful for everyone, no pack required.
   { label: 'Kontakte', href: '/people' },
   // Kunden: the customer-management module — visible in Business-scope

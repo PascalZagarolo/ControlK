@@ -2617,6 +2617,9 @@ export const inboxCommitments = pgTable(
     snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
     // Set when a follow-up SENT mail in the thread auto-resolved this.
     autoDoneAt: timestamp('auto_done_at', { withTimezone: true }),
+    // When this left 'open' (done OR dismissed) — powers the weekly review
+    // ("diese Woche gehalten"). Null while still open.
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({

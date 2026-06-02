@@ -206,7 +206,7 @@ export async function autoResolveFollowedUpCommitments(
     if (laterSend) {
       await db
         .update(s.inboxCommitments)
-        .set({ status: 'done', autoDoneAt: new Date() })
+        .set({ status: 'done', autoDoneAt: new Date(), resolvedAt: new Date() })
         .where(eq(s.inboxCommitments.id, c.id));
       resolved += 1;
     }
@@ -233,7 +233,7 @@ async function setStatus(id: string, status: 'done' | 'dismissed'): Promise<Resu
   const db = getDb();
   await db
     .update(s.inboxCommitments)
-    .set({ status })
+    .set({ status, resolvedAt: new Date() })
     .where(
       and(
         eq(s.inboxCommitments.id, id),
@@ -361,7 +361,7 @@ export async function commitmentToTodo(id: string): Promise<Result<{ todoId: str
 
   await db
     .update(s.inboxCommitments)
-    .set({ status: 'done' })
+    .set({ status: 'done', resolvedAt: new Date() })
     .where(eq(s.inboxCommitments.id, id));
 
   revalidatePath('/inbox');
