@@ -25,6 +25,10 @@
     {
       "path": "/api/cron/detect-standstills",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/nudges",
+      "schedule": "0 6 * * *"
     }
   ]
 }

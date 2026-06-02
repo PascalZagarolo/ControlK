@@ -1106,6 +1106,30 @@ export const notifications = pgTable(
   })
 );
 
+// Web-Push subscriptions (one per browser/device). Drives the daily nudge for
+// due/overdue commitments + long-waiting customers. Dead endpoints (404/410 on
+// send) are pruned by the sender.
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: varchar('user_id', { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    userAgent: text('user_agent'),
+    /** Last morning-nudge send — guards against same-day double-push (cron retry). */
+    lastNudgedAt: timestamp('last_nudged_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    endpointIdx: uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint),
+    userIdx: index('push_subscriptions_user_idx').on(t.userId),
+  })
+);
+
 // ─── Todo Groups ────────────────────────────────────────────────
 export const todoGroups = pgTable(
   'todo_groups',

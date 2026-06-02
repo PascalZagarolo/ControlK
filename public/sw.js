@@ -39,3 +39,44 @@ self.addEventListener('fetch', (e) => {
     )
   );
 });
+
+// ── Web-Push: daily nudge (fällige Zusagen / wartende Kunden) ──
+self.addEventListener('push', (e) => {
+  let data = {};
+  try {
+    data = e.data ? e.data.json() : {};
+  } catch {
+    data = {};
+  }
+  const title = data.title || 'Ctrl+K';
+  const body = data.body || '';
+  const url = data.url || '/plan';
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag: 'ctrlk-nudge', // collapse same-day nudges into one
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  // Only ever navigate to in-app relative paths (defense-in-depth: never let a
+  // payload url open an external/absolute destination).
+  const raw = e.notification.data && e.notification.data.url;
+  const target = typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/plan';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const c of clients) {
+        if ('focus' in c) {
+          c.navigate(target).catch(() => {});
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});
