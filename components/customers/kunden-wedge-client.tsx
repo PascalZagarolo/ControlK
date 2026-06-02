@@ -53,248 +53,339 @@ export function KundenWedgeClient({
 }) {
   const [sort, setSort] = useState<Sort>('urgency');
   const [creating, setCreating] = useState(false);
-  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  // 'all' | 'mine' | <memberId>
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
 
-  // "Meine" = contacts assigned to me, plus my personal tagged clients.
-  const hasAssignments = rows.some((r) => r.assignedTo);
-  const scoped = useMemo(() => {
-    if (scope === 'all' || !currentUserId) return rows;
-    return rows.filter(
-      (r) => r.entity === 'tag' || r.assignedTo?.id === currentUserId
-    );
-  }, [rows, scope, currentUserId]);
+  // Distinct statuses + assignees present → drive the filter dropdowns.
+  const statuses = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.status?.trim()).filter((x): x is string => !!x))].sort((a, b) =>
+        a.localeCompare(b, 'de')
+      ),
+    [rows]
+  );
+  const assignees = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) if (r.assignedTo) m.set(r.assignedTo.id, r.assignedTo.name);
+    return [...m.entries()].map(([id, name]) => ({ id, name }));
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (assigneeFilter === 'mine') {
+        if (!(r.entity === 'tag' || r.assignedTo?.id === currentUserId)) return false;
+      } else if (assigneeFilter !== 'all') {
+        if (r.assignedTo?.id !== assigneeFilter) return false;
+      }
+      if (statusFilter !== 'all' && (r.status ?? '') !== statusFilter) return false;
+      if (q && !`${r.displayName} ${r.company ?? ''} ${r.identifier}`.toLowerCase().includes(q))
+        return false;
+      return true;
+    });
+  }, [rows, query, statusFilter, assigneeFilter, currentUserId]);
 
   const sorted = useMemo(() => {
-    const copy = [...scoped];
-    if (sort === 'name') {
-      copy.sort((a, b) => a.displayName.localeCompare(b.displayName, 'de'));
-    } else if (sort === 'recent') {
-      copy.sort(
-        (a, b) => (a.lastInteractionDays ?? Infinity) - (b.lastInteractionDays ?? Infinity)
-      );
-    }
+    const copy = [...filtered];
+    if (sort === 'name') copy.sort((a, b) => a.displayName.localeCompare(b.displayName, 'de'));
+    else if (sort === 'recent')
+      copy.sort((a, b) => (a.lastInteractionDays ?? Infinity) - (b.lastInteractionDays ?? Infinity));
     // 'urgency' keeps the server order (overdue → waiting → open → recent).
     return copy;
-  }, [scoped, sort]);
+  }, [filtered, sort]);
 
-  const needAttention = rows.filter(
-    (r) => r.overdueCommitments > 0 || r.waitingDays !== null
-  ).length;
+  const needAttention = rows.filter((r) => r.overdueCommitments > 0 || r.waitingDays !== null).length;
 
   return (
     <main className="min-h-screen" style={{ background: C.bg, color: C.fg }}>
-      <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-24 sm:px-8">
-        <header className="flex items-start gap-3">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-[26px] font-semibold tracking-[-0.01em] sm:text-[30px]">Kunden</h1>
-            <p className="text-[14px] leading-relaxed" style={{ color: C.muted }}>
+      <div className="mx-auto w-full max-w-5xl px-5 pb-24 pt-24 sm:px-8">
+        <header className="flex items-end justify-between gap-3">
+          <div>
+            <h1 className="text-[24px] font-semibold tracking-[-0.01em] sm:text-[26px]">Kunden</h1>
+            <p className="mt-1 text-[13px]" style={{ color: C.faint }}>
               {rows.length === 0
-                ? 'Markiere Absender im Posteingang als Kunde oder leg einen Kontakt an — dann erscheinen sie hier mit allem, was offen ist.'
-                : needAttention > 0
-                  ? `${needAttention} ${needAttention === 1 ? 'Kunde braucht' : 'Kunden brauchen'} gerade deine Aufmerksamkeit.`
-                  : 'Alles ruhig — bei keinem Kunden ist gerade etwas offen.'}
+                ? 'Markiere Absender im Posteingang als Kunde oder leg einen Kontakt an.'
+                : `${rows.length} ${rows.length === 1 ? 'Kontakt' : 'Kontakte'}${
+                    needAttention > 0
+                      ? ` · ${needAttention} ${needAttention === 1 ? 'braucht' : 'brauchen'} Aufmerksamkeit`
+                      : ' · alles ruhig'
+                  }`}
             </p>
           </div>
           {canCreate && !creating && (
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="ml-auto shrink-0 rounded-lg px-3 py-2 text-[13px] font-medium leading-none transition-colors"
-              style={{ background: 'rgba(255,255,255,0.06)', color: C.fg }}
+              className="shrink-0 rounded-lg border px-3 py-1.5 text-[13px] font-medium leading-none transition-colors hover:bg-[#E8B86D]/[0.06]"
+              style={{ borderColor: 'rgba(232,184,109,0.35)', color: C.gold }}
             >
               + Neuer Kontakt
             </button>
           )}
         </header>
 
-        {canCreate && creating && (
-          <CreateContactForm onClose={() => setCreating(false)} />
-        )}
-
+        {canCreate && creating && <CreateContactForm onClose={() => setCreating(false)} />}
         {suggestions.length > 0 && <SuggestionStrip suggestions={suggestions} />}
 
-        {rows.length > 0 && (
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1">
-              {(
-                [
-                  ['urgency', 'Dringlichkeit'],
-                  ['recent', 'Letzter Kontakt'],
-                  ['name', 'Name'],
-                ] as [Sort, string][]
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSort(key)}
-                  className="rounded-md px-2.5 py-1 text-[12px] font-medium leading-none transition-colors"
-                  style={
-                    sort === key
-                      ? { background: 'rgba(255,255,255,0.06)', color: C.fg }
-                      : { color: C.faint }
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {hasAssignments && currentUserId && (
-              <div className="flex items-center gap-1 border-l pl-3" style={{ borderColor: C.hair }}>
+        {rows.length === 0 ? (
+          <div
+            className="mt-8 rounded-2xl border p-6 text-[13.5px] leading-relaxed"
+            style={{ borderColor: C.hair, background: 'rgba(255,255,255,0.015)', color: C.muted }}
+          >
+            Noch keine Kunden. Markier Absender im Posteingang als Kunde — oder leg oben einen
+            Kontakt an. Sie erscheinen dann hier mit allem, was offen ist.
+          </div>
+        ) : (
+          <>
+            {/* Toolbar — Suchen · Status · Zuständig · Sortierung */}
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <div
+                className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
+                style={{ background: 'rgba(255,255,255,0.04)' }}
+              >
+                <span aria-hidden style={{ color: C.faint }}>⌕</span>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Suchen"
+                  aria-label="Kunden suchen"
+                  className="w-28 bg-transparent text-[12.5px] outline-none placeholder:text-[#7c7c83] sm:w-40"
+                  style={{ color: C.fg }}
+                />
+              </div>
+              {statuses.length > 0 && (
+                <Dropdown
+                  label="Status"
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  options={[{ value: 'all', label: 'Alle' }, ...statuses.map((st) => ({ value: st, label: st }))]}
+                />
+              )}
+              {(assignees.length > 0 || currentUserId) && (
+                <Dropdown
+                  label="Zuständig"
+                  value={assigneeFilter}
+                  onChange={setAssigneeFilter}
+                  options={[
+                    { value: 'all', label: 'Alle' },
+                    ...(currentUserId ? [{ value: 'mine', label: 'Meine' }] : []),
+                    ...assignees.map((a) => ({ value: a.id, label: a.name.split(' ')[0] })),
+                  ]}
+                />
+              )}
+              <div className="ml-auto flex items-center gap-1">
+                <span className="text-[12px]" style={{ color: C.faint }}>Sortiert:</span>
                 {(
                   [
-                    ['all', 'Alle'],
-                    ['mine', 'Meine'],
-                  ] as ['all' | 'mine', string][]
+                    ['urgency', 'Dringlichkeit'],
+                    ['recent', 'Letzter Kontakt'],
+                    ['name', 'Name'],
+                  ] as [Sort, string][]
                 ).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setScope(key)}
-                    className="rounded-md px-2.5 py-1 text-[12px] font-medium leading-none transition-colors"
-                    style={
-                      scope === key
-                        ? { background: 'rgba(255,255,255,0.06)', color: C.fg }
-                        : { color: C.faint }
-                    }
+                    onClick={() => setSort(key)}
+                    className="rounded-md px-2 py-1 text-[12px] font-medium leading-none transition-colors"
+                    style={sort === key ? { color: C.gold } : { color: C.faint }}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+            </div>
 
-        <ul className="mt-3 flex flex-col">
-          {sorted.map((r) => (
-            <CustomerRow key={r.id} row={r} currentUserId={currentUserId} />
-          ))}
-          {sorted.length === 0 && rows.length > 0 && (
-            <li className="py-6 text-[13px]" style={{ color: C.calm }}>
-              Dir sind gerade keine Kontakte zugeordnet.
-            </li>
-          )}
-        </ul>
+            {/* Table */}
+            <div className="mt-3 overflow-x-auto">
+              <div className="min-w-[680px]">
+                <div
+                  className="grid gap-2 px-3 pb-2"
+                  style={{ gridTemplateColumns: GRID, borderBottom: `0.5px solid ${C.hair}` }}
+                >
+                  {['Kontakt', 'Status', 'Letzter Kontakt', 'Zuständig', ''].map((h, i) => (
+                    <span
+                      key={i}
+                      className="text-[10.5px] uppercase tracking-[0.08em]"
+                      style={{ color: C.faint }}
+                    >
+                      {h}
+                    </span>
+                  ))}
+                </div>
+                {sorted.map((r) => (
+                  <CustomerTableRow key={r.id} row={r} currentUserId={currentUserId} />
+                ))}
+                {sorted.length === 0 && (
+                  <p className="px-3 py-6 text-[13px]" style={{ color: C.calm }}>
+                    Keine Treffer für diese Filter.
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </main>
   );
 }
 
-function CustomerRow({
+// Column ratios mirror the CRM-table mockup: Kontakt · Status · Letzter Kontakt
+// · Zuständig · chevron.
+const GRID = '2.2fr 1.1fr 1.4fr 1fr 0.4fr';
+
+type PillTone = 'urgent' | 'positive' | 'neutral' | 'cold';
+const PILL: Record<PillTone, { color: string; background: string }> = {
+  urgent: { color: '#E8B86D', background: 'rgba(232,184,109,0.12)' },
+  positive: { color: '#5ee08a', background: 'rgba(94,224,138,0.10)' },
+  neutral: { color: '#9c9c9d', background: 'rgba(255,255,255,0.05)' },
+  cold: { color: '#7c7c83', background: 'rgba(255,255,255,0.03)' },
+};
+
+// The Status cell: urgency wins (it's the actionable signal), else the free
+// status, else nothing. One pill — never double-signals.
+function statusPill(row: CustomerOverviewRow, isMe: boolean): { label: string; tone: PillTone } | null {
+  if (row.overdueCommitments > 0) return { label: 'überfällige Zusage', tone: 'urgent' };
+  if (row.waitingDays !== null) return { label: isMe ? 'wartet auf dich' : 'wartet', tone: 'urgent' };
+  if (row.openCommitments > 0) return { label: 'offene Zusage', tone: 'urgent' };
+  if (row.status) {
+    const s = row.status.toLowerCase();
+    const tone: PillTone = /kein interesse/.test(s)
+      ? 'cold'
+      : /kunde|interess/.test(s)
+        ? 'positive'
+        : 'neutral';
+    return { label: row.status, tone };
+  }
+  return null;
+}
+
+function Dropdown({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label
+      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px]"
+      style={{ background: 'rgba(255,255,255,0.04)', color: '#9c9c9d' }}
+    >
+      <span style={{ color: '#7c7c83' }}>{label}:</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={`${label} filtern`}
+        className="cursor-pointer bg-transparent text-[12.5px] outline-none"
+        style={{ color: '#F0F0F2' }}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} style={{ background: '#111214', color: '#F0F0F2' }}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function CustomerTableRow({
   row,
   currentUserId,
 }: {
   row: CustomerOverviewRow;
   currentUserId?: string;
 }) {
-  const calm =
-    row.overdueCommitments === 0 &&
-    row.waitingDays === null &&
-    row.openCommitments === 0;
-
-  // Team assignment hint on actionable rows: is it on me or my partner?
-  const actionable = row.overdueCommitments > 0 || row.waitingDays !== null;
-  const assignHint =
-    actionable && row.assignedTo
-      ? row.assignedTo.id === currentUserId
-        ? { text: 'auf dich', color: C.gold }
-        : { text: `${row.assignedTo.name.split(' ')[0]} ist dran`, color: C.faint }
-      : null;
+  const isMe = !!currentUserId && row.assignedTo?.id === currentUserId;
+  const pill = statusPill(row, isMe);
+  // Attention = any open obligation, matching statusPill's gold "Zusage" tones,
+  // so the left-accent and the pill never disagree.
+  const attention =
+    row.overdueCommitments > 0 || row.waitingDays !== null || row.openCommitments > 0;
+  const cold = pill?.tone === 'cold';
+  const sub = row.company || (row.entity === 'tag' ? row.identifier : '—');
 
   return (
-    <li>
-      <Link
-        href={`/kunden/${row.id}`}
-        className="group flex items-center gap-4 border-b py-3.5 transition-colors hover:bg-white/[0.02]"
-        style={{ borderColor: C.hair }}
-      >
-        {/* Urgency rail — red overdue, blue waiting, else nothing loud. */}
-        <span
-          aria-hidden
-          className="h-9 w-[3px] shrink-0 rounded-full"
-          style={{
-            background:
-              row.overdueCommitments > 0
-                ? C.overdue
-                : row.waitingDays !== null
-                  ? C.waiting
-                  : 'transparent',
-          }}
-        />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <p className="truncate text-[15px] font-medium" style={{ color: C.fg }}>
-              {row.displayName}
-            </p>
-            {row.company && (
-              <span className="shrink-0 truncate text-[12px]" style={{ color: C.muted }}>
-                · {row.company}
-              </span>
-            )}
-            {row.status && (
-              <span
-                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                style={{ background: 'rgba(255,255,255,0.05)', color: C.faint }}
-              >
-                {row.status}
-              </span>
-            )}
-            {row.entity === 'tag' && row.kind === 'domain' && (
-              <span
-                className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.2px]"
-                style={{ color: C.calm }}
-              >
-                Firma
-              </span>
-            )}
-          </div>
-          {/* Signals — only what's true; calm clients say so plainly. */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px]">
-            {row.overdueCommitments > 0 && (
-              <span style={{ color: C.overdue }}>
-                {row.overdueCommitments} überfällige{' '}
-                {row.overdueCommitments === 1 ? 'Zusage' : 'Zusagen'}
-              </span>
-            )}
-            {row.openCommitments - row.overdueCommitments > 0 && (
-              <span style={{ color: C.muted }}>
-                {row.openCommitments - row.overdueCommitments} offene{' '}
-                {row.openCommitments - row.overdueCommitments === 1 ? 'Zusage' : 'Zusagen'}
-              </span>
-            )}
-            {row.waitingDays !== null && (
-              <span style={{ color: C.waiting }}>
-                wartet seit {row.waitingDays} {row.waitingDays === 1 ? 'Tag' : 'Tagen'}
-              </span>
-            )}
-            {assignHint && <span style={{ color: assignHint.color }}>· {assignHint.text}</span>}
-            {calm && <span style={{ color: C.calm }}>nichts Offenes</span>}
-            {row.note && (
-              <span className="truncate" style={{ color: C.faint }} title={row.note}>
-                · {row.note}
-              </span>
-            )}
-          </div>
+    <Link
+      href={`/kunden/${row.id}`}
+      className="grid items-center gap-2 px-3 transition-colors hover:bg-white/[0.02]"
+      style={{
+        gridTemplateColumns: GRID,
+        padding: '11px 12px',
+        borderBottom: `0.5px solid ${C.hair}`,
+        borderLeft: `2px solid ${attention ? C.gold : 'transparent'}`,
+        opacity: cold ? 0.65 : 1,
+      }}
+    >
+      {/* Kontakt */}
+      <div className="min-w-0">
+        <div className="truncate text-[14.5px]" style={{ color: C.fg }}>
+          {row.displayName}
         </div>
+        <div className="truncate text-[12px]" style={{ color: C.faint }}>
+          {sub}
+        </div>
+      </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {/* Who had the last interaction — dezente Partner-Initialen (Team). */}
-          {row.lastInteractionBy && (
-            <span
-              className="grid h-5 w-5 place-items-center rounded-full text-[9px] font-semibold"
-              style={{ background: 'rgba(255,255,255,0.06)', color: C.muted }}
-              title={`Zuletzt: ${row.lastInteractionBy.name}`}
-            >
-              {row.lastInteractionBy.initials}
-            </span>
-          )}
-          <span className="font-mono text-[11px] tabular-nums" style={{ color: C.faint }}>
-            {relDays(row.lastInteractionDays)}
+      {/* Status */}
+      <div className="min-w-0">
+        {pill && (
+          <span
+            className="inline-block truncate rounded-md px-2 py-[3px] text-[11.5px]"
+            style={{ color: PILL[pill.tone].color, background: PILL[pill.tone].background }}
+          >
+            {pill.label}
           </span>
-        </div>
-      </Link>
-    </li>
+        )}
+      </div>
+
+      {/* Letzter Kontakt (+ who, if known) */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {row.lastInteractionBy && (
+          <span
+            className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full text-[9px]"
+            style={{ background: 'rgba(255,255,255,0.06)', color: '#9c9c9d' }}
+            title={`Zuletzt: ${row.lastInteractionBy.name}`}
+          >
+            {row.lastInteractionBy.initials}
+          </span>
+        )}
+        <span className="truncate text-[13px]" style={{ color: attention ? C.gold : C.muted }}>
+          {relDays(row.lastInteractionDays)}
+          {row.overdueCommitments > 0 ? ' · überfällig' : ''}
+        </span>
+      </div>
+
+      {/* Zuständig */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {row.assignedTo ? (
+          <>
+            <span
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px]"
+              style={{ background: 'rgba(255,255,255,0.06)', color: '#9c9c9d' }}
+            >
+              {row.assignedTo.initials}
+            </span>
+            <span className="truncate text-[12.5px]" style={{ color: '#9c9c9d' }}>
+              {isMe ? 'Du' : row.assignedTo.name.split(' ')[0]}
+            </span>
+          </>
+        ) : (
+          <span className="text-[12.5px]" style={{ color: C.calm }}>—</span>
+        )}
+      </div>
+
+      {/* Chevron */}
+      <div className="text-right text-[15px]" style={{ color: C.calm }} aria-hidden>
+        ›
+      </div>
+    </Link>
   );
 }
 
