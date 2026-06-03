@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { CustomerOverviewRow, ClientSuggestion } from '@/lib/db/queries/clients';
-import { createManualContact } from '@/lib/actions/customers';
+import { createManualContact, updateManualContact } from '@/lib/actions/customers';
 import { tagSenderAsClient, dismissClientSuggestion } from '@/lib/actions/contact-tags';
 import { toast } from '@/lib/stores/toast-store';
 
@@ -243,22 +243,73 @@ const PILL: Record<PillTone, { color: string; background: string }> = {
   cold: { color: '#7c7c83', background: 'rgba(255,255,255,0.03)' },
 };
 
-// The Status cell: urgency wins (it's the actionable signal), else the free
-// status, else nothing. One pill — never double-signals.
+/** Tone of a free status string (Kunde/interessiert → positive, etc.). */
+function classifyStatus(status: string): PillTone {
+  const s = status.toLowerCase();
+  return /kein interesse/.test(s) ? 'cold' : /kunde|interess/.test(s) ? 'positive' : 'neutral';
+}
+
+// Read-only status pill (used for tagged clients, which have no editable status):
+// urgency wins (the actionable signal), else nothing.
 function statusPill(row: CustomerOverviewRow, isMe: boolean): { label: string; tone: PillTone } | null {
   if (row.overdueCommitments > 0) return { label: 'überfällige Zusage', tone: 'urgent' };
   if (row.waitingDays !== null) return { label: isMe ? 'wartet auf dich' : 'wartet', tone: 'urgent' };
   if (row.openCommitments > 0) return { label: 'offene Zusage', tone: 'urgent' };
-  if (row.status) {
-    const s = row.status.toLowerCase();
-    const tone: PillTone = /kein interesse/.test(s)
-      ? 'cold'
-      : /kunde|interess/.test(s)
-        ? 'positive'
-        : 'neutral';
-    return { label: row.status, tone };
-  }
+  if (row.status) return { label: row.status, tone: classifyStatus(row.status) };
   return null;
+}
+
+const OPT_STYLE = { background: '#111214', color: '#F0F0F2' } as const;
+
+// Editable status for a manual contact — click the pill, pick a new status.
+// A styled native <select> so its dropdown never gets clipped by the table's
+// horizontal scroll container.
+function StatusCell({ row }: { row: CustomerOverviewRow }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const current = row.status ?? '';
+  const tone: PillTone = current ? classifyStatus(current) : 'neutral';
+
+  const change = (value: string) => {
+    if (value === current) return;
+    start(async () => {
+      // Empty option clears the status ('' → null).
+      const r = await updateManualContact({ customerId: row.id, status: value || null }).catch(
+        () => ({ ok: false as const, error: 'Status ändern fehlgeschlagen.' })
+      );
+      if (r.ok) {
+        toast('Status aktualisiert', 'success');
+        router.refresh();
+      } else {
+        toast(r.error ?? 'Status ändern fehlgeschlagen.', 'danger');
+      }
+    });
+  };
+
+  return (
+    <select
+      value={current}
+      onChange={(e) => change(e.target.value)}
+      disabled={pending}
+      aria-label="Status ändern"
+      title={current || 'Status ändern'}
+      className="max-w-full cursor-pointer appearance-none truncate rounded-md px-2 py-[3px] text-[11.5px] outline-none transition-opacity disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[#E8B86D]/40"
+      style={
+        current
+          ? { color: PILL[tone].color, background: PILL[tone].background }
+          : { color: C.faint, background: 'rgba(255,255,255,0.04)' }
+      }
+    >
+      <option value="" style={OPT_STYLE}>
+        {current ? 'Kein Status' : 'Status setzen'}
+      </option>
+      {STATUS_SUGGESTIONS.map((s) => (
+        <option key={s} value={s} style={OPT_STYLE}>
+          {s}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function Dropdown({
@@ -312,8 +363,7 @@ function CustomerTableRow({
   const sub = row.company || (row.entity === 'tag' ? row.identifier : '—');
 
   return (
-    <Link
-      href={`/kunden/${row.id}`}
+    <div
       className="grid items-center gap-2 px-3 transition-colors hover:bg-white/[0.02]"
       style={{
         gridTemplateColumns: GRID,
@@ -333,16 +383,18 @@ function CustomerTableRow({
         </div>
       </div>
 
-      {/* Status */}
+      {/* Status — editable for manual contacts, read-only for tagged clients */}
       <div className="min-w-0">
-        {pill && (
+        {row.entity === 'manual' ? (
+          <StatusCell row={row} />
+        ) : pill ? (
           <span
             className="inline-block truncate rounded-md px-2 py-[3px] text-[11.5px]"
             style={{ color: PILL[pill.tone].color, background: PILL[pill.tone].background }}
           >
             {pill.label}
           </span>
-        )}
+        ) : null}
       </div>
 
       {/* Letzter Kontakt (+ who, if known) */}
@@ -381,11 +433,20 @@ function CustomerTableRow({
         )}
       </div>
 
-      {/* Chevron */}
-      <div className="text-right text-[15px]" style={{ color: C.calm }} aria-hidden>
-        ›
+      {/* Chevron — the ONLY thing that opens the detail view, so make it a
+          clearly visible, focusable target. */}
+      <div className="flex justify-end">
+        <Link
+          href={`/kunden/${row.id}`}
+          aria-label={`${row.displayName} öffnen`}
+          title={`${row.displayName} öffnen`}
+          className="rounded px-1.5 py-0.5 text-[16px] leading-none transition-colors hover:text-[#F0F0F2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E8B86D]/40"
+          style={{ color: C.muted }}
+        >
+          ›
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 }
 

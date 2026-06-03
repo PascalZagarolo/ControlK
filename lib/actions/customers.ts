@@ -193,6 +193,9 @@ export async function updateManualContact(input: {
   const db = getDb();
   const customer = await findGuarded(ws.id, input.customerId);
   if (!customer) return { ok: false, error: 'Kontakt nicht gefunden.' };
+  // Defense-in-depth: only manually-created contacts are editable here (the
+  // rental CRM edits its customers via updateCustomerField).
+  if (customer.source !== 'manual') return { ok: false, error: 'Nur manuelle Kontakte sind hier editierbar.' };
 
   const patch: Record<string, string | null> = {};
   if (input.name !== undefined) {
